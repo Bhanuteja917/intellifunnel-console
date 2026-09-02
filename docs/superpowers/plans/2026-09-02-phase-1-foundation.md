@@ -399,8 +399,10 @@ git commit -m "chore: bootstrap next.js app with strict typescript and vitest"
 
 Every later task's tests need a real Postgres. This task builds that harness once.
 
+**Prisma major version note (superseded 2026-09-02 by the user, mid-Task-3):** the original plan text below was written against Prisma 6's schema-level `datasource { url / directUrl }` config. Prisma 7 is now stable (latest, not the `prisma`-package RC that a first `pnpm add prisma` may resolve — confirm you land on the stable tag, not a `-rc.` prerelease) and removed `url`/`directUrl` from `schema.prisma` entirely in favour of a `prisma.config.ts` file plus driver adapters (`@prisma/adapter-pg` for Postgres). The user's explicit instruction: use Prisma 7 latest stable, not a 6.x pin. Steps 1–5 below are rewritten for that model; Steps 6–10 are unchanged in intent. This API is new enough that exact syntax may have shifted again since this note was written — verify against the installed package's own types/README and the current `pnpm add prisma` stable tag rather than trusting this note as gospel; document any deviation in the report the same way Task 2's implementer documented its version-pin deviations.
+
 **Files:**
-- Create: `prisma/schema.prisma`, `src/lib/db.ts`, `tests/helpers/db.ts`, `vitest.globalSetup.ts`, `docker-compose.yml`
+- Create: `prisma/schema.prisma`, `prisma.config.ts`, `src/lib/db.ts`, `tests/helpers/db.ts`, `vitest.globalSetup.ts`, `docker-compose.yml`
 - Modify: `package.json` (prisma scripts, dependencies), `vitest.config.ts` (globalSetup), `.env.example`
 - Test: `tests/db-harness.test.ts`
 
@@ -409,14 +411,16 @@ Every later task's tests need a real Postgres. This task builds that harness onc
 - Produces:
   - `src/lib/db.ts` → `export const db: PrismaClient` (singleton).
   - `tests/helpers/db.ts` → `export function testDb(): PrismaClient`, `export async function resetDb(): Promise<void>`.
-  - Env vars `DATABASE_URL` (pooled, used by the app) and `DIRECT_URL` (unpooled, used by migrations).
+  - Env vars `DATABASE_URL` (pooled, used by the app's driver adapter) and `DIRECT_URL` (unpooled, used by `prisma.config.ts` for migration CLI commands).
 
-- [ ] **Step 1: Install Prisma and Testcontainers**
+- [ ] **Step 1: Install Prisma 7 (stable, not RC), the pg driver adapter, and Testcontainers**
 
 ```bash
-pnpm add @prisma/client
-pnpm add -D prisma @testcontainers/postgresql
+pnpm add @prisma/client @prisma/adapter-pg pg
+pnpm add -D prisma @testcontainers/postgresql @types/pg dotenv
 ```
+
+Confirm `prisma`/`@prisma/client` resolved to the same stable major (7.x) — not a `-rc.` prerelease on one and stable on the other, which is a broken pairing. If `pnpm add prisma` resolves a prerelease, pin explicitly to the latest stable 7.x tag instead (that is a version-policy-compliant choice, not the kind of pin needing approval, since it's "latest stable" not "latest").
 
 Add scripts to `package.json`:
 
@@ -433,9 +437,9 @@ Add scripts to `package.json`:
 
 Install `tsx` as a dev dependency: `pnpm add -D tsx`.
 
-- [ ] **Step 2: Create the Prisma schema skeleton**
+- [ ] **Step 2: Create the Prisma schema skeleton and `prisma.config.ts`**
 
-`directUrl` is what SRS §2.1 requires for migrations against Neon.
+Prisma 7 moves connection config for CLI commands (`migrate dev`, `migrate deploy`) out of `schema.prisma` and into `prisma.config.ts`. Point it at `DIRECT_URL` — the unpooled connection SRS §2.1 requires for migrations.
 
 ```prisma
 // prisma/schema.prisma
@@ -444,9 +448,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 model PlatformSetting {
@@ -459,16 +461,41 @@ model PlatformSetting {
 }
 ```
 
-- [ ] **Step 3: Create the Prisma client singleton**
+```typescript
+// prisma.config.ts
+import "dotenv/config";
+import { defineConfig, env } from "prisma/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+  },
+  datasource: {
+    url: env("DIRECT_URL"),
+  },
+});
+```
+
+Verify where `prisma generate` actually places the generated client (Prisma 7 may default to a custom output path rather than `node_modules/@prisma/client`) and adjust every `import { PrismaClient } from "..."` below to match reality, not this note's guess.
+
+- [ ] **Step 3: Create the Prisma client singleton using the pg driver adapter**
+
+The app's runtime connection uses the pooled `DATABASE_URL` via `@prisma/adapter-pg`, independent of the CLI's `DIRECT_URL` in `prisma.config.ts`.
 
 ```typescript
 // src/lib/db.ts
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const db: PrismaClient =
-  globalForPrisma.prisma ?? new PrismaClient({ log: ["warn", "error"] });
+function createClient(): PrismaClient {
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  return new PrismaClient({ adapter, log: ["warn", "error"] });
+}
+
+export const db: PrismaClient = globalForPrisma.prisma ?? createClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
 ```
@@ -516,14 +543,19 @@ Wire it in `vitest.config.ts` by adding to the `test` block:
 
 - [ ] **Step 5: Create the test database helper**
 
+Construct the adapter lazily, inside `testDb()`, not at module load time — `DATABASE_URL` isn't set until `vitest.globalSetup.ts`'s `setup()` has run.
+
 ```typescript
 // tests/helpers/db.ts
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
 let client: PrismaClient | undefined;
 
 export function testDb(): PrismaClient {
-  client ??= new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+  client ??= new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+  });
   return client;
 }
 
