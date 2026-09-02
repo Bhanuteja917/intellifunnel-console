@@ -49,24 +49,27 @@ export async function setSetting<K extends SettingKey>(
   assertPermission(actor, "setting:write");
   if (!(key in SETTING_DEFAULTS)) throw new ValidationError(`Unknown setting: ${key}`);
 
-  const existing = await db.platformSetting.findUnique({ where: { key } });
-
-  await withAudit(
+  await withAudit<Awaited<ReturnType<typeof db.platformSetting.findUnique>>>(
     db,
     actor,
-    {
+    (existing) => ({
       entityType: "PlatformSetting",
       entityId: key,
       action: existing === null ? "create" : "update",
       before: existing === null ? undefined : { value: existing.valueJson },
       after: { value },
-    },
+    }),
     async (tx) => {
+      // Read inside the transaction so the "before" snapshot used for the audit
+      // entry is transactionally consistent with the write below (NFR-A-1),
+      // rather than a snapshot taken before the transaction started.
+      const existing = await tx.platformSetting.findUnique({ where: { key } });
       await tx.platformSetting.upsert({
         where: { key },
         update: { valueJson: value as Prisma.InputJsonValue, updatedById: actor.userId },
         create: { key, valueJson: value as Prisma.InputJsonValue, updatedById: actor.userId },
       });
+      return existing;
     },
   );
 }
