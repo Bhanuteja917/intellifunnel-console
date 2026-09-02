@@ -89,6 +89,27 @@ describe("acceptInvitation against the real Better Auth instance", () => {
     expect(verified).toBe(true);
   });
 
+  it("rejects a password shorter than Better Auth's real minPasswordLength default (8)", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const { token } = await createInvitation(db, actor, {
+      email: "short@acme.com",
+      organizationId: client.id,
+      roleCode: "CLIENT_ADMIN",
+    });
+
+    // `src/lib/auth/better-auth.ts` does not set `emailAndPassword.min
+    // PasswordLength`, so this exercises Better Auth's real default (8,
+    // from `better-auth/dist/context/create-context.mjs`) rather than a
+    // value this test suite made up.
+    await expect(
+      acceptInvitation(db, { token, name: "Short", password: "short1" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(await db.authUser.findUnique({ where: { email: "short@acme.com" } })).toBeNull();
+  });
+
   it("lets exactly one of two concurrent accepts win, with no orphaned AuthUser row", async () => {
     const db = testDb();
     const actor = await internalActor();

@@ -223,6 +223,32 @@ export async function acceptInvitation(
     if (claimed.count === 0) throw new ValidationError("Invitation is no longer valid");
 
     const authContext = await auth.$context;
+
+    // `internalAdapter.createUser`/`linkAccount` are the low-level primitives
+    // `auth.api.signUpEmail`'s route handler builds on
+    // (`better-auth/dist/api/routes/sign-up.mjs`) — but that handler's
+    // `minPasswordLength`/`maxPasswordLength` check is a plain `if` in the
+    // route itself, not in `internalAdapter`, so calling the primitives
+    // directly (see the function doc comment above) skips it entirely.
+    // Re-enforcing it here reads the *same* `password.config` object the
+    // route handler reads (`ctx.context.password.config`), which Better Auth
+    // resolves once from `emailAndPassword.minPasswordLength`/
+    // `maxPasswordLength` (defaulting to 8/128 — see
+    // `better-auth/dist/context/create-context.mjs`) — so this bound cannot
+    // silently drift from whatever `signUpEmail` would have enforced, even if
+    // `src/lib/auth/better-auth.ts` starts setting those options explicitly.
+    const { minPasswordLength, maxPasswordLength } = authContext.password.config;
+    if (input.password.length < minPasswordLength) {
+      throw new ValidationError(
+        `Password must be at least ${minPasswordLength} characters`,
+      );
+    }
+    if (input.password.length > maxPasswordLength) {
+      throw new ValidationError(
+        `Password must be at most ${maxPasswordLength} characters`,
+      );
+    }
+
     const passwordHash = await authContext.password.hash(input.password);
     const authUser = await authContext.internalAdapter.createUser(
       { email: invitation.email, name: input.name, emailVerified: false },

@@ -23,10 +23,17 @@ const createAuthUser = vi.fn(async (user: { email: string }) => ({
 }));
 const linkAuthAccount = vi.fn(async () => undefined);
 const hashAuthPassword = vi.fn(async () => "hashed-password");
+// `config.{min,max}PasswordLength` mirrors the shape `auth.$context.password`
+// really has (`better-auth/dist/context/create-context.mjs`), so this mock
+// exercises the same length check `acceptInvitation` performs against the
+// real instance in tests/invitations.real-auth.test.ts.
 vi.mock("@/lib/auth/better-auth", () => ({
   auth: {
     $context: Promise.resolve({
-      password: { hash: () => hashAuthPassword() },
+      password: {
+        hash: () => hashAuthPassword(),
+        config: { minPasswordLength: 8, maxPasswordLength: 128 },
+      },
       internalAdapter: {
         createUser: (user: unknown) => createAuthUser(user as never),
         linkAccount: () => linkAuthAccount(),
@@ -205,6 +212,42 @@ describe("invitations", () => {
     await expect(
       acceptInvitation(db, { token, name: "Jane", password: "correct horse battery staple" }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects a password shorter than Better Auth's minimum length", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const { invitation, token } = await createInvitation(db, actor, {
+      email: "jane@acme.com", organizationId: client.id, roleCode: "CLIENT_ADMIN",
+    });
+
+    await expect(
+      acceptInvitation(db, { token, name: "Jane", password: "short1" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    // Rejected before any credential is created, and the invitation is not
+    // consumed — the caller can retry with a valid password.
+    expect(createAuthUser).not.toHaveBeenCalled();
+    expect(linkAuthAccount).not.toHaveBeenCalled();
+    const stillPending = await db.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+    expect(stillPending.status).toBe("pending");
+  });
+
+  it("still accepts a long passphrase like the existing happy-path tests use", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const { token } = await createInvitation(db, actor, {
+      email: "jane@acme.com", organizationId: client.id, roleCode: "CLIENT_ADMIN",
+    });
+
+    const { userId } = await acceptInvitation(db, {
+      token, name: "Jane Doe", password: "correct horse battery staple",
+    });
+
+    expect(userId).toBeTruthy();
+    expect(createAuthUser).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to invite an email that already has an account (AUTH-6)", async () => {
