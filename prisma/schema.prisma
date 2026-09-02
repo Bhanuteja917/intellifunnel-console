@@ -184,3 +184,16 @@ model AuditLog {
   @@index([entityType, entityId, occurredAt])
   @@index([actorUserId, occurredAt])
 }
+
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime @db.Date
+  name      String
+  country   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([country, date])
+  @@index([date, isActive])
+}
