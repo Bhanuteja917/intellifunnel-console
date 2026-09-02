@@ -34,3 +34,153 @@ model ExchangeRate {
   @@unique([fromCurrency, toCurrency, effectiveDate])
   @@index([fromCurrency, toCurrency, effectiveDate])
 }
+
+enum OrganizationStatus {
+  active
+  suspended
+  archived
+}
+
+enum PayoutTrigger {
+  monthlyArrears
+  campaignClose
+}
+
+enum Portal {
+  admin
+  client
+  partner
+}
+
+enum UserStatus {
+  invited
+  active
+  suspended
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+model Organization {
+  id                     String             @id @default(cuid())
+  name                   String
+  legalName              String?
+  isClient               Boolean            @default(false)
+  isPartner              Boolean            @default(false)
+  isInternal             Boolean            @default(false)
+  status                 OrganizationStatus @default(active)
+  country                String?
+  defaultBillingCurrency String?            @db.Char(3)
+  defaultPayoutCurrency  String?            @db.Char(3)
+  payoutTrigger          PayoutTrigger      @default(monthlyArrears)
+  notes                  String?
+  deletedAt              DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  createdById            String?
+  updatedById            String?
+
+  domains     OrganizationDomain[]
+  users       User[]
+  invitations Invitation[]
+
+  @@index([isClient])
+  @@index([isPartner])
+}
+
+model OrganizationDomain {
+  id             String       @id @default(cuid())
+  organizationId String
+  domain         String       @unique
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String
+  organizationId String
+  status         UserStatus   @default(invited)
+  lastLoginAt    DateTime?
+  authUserId     String?      @unique
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  createdById    String?
+  updatedById    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  roles        UserRole[]
+
+  @@index([organizationId])
+}
+
+model Role {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  portal    Portal
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  users       UserRole[]
+  invitations Invitation[]
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+model Invitation {
+  id             String           @id @default(cuid())
+  email          String
+  organizationId String
+  roleId         String
+  tokenHash      String           @unique
+  expiresAt      DateTime
+  invitedById    String
+  status         InvitationStatus @default(pending)
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@index([email, status])
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id                  String   @id @default(cuid())
+  actorUserId         String?
+  actorOrganizationId String?
+  entityType          String
+  entityId            String
+  action              String
+  beforeJson          Json?
+  afterJson           Json?
+  occurredAt          DateTime @default(now())
+  ipAddress           String?
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorUserId, occurredAt])
+}
