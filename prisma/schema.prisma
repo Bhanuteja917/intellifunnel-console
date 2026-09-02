@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -104,16 +105,16 @@ model OrganizationDomain {
 }
 
 model User {
-  id             String       @id @default(cuid())
-  email          String       @unique
+  id             String     @id @default(cuid())
+  email          String     @unique
   name           String
   organizationId String
-  status         UserStatus   @default(invited)
+  status         UserStatus @default(invited)
   lastLoginAt    DateTime?
-  authUserId     String?      @unique
+  authUserId     String?    @unique
   deletedAt      DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   createdById    String?
   updatedById    String?
 
@@ -124,12 +125,12 @@ model User {
 }
 
 model Role {
-  id        String     @id @default(cuid())
-  code      String     @unique
+  id        String   @id @default(cuid())
+  code      String   @unique
   name      String
   portal    Portal
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   users       UserRole[]
   invitations Invitation[]
@@ -196,4 +197,67 @@ model Holiday {
 
   @@unique([country, date])
   @@index([date, isActive])
+}
+
+model AuthUser {
+  id            String        @id
+  name          String
+  email         String
+  emailVerified Boolean       @default(false)
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  authsessions  AuthSession[]
+  authaccounts  AuthAccount[]
+
+  @@unique([email])
+  @@map("authUser")
+}
+
+model AuthSession {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  authuser  AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("authSession")
+}
+
+model AuthAccount {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  authuser              AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("authAccount")
+}
+
+model AuthVerification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("authVerification")
 }

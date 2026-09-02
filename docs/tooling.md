@@ -24,6 +24,7 @@
 | @testcontainers/postgresql | 12.1.0 | `pnpm add -D @testcontainers/postgresql` |
 | tsx | 4.23.13 | `pnpm add -D tsx` |
 | tldts | 7.4.11 | `pnpm add tldts` |
+| better-auth | 1.7.2 | `pnpm add better-auth` (Task 10) |
 
 ## Skills
 
