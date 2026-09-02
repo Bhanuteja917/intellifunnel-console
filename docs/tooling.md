@@ -23,6 +23,7 @@
 | dotenv | 17.4.2 | `pnpm add -D dotenv` |
 | @testcontainers/postgresql | 12.1.0 | `pnpm add -D @testcontainers/postgresql` |
 | tsx | 4.23.13 | `pnpm add -D tsx` |
+| tldts | 7.4.11 | `pnpm add tldts` |
 
 ## Skills
 
@@ -72,3 +73,8 @@ Pinning an older version requires an explicit reason and the user's approval.
 - Vitest 4 removed `test.poolOptions` (the brief's `poolOptions: { forks: { singleFork: true } }` prints a deprecation warning and does nothing). Its replacement is the top-level `fileParallelism: false`, which forces `maxWorkers` to 1 — the same "one shared fork, no concurrent workers hitting the same database" effect the brief calls for. Used that instead; confirmed the deprecation warning is gone and the harness still serializes correctly (`resetDb` between tests works as expected).
 - `pnpm build` needed one addition beyond the brief: `@prisma/client`'s postinstall script (now build-approved) regenerates the client automatically on `pnpm install`, which was sufficient for the first clean build. But relying on install-time regeneration alone means a schema edit without a fresh install would silently build against a stale client. Changed the `build` script to `prisma generate && next build` so the client is always current before `next build` runs, regardless of node_modules state.
 - `docker compose up -d postgres` bound host port 5432 without conflict — confirmed free beforehand (`lsof -i :5432`); an unrelated project's containers on this machine use port 54320.
+
+## Notes on Task 4 (normalisation utilities)
+
+- `tldts` resolved to `7.4.11`, left unpinned per the version policy.
+- **Fixed a genuine bug in the brief's `normalizeCompanyName` implementation**: the given `LEGAL_SUFFIXES` array included `"corporation"`, which is self-contradictory with the brief's own test case `["  Acme  Corporation, Inc. ", "acme corporation"]`. The function's `while` loop strips *every* trailing word that appears in `LEGAL_SUFFIXES`, one at a time, so with `"corporation"` in the list, `"acme corporation inc"` first drops `"inc"` (leaving `"acme corporation"`), then the loop continues and also drops `"corporation"` (leaving `"acme"`) — one word too many, failing the brief's own test. Removed `"corporation"` from `LEGAL_SUFFIXES`; verified by hand-tracing all four `normalizeCompanyName` test cases against both the original and fixed list before editing (`"corp"` was left in place — untested by the brief and not implicated in the contradiction). All four cases pass with the fix; `pnpm test` confirms 18/18 in `tests/normalise.test.ts`, 21/21 overall.
