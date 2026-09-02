@@ -234,6 +234,15 @@ model AuthAccount {
   id                    String    @id
   accountId             String
   providerId            String
+  // Required by better-auth@1.7.2's core account schema (`issuer` is a
+  // non-optional field of `accountSchema` in
+  // `@better-auth/core/dist/db/schema/account.d.mts`) — the stable
+  // provider-side key `internalAdapter.linkAccount`/`findAccountByKey` reads
+  // and writes on every call. Missing from the original Task 10 migration;
+  // without it every credential-linking call (signUpEmail, sign-in, and the
+  // invitation-acceptance path in Task 11) fails with a Prisma
+  // "Unknown argument `issuer`" error.
+  issuer                String
   userId                String
   authuser              AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   accessToken           String?
@@ -247,6 +256,7 @@ model AuthAccount {
   updatedAt             DateTime  @updatedAt
 
   @@index([userId])
+  @@index([issuer, accountId])
   @@map("authAccount")
 }
 

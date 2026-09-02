@@ -13,9 +13,26 @@ import {
 } from "@/lib/invitations/invitations";
 import { ConflictError, ForbiddenError, ValidationError } from "@/lib/errors";
 
-const signUpEmail = vi.fn(async (_args: unknown) => ({ user: { id: "auth-new" } }));
+// acceptInvitation creates the Better Auth credential via `auth.$context`'s
+// `internalAdapter.createUser` + `linkAccount` (not the public-signup-gated
+// `auth.api.signUpEmail` — see the comment on `acceptInvitation`), so that's
+// what this mock stands in for.
+const createAuthUser = vi.fn(async (user: { email: string }) => ({
+  id: "auth-new",
+  ...user,
+}));
+const linkAuthAccount = vi.fn(async () => undefined);
+const hashAuthPassword = vi.fn(async () => "hashed-password");
 vi.mock("@/lib/auth/better-auth", () => ({
-  auth: { api: { signUpEmail: (args: unknown) => signUpEmail(args as never) } },
+  auth: {
+    $context: Promise.resolve({
+      password: { hash: () => hashAuthPassword() },
+      internalAdapter: {
+        createUser: (user: unknown) => createAuthUser(user as never),
+        linkAccount: () => linkAuthAccount(),
+      },
+    }),
+  },
 }));
 
 async function internalActor() {
@@ -30,7 +47,9 @@ describe("invitations", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedSettings(testDb());
-    signUpEmail.mockClear();
+    createAuthUser.mockClear();
+    linkAuthAccount.mockClear();
+    hashAuthPassword.mockClear();
   });
 
   it("stores only the token hash and returns the raw token once", async () => {

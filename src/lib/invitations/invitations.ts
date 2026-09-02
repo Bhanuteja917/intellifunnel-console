@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Invitation, PrismaClient } from "@prisma/client";
+import { createLocalAccountIssuer } from "better-auth";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
@@ -173,42 +174,77 @@ export async function revokeInvitation(
 /**
  * Unauthenticated by design — the token is the credential. AUTH-4: the email
  * on the invitation cannot be changed at acceptance.
+ *
+ * The Better Auth credential is created via `auth.$context`'s
+ * `internalAdapter.createUser` + `linkAccount`, not `auth.api.signUpEmail`.
+ * `signUpEmail` is the public-registration endpoint gated by
+ * `emailAndPassword.disableSignUp` (AUTH-1, `src/lib/auth/better-auth.ts`);
+ * calling it here would throw in every real run. `internalAdapter` is the
+ * same primitive Better Auth's own `/sign-up/email` route handler uses
+ * internally to create the row (see `better-auth/dist/api/routes/sign-up.mjs`)
+ * — it carries no awareness of `disableSignUp`, which is enforced by a single
+ * `if` at the top of that route handler and nowhere else.
  */
 export async function acceptInvitation(
   db: PrismaClient,
   input: { token: string; name: string; password: string },
 ): Promise<{ userId: string }> {
-  const invitation = await db.invitation.findUnique({
-    where: { tokenHash: hashToken(input.token) },
-    include: { role: true },
-  });
-
-  if (invitation === null) throw new ValidationError("Invalid invitation token");
-  if (invitation.status !== "pending") throw new ValidationError("Invitation is no longer valid");
-  if (invitation.expiresAt.getTime() <= Date.now()) {
-    await db.invitation.update({ where: { id: invitation.id }, data: { status: "expired" } });
-    throw new ValidationError("Invitation has expired");
-  }
-
-  const signUp = await auth.api.signUpEmail({
-    body: { email: invitation.email, password: input.password, name: input.name },
-  });
+  const tokenHash = hashToken(input.token);
 
   const user = await db.$transaction(async (tx) => {
+    // The lookup, status and expiry checks live inside this transaction so
+    // that concurrent acceptances of the same token cannot both pass the
+    // "still pending" gate before either commits. The `updateMany` below is
+    // the actual atomicity guard: only one concurrent transaction can flip
+    // status from "pending" to "accepted" (Postgres serialises the two
+    // UPDATEs on the row and re-checks the WHERE clause for the second one
+    // once the first commits), so the loser sees `count === 0` and gets the
+    // same typed `ValidationError` as any other invalid invitation instead
+    // of an untyped unique-constraint failure from `tx.user.create`.
+    const invitation = await tx.invitation.findUnique({
+      where: { tokenHash },
+      include: { role: true },
+    });
+
+    if (invitation === null) throw new ValidationError("Invalid invitation token");
+    if (invitation.status !== "pending") throw new ValidationError("Invitation is no longer valid");
+    if (invitation.expiresAt.getTime() <= Date.now()) {
+      await tx.invitation.updateMany({
+        where: { id: invitation.id, status: "pending" },
+        data: { status: "expired" },
+      });
+      throw new ValidationError("Invitation has expired");
+    }
+
+    const claimed = await tx.invitation.updateMany({
+      where: { id: invitation.id, status: "pending" },
+      data: { status: "accepted", acceptedAt: new Date() },
+    });
+    if (claimed.count === 0) throw new ValidationError("Invitation is no longer valid");
+
+    const authContext = await auth.$context;
+    const passwordHash = await authContext.password.hash(input.password);
+    const authUser = await authContext.internalAdapter.createUser(
+      { email: invitation.email, name: input.name, emailVerified: false },
+      { method: "email-password" },
+    );
+    await authContext.internalAdapter.linkAccount({
+      userId: authUser.id,
+      providerId: "credential",
+      issuer: createLocalAccountIssuer("credential"),
+      accountId: authUser.id,
+      password: passwordHash,
+    });
+
     const created = await tx.user.create({
       data: {
         email: invitation.email,
         name: input.name,
         organizationId: invitation.organizationId,
         status: "active",
-        authUserId: signUp.user.id,
+        authUserId: authUser.id,
         roles: { create: { roleId: invitation.roleId } },
       },
-    });
-
-    await tx.invitation.update({
-      where: { id: invitation.id },
-      data: { status: "accepted", acceptedAt: new Date() },
     });
 
     await writeAudit(
