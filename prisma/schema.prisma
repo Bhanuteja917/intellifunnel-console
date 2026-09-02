@@ -14,3 +14,23 @@ model PlatformSetting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+enum RateSource {
+  manual
+  feed
+}
+
+model ExchangeRate {
+  id            String     @id @default(cuid())
+  fromCurrency  String     @db.Char(3)
+  toCurrency    String     @db.Char(3)
+  rate          Decimal    @db.Decimal(20, 10)
+  effectiveDate DateTime   @db.Date
+  source        RateSource @default(manual)
+  enteredById   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([fromCurrency, toCurrency, effectiveDate])
+  @@index([fromCurrency, toCurrency, effectiveDate])
+}
