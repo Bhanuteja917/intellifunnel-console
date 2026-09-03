@@ -742,3 +742,56 @@ model ImportError {
 
   @@index([batchId, rowNumber])
 }
+
+enum MatchStatus {
+  matched
+  unmatched
+  ambiguous
+}
+
+model TargetAccountList {
+  id                  String   @id @default(cuid())
+  ownerOrganizationId String
+  name                String
+  isReusable          Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  createdById         String?
+  updatedById         String?
+
+  entries   TargetAccountEntry[]
+  campaigns CampaignTargetAccountList[]
+
+  @@index([ownerOrganizationId])
+}
+
+model TargetAccountEntry {
+  id                         String      @id @default(cuid())
+  listId                     String
+  rawName                    String?
+  rawDomain                  String?
+  normalizedDomain           String?
+  accountId                  String?
+  matchStatus                MatchStatus @default(unmatched)
+  candidateAccountIdsJson    Json?
+  maxLeadsPerAccountOverride Int?
+  createdAt                  DateTime    @default(now())
+  updatedAt                  DateTime    @updatedAt
+
+  list TargetAccountList @relation(fields: [listId], references: [id])
+
+  @@index([listId, matchStatus])
+  @@index([accountId])
+}
+
+model CampaignTargetAccountList {
+  id         String   @id @default(cuid())
+  campaignId String
+  listId     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  list TargetAccountList @relation(fields: [listId], references: [id])
+
+  @@unique([campaignId, listId])
+}

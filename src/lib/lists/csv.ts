@@ -18,7 +18,7 @@ export function parseDelimited(content: string): ParsedFile {
 
   const parsed = Papa.parse<Record<string, string>>(content, {
     header: true,
-    skipEmptyLines: "greedy",
+    skipEmptyLines: true,
     transformHeader: (header) => header.trim(),
   });
 
