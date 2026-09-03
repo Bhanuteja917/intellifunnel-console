@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
+import { seedSettings } from "../prisma/seed/settings";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedChannelTypes } from "../prisma/seed/channel-types";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { publishChannelTypeVersion } from "@/lib/channel-types/versions";
+import { setSetting } from "@/lib/settings/settings";
 import { addCampaignChannel, createCampaign, setIcpCriteria } from "@/lib/campaigns/crud";
 import {
   activateDueCampaigns,
@@ -207,23 +209,35 @@ describe("approval workflow (E6, FR-CS-1)", () => {
   });
 });
 
+/**
+ * The scheduled transitions run against the calendar of the platform's
+ * operating timezone (`operatingTimezone`, Asia/Kolkata = UTC+05:30), not UTC,
+ * because that is the calendar the `@db.Date` flight dates were written
+ * against. Every instant below is therefore chosen relative to a real
+ * Asia/Kolkata day boundary — 18:30 UTC — rather than to UTC midnight, which
+ * is a time the worker's `new Date()` would essentially never produce and
+ * which hid the bug these tests are here to catch.
+ */
 describe("scheduled transitions", () => {
   beforeEach(async () => {
     await resetDb();
     const db = testDb();
     await seedRoles(db);
+    await seedSettings(db);
     await seedFunnelStages(db);
     await seedChannelTypes(db);
   });
 
-  it("activates a scheduled campaign once its start date arrives", async () => {
+  it("activates a scheduled campaign at the operating timezone's day boundary", async () => {
     const { db, manager, clientAdmin, campaign } = await scenario("SCHED-1");
     await submitForInternalApproval(db, manager, campaign.id);
     await decideInternalApproval(db, manager, campaign.id, "approved");
     await decideClientApproval(db, clientAdmin, campaign.id, "approved");
 
-    expect(await activateDueCampaigns(db, new Date("2026-09-30"))).toBe(0);
-    expect(await activateDueCampaigns(db, new Date("2026-10-01"))).toBe(1);
+    // 2026-09-30T18:29Z is still 2026-09-30 in Asia/Kolkata (23:59 IST).
+    expect(await activateDueCampaigns(db, new Date("2026-09-30T18:29:00.000Z"))).toBe(0);
+    // 2026-09-30T18:30Z is 2026-10-01 00:00 IST — the flight's first day.
+    expect(await activateDueCampaigns(db, new Date("2026-09-30T18:30:00.000Z"))).toBe(1);
     expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("live");
   });
 
@@ -232,10 +246,47 @@ describe("scheduled transitions", () => {
     await submitForInternalApproval(db, manager, campaign.id);
     await decideInternalApproval(db, manager, campaign.id, "approved");
     await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    await activateDueCampaigns(db, new Date("2026-10-01"));
+    await activateDueCampaigns(db, new Date("2026-10-01T06:00:00.000Z"));
 
-    expect(await completeFinishedCampaigns(db, new Date("2026-12-31"))).toBe(0);
-    expect(await completeFinishedCampaigns(db, new Date("2027-01-01"))).toBe(1);
+    // Still 2026-12-31 in Asia/Kolkata: the last day of the flight is not over.
+    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T18:29:00.000Z"))).toBe(0);
+    // 2027-01-01 00:00 IST: the flight's last day has passed.
+    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T18:30:00.000Z"))).toBe(1);
     expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("completed");
+  });
+
+  it("does not complete a campaign that is still live in the operating timezone", async () => {
+    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-3");
+    await submitForInternalApproval(db, manager, campaign.id);
+    await decideInternalApproval(db, manager, campaign.id, "approved");
+    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+    await activateDueCampaigns(db, new Date("2026-10-01T06:00:00.000Z"));
+
+    // The endDate column holds 2026-12-31T00:00:00Z, so a UTC comparison
+    // ("endDate < now") completes the campaign from 2026-12-31T00:00:01Z —
+    // 05:30 IST on its own final day, ~18.5 hours of the contracted flight
+    // still to run. In the operating timezone it is 2026-12-31 all day, so
+    // nothing is due.
+    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T00:00:01.000Z"))).toBe(0);
+    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T12:00:00.000Z"))).toBe(0);
+    expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("live");
+  });
+
+  it("reads the day boundary from the operatingTimezone setting, not a hardcoded zone", async () => {
+    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-4");
+    await submitForInternalApproval(db, manager, campaign.id);
+    await decideInternalApproval(db, manager, campaign.id, "approved");
+    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+
+    const admin = await loadActor(db, (await createUser(
+      db,
+      (await db.organization.findFirstOrThrow({ where: { isInternal: true } })).id,
+      "SUPER_ADMIN",
+    )).id);
+    await setSetting(db, admin, "operatingTimezone", "Pacific/Kiritimati"); // UTC+14
+
+    // 2026-09-30T10:30Z is already 2026-10-01 in UTC+14, so the flight has
+    // started there while it has not in Asia/Kolkata or UTC.
+    expect(await activateDueCampaigns(db, new Date("2026-09-30T10:30:00.000Z"))).toBe(1);
   });
 });

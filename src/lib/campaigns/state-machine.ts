@@ -7,6 +7,9 @@ import {
 } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit/audit";
 import { buildConfigSnapshot, SNAPSHOT_VERSION } from "@/lib/campaigns/snapshot";
+import { getSetting } from "@/lib/settings/settings";
+import { logger } from "@/lib/logging/logger";
+import { operatingDayStart } from "@/lib/time/operating-day";
 
 /** SRS §5.1, transcribed exactly. */
 export const ALLOWED_TRANSITIONS: Readonly<Record<CampaignStatus, readonly CampaignStatus[]>> = {
@@ -209,26 +212,62 @@ export async function decideClientApproval(
   });
 }
 
-/** Scheduled → Live at flight start. Run by the job runner, so there is no actor. */
-export async function activateDueCampaigns(db: PrismaClient, now: Date): Promise<number> {
-  const due = await db.campaign.findMany({
-    where: { status: "scheduled", startDate: { lte: now }, deletedAt: null },
-  });
-
-  for (const campaign of due) {
-    await db.$transaction((tx) => applyTransition(tx, null, campaign, "live", "flight start reached"));
+/**
+ * Transitions each campaign in its own transaction and keeps going when one
+ * fails. A single bad row — a status changed concurrently, a constraint
+ * violation — must not stop the rest of the batch, because the worker retries
+ * the same batch every tick and would otherwise stall on it forever.
+ */
+async function transitionEach(
+  db: PrismaClient,
+  campaigns: Campaign[],
+  toStatus: CampaignStatus,
+  reason: string,
+): Promise<number> {
+  let transitioned = 0;
+  for (const campaign of campaigns) {
+    try {
+      await db.$transaction((tx) => applyTransition(tx, null, campaign, toStatus, reason));
+      transitioned += 1;
+    } catch (error) {
+      logger.error("campaign.scheduledTransition.failed", {
+        campaignId: campaign.id,
+        fromStatus: campaign.status,
+        toStatus,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  return due.length;
+  return transitioned;
 }
 
-/** FR-CS-3: auto-complete at the flight end date. Quota fulfilment is Phase 3. */
-export async function completeFinishedCampaigns(db: PrismaClient, now: Date): Promise<number> {
-  const finished = await db.campaign.findMany({
-    where: { status: { in: ["live", "paused"] }, endDate: { lt: now }, deletedAt: null },
+/**
+ * Scheduled → Live at flight start. Run by the job runner, so there is no
+ * actor. `now` is compared as a calendar day in the platform's operating
+ * timezone, since that is the calendar `startDate` was written against.
+ */
+export async function activateDueCampaigns(db: PrismaClient, now: Date): Promise<number> {
+  const timeZone = await getSetting(db, "operatingTimezone");
+  const today = operatingDayStart(now, timeZone);
+
+  const due = await db.campaign.findMany({
+    where: { status: "scheduled", startDate: { lte: today }, deletedAt: null },
   });
 
-  for (const campaign of finished) {
-    await db.$transaction((tx) => applyTransition(tx, null, campaign, "completed", "flight end passed"));
-  }
-  return finished.length;
+  return transitionEach(db, due, "live", "flight start reached");
+}
+
+/**
+ * FR-CS-3: auto-complete once the flight's last day has passed in the
+ * operating timezone. Quota fulfilment is Phase 3.
+ */
+export async function completeFinishedCampaigns(db: PrismaClient, now: Date): Promise<number> {
+  const timeZone = await getSetting(db, "operatingTimezone");
+  const today = operatingDayStart(now, timeZone);
+
+  const finished = await db.campaign.findMany({
+    where: { status: { in: ["live", "paused"] }, endDate: { lt: today }, deletedAt: null },
+  });
+
+  return transitionEach(db, finished, "completed", "flight end passed");
 }
