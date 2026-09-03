@@ -121,18 +121,35 @@ export async function resendInvitation(
 
   // AUTH-5: a resend issues a new token and invalidates the old one, which is
   // what replacing tokenHash accomplishes.
+  //
+  // The audit entry carries before/after like revokeInvitation's does — this
+  // rotates a credential, so the trail has to show that it changed (NFR-A-1).
+  // Only the expiry and the fact that the hash changed are recorded: neither
+  // the raw token nor its hash belongs in a queryable audit row.
   const invitation = await withAudit<Invitation>(
     db,
     actor,
-    { entityType: "Invitation", entityId: invitationId, action: "resend" },
-    (tx) =>
-      tx.invitation.update({
-        where: { id: invitationId },
+    (updated) => ({
+      entityType: "Invitation",
+      entityId: invitationId,
+      action: "resend",
+      before: { tokenRotated: false, expiresAt: existing.expiresAt.toISOString() },
+      after: { tokenRotated: true, expiresAt: updated.expiresAt.toISOString() },
+    }),
+    async (tx) => {
+      // Re-check status inside the transaction so two concurrent resends
+      // cannot both rotate the token off the same pending invitation.
+      const claimed = await tx.invitation.updateMany({
+        where: { id: invitationId, status: "pending" },
         data: {
           tokenHash: hashToken(token),
           expiresAt: new Date(Date.now() + expiryDays * 86_400_000),
         },
-      }),
+      });
+      if (claimed.count === 0) throw new ValidationError("Invitation is no longer pending");
+
+      return tx.invitation.findUniqueOrThrow({ where: { id: invitationId } });
+    },
   );
 
   await sendEmail({

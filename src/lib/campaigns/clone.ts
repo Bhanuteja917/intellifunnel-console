@@ -88,6 +88,8 @@ export async function cloneCampaign(
             operator: criterion.operator,
             valuesJson: criterion.valuesJson ?? {},
             isMandatory: criterion.isMandatory,
+            createdById: actor.userId,
+            updatedById: actor.userId,
           },
         });
       }
@@ -103,6 +105,8 @@ export async function cloneCampaign(
             rejectIfMissing: field.rejectIfMissing,
             allowedValuesJson: field.allowedValuesJson ?? undefined,
             validationPattern: field.validationPattern,
+            createdById: actor.userId,
+            updatedById: actor.userId,
           },
         });
       }
@@ -132,10 +136,24 @@ export async function cloneCampaign(
       }
 
       for (const link of talLinks) {
-        await tx.campaignTargetAccountList.create({ data: { campaignId: clone.id, listId: link.listId } });
+        await tx.campaignTargetAccountList.create({
+          data: {
+            campaignId: clone.id,
+            listId: link.listId,
+            createdById: actor.userId,
+            updatedById: actor.userId,
+          },
+        });
       }
       for (const link of suppressionLinks) {
-        await tx.campaignSuppressionList.create({ data: { campaignId: clone.id, listId: link.listId } });
+        await tx.campaignSuppressionList.create({
+          data: {
+            campaignId: clone.id,
+            listId: link.listId,
+            createdById: actor.userId,
+            updatedById: actor.userId,
+          },
+        });
       }
 
       await tx.campaignStatusHistory.create({

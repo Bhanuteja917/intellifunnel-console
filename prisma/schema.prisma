@@ -243,7 +243,13 @@ model AuthAccount {
   // without it every credential-linking call (signUpEmail, sign-in, and the
   // invitation-acceptance path in Task 11) fails with a Prisma
   // "Unknown argument `issuer`" error.
-  issuer                String
+  //
+  // The default mirrors the one its migration adds, which exists so the column
+  // can be introduced while the previous application version is still writing
+  // to this table (DEP-4). `local:credential` is what better-auth's own
+  // `createLocalAccountIssuer("credential")` returns, and credentials are the
+  // only provider this application enables.
+  issuer                String    @default("local:credential")
   userId                String
   authuser              AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
   accessToken           String?
@@ -601,6 +607,8 @@ model Campaign {
   channels           CampaignChannel[]
   approvals          CampaignApproval[]
   statusHistory      CampaignStatusHistory[]
+  targetAccountLists CampaignTargetAccountList[]
+  suppressionLists   CampaignSuppressionList[]
 
   @@index([clientOrganizationId, status])
   @@index([status, startDate])
@@ -615,6 +623,8 @@ model IcpCriterion {
   isMandatory Boolean      @default(true)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+  createdById String?
+  updatedById String?
 
   campaign Campaign @relation(fields: [campaignId], references: [id])
 
@@ -633,6 +643,8 @@ model LeadFieldSpec {
   rejectIfMissing   Boolean           @default(true)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
+  createdById       String?
+  updatedById       String?
 
   campaign Campaign @relation(fields: [campaignId], references: [id])
 
@@ -675,6 +687,8 @@ model CampaignApproval {
   snapshotVersion    Int?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
+  createdById        String?
+  updatedById        String?
 
   campaign Campaign @relation(fields: [campaignId], references: [id])
 
@@ -777,6 +791,8 @@ model TargetAccountEntry {
   maxLeadsPerAccountOverride Int?
   createdAt                  DateTime    @default(now())
   updatedAt                  DateTime    @updatedAt
+  createdById                String?
+  updatedById                String?
 
   list TargetAccountList @relation(fields: [listId], references: [id])
 
@@ -785,13 +801,16 @@ model TargetAccountEntry {
 }
 
 model CampaignTargetAccountList {
-  id         String   @id @default(cuid())
-  campaignId String
-  listId     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(cuid())
+  campaignId  String
+  listId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
 
-  list TargetAccountList @relation(fields: [listId], references: [id])
+  campaign Campaign          @relation(fields: [campaignId], references: [id])
+  list     TargetAccountList @relation(fields: [listId], references: [id])
 
   @@unique([campaignId, listId])
 }
@@ -838,6 +857,8 @@ model SuppressionEntry {
   contactId String?
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
+  createdById String?
+  updatedById String?
 
   list SuppressionList @relation(fields: [listId], references: [id])
 
@@ -846,13 +867,16 @@ model SuppressionEntry {
 }
 
 model CampaignSuppressionList {
-  id         String   @id @default(cuid())
-  campaignId String
-  listId     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(cuid())
+  campaignId  String
+  listId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
 
-  list SuppressionList @relation(fields: [listId], references: [id])
+  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  list     SuppressionList @relation(fields: [listId], references: [id])
 
   @@unique([campaignId, listId])
 }

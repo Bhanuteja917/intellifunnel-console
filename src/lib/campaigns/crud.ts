@@ -130,14 +130,28 @@ export async function setIcpCriteria(
   assertPermission(actor, "campaign:write");
   await assertDraftAndAccessible(db, actor, campaignId);
 
-  await withAudit(
+  // This is a destructive replace, so the audit entry has to carry what was
+  // destroyed (NFR-A-1). The rows are read inside the transaction, and are
+  // shaped like `after` so the two are directly comparable.
+  await withAudit<IcpCriterionInput[]>(
     db,
     actor,
-    { entityType: "Campaign", entityId: campaignId, action: "setIcpCriteria", after: criteria },
+    (before) => ({
+      entityType: "Campaign",
+      entityId: campaignId,
+      action: "setIcpCriteria",
+      before,
+      after: criteria,
+    }),
     async (tx) => {
       // Re-verify draft status inside the transaction: a client approval can
       // commit between the outer check and this write (FR-CS-2).
       await assertDraftAndAccessible(tx, actor, campaignId);
+
+      const existing = await tx.icpCriterion.findMany({
+        where: { campaignId },
+        orderBy: { id: "asc" },
+      });
 
       await tx.icpCriterion.deleteMany({ where: { campaignId } });
       for (const criterion of criteria) {
@@ -148,9 +162,18 @@ export async function setIcpCriteria(
             operator: criterion.operator,
             valuesJson: criterion.values as Prisma.InputJsonValue,
             isMandatory: criterion.isMandatory,
+            createdById: actor.userId,
+            updatedById: actor.userId,
           },
         });
       }
+
+      return existing.map((row) => ({
+        dimension: row.dimension,
+        operator: row.operator,
+        values: row.valuesJson as unknown[],
+        isMandatory: row.isMandatory,
+      }));
     },
   );
 }
@@ -177,13 +200,26 @@ export async function setLeadFieldSpec(
   const keys = new Set(fields.map((f) => f.fieldKey));
   if (keys.size !== fields.length) throw new ValidationError("Duplicate fieldKey in lead field spec");
 
-  await withAudit(
+  // Destructive replace, so the audit entry carries what was destroyed
+  // (NFR-A-1), read inside the transaction and shaped like `after`.
+  await withAudit<LeadFieldSpecInput[]>(
     db,
     actor,
-    { entityType: "Campaign", entityId: campaignId, action: "setLeadFieldSpec", after: fields },
+    (before) => ({
+      entityType: "Campaign",
+      entityId: campaignId,
+      action: "setLeadFieldSpec",
+      before,
+      after: fields,
+    }),
     async (tx) => {
       // Re-verify draft status inside the transaction (FR-CS-2).
       await assertDraftAndAccessible(tx, actor, campaignId);
+
+      const existing = await tx.leadFieldSpec.findMany({
+        where: { campaignId },
+        orderBy: { fieldKey: "asc" },
+      });
 
       await tx.leadFieldSpec.deleteMany({ where: { campaignId } });
       for (const field of fields) {
@@ -197,9 +233,21 @@ export async function setLeadFieldSpec(
             rejectIfMissing: field.rejectIfMissing,
             allowedValuesJson: field.allowedValues as Prisma.InputJsonValue | undefined,
             validationPattern: field.validationPattern,
+            createdById: actor.userId,
+            updatedById: actor.userId,
           },
         });
       }
+
+      return existing.map((row) => ({
+        fieldKey: row.fieldKey,
+        label: row.label,
+        dataType: row.dataType,
+        isRequired: row.isRequired,
+        rejectIfMissing: row.rejectIfMissing,
+        allowedValues: (row.allowedValuesJson as unknown[] | null) ?? undefined,
+        validationPattern: row.validationPattern ?? undefined,
+      }));
     },
   );
 }

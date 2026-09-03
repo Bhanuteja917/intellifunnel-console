@@ -119,6 +119,28 @@ describe("campaign configuration", () => {
     const criteria = await db.icpCriterion.findMany({ where: { campaignId: campaign.id } });
     expect(criteria).toHaveLength(1);
     expect(criteria[0]?.dimension).toBe("seniority");
+    expect(criteria[0]?.createdById).toBe(manager.userId);
+
+    // NFR-A-1: a destructive replace has to record what it destroyed, so the
+    // second call's audit entry carries the two criteria it deleted.
+    const audits = await db.auditLog.findMany({
+      where: { entityType: "Campaign", entityId: campaign.id, action: "setIcpCriteria" },
+      orderBy: { occurredAt: "asc" },
+    });
+    expect(audits).toHaveLength(2);
+    expect(audits[0]?.beforeJson).toEqual([]);
+    // Order-insensitive: IcpCriterion has no sort column, so the read that
+    // builds `before` cannot promise insertion order.
+    expect(audits[1]?.beforeJson).toEqual(
+      expect.arrayContaining([
+        { dimension: "industry", operator: "in", values: ["Software", "Fintech"], isMandatory: true },
+        { dimension: "country", operator: "in", values: ["US", "GB"], isMandatory: true },
+      ]),
+    );
+    expect(audits[1]?.beforeJson).toHaveLength(2);
+    expect(audits[1]?.afterJson).toEqual([
+      { dimension: "seniority", operator: "in", values: ["Director", "VP", "C-Level"], isMandatory: true },
+    ]);
   });
 
   it("stores the lead field spec keyed per campaign", async () => {

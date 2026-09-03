@@ -152,6 +152,7 @@ export async function decideInternalApproval(
       data: {
         campaignId, type: "internal", decision,
         decidedByUserId: actor.userId, comments,
+        createdById: actor.userId, updatedById: actor.userId,
       },
     });
     const toStatus: CampaignStatus = decision === "approved" ? "pendingClientApproval" : "draft";
@@ -192,6 +193,8 @@ export async function decideClientApproval(
         comments,
         configSnapshotJson: snapshot === null ? undefined : (snapshot as unknown as Prisma.InputJsonValue),
         snapshotVersion: snapshot === null ? null : SNAPSHOT_VERSION,
+        createdById: actor.userId,
+        updatedById: actor.userId,
       },
     });
 

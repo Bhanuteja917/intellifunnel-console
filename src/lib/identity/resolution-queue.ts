@@ -100,7 +100,12 @@ export async function resolveEntryToAccount(
 
       await tx.targetAccountEntry.update({
         where: { id: entryId },
-        data: { accountId, matchStatus: "matched", candidateAccountIdsJson: Prisma.DbNull },
+        data: {
+          accountId,
+          matchStatus: "matched",
+          candidateAccountIdsJson: Prisma.DbNull,
+          updatedById: actor.userId,
+        },
       });
     },
   );
@@ -169,6 +174,7 @@ export async function rematchEntry(
           accountId: match.status === "matched" ? match.accountId : null,
           candidateAccountIdsJson:
             match.status === "ambiguous" ? (match.candidateIds as Prisma.InputJsonValue) : Prisma.DbNull,
+          updatedById: actor.userId,
         },
       });
     },

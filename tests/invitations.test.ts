@@ -146,6 +146,20 @@ describe("invitations", () => {
     await expect(
       acceptInvitation(db, { token: first.token, name: "Jane", password: "correct horse battery" }),
     ).rejects.toBeInstanceOf(ValidationError);
+
+    // NFR-A-1: rotating a credential is a mutation, so the trail records that
+    // it happened and what the expiry moved to — never the token or its hash.
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { entityType: "Invitation", entityId: first.invitation.id, action: "resend" },
+    });
+    expect(audit.beforeJson).toEqual({
+      tokenRotated: false,
+      expiresAt: first.invitation.expiresAt.toISOString(),
+    });
+    expect(audit.afterJson).toEqual({
+      tokenRotated: true,
+      expiresAt: second.invitation.expiresAt.toISOString(),
+    });
   });
 
   it("creates the user, binds the role and marks the email verified (AUTH-4)", async () => {

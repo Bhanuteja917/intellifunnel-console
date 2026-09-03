@@ -100,6 +100,8 @@ export async function importSuppressionList(
           value: normalizedValue,
           valueHash: hashSuppressionValue(normalizedValue),
           accountId: match.accountId,
+          createdById: actor.userId,
+          updatedById: actor.userId,
         },
       });
       accepted += 1;
@@ -126,6 +128,8 @@ export async function importSuppressionList(
         type: rawType as SuppressionEntryType,
         value,
         valueHash: hashSuppressionValue(value),
+        createdById: actor.userId,
+        updatedById: actor.userId,
       },
     });
     accepted += 1;
@@ -168,7 +172,14 @@ export async function attachSuppressionList(
       // stale if a client approval commits in the gap (FR-CS-2).
       await assertDraftAndAccessible(tx, actor, campaignId);
 
-      await tx.campaignSuppressionList.create({ data: { campaignId, listId } });
+      await tx.campaignSuppressionList.create({
+        data: {
+          campaignId,
+          listId,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        },
+      });
     },
   );
 }

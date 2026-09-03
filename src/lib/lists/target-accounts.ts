@@ -108,6 +108,8 @@ export async function importTargetAccountList(
         candidateAccountIdsJson:
           match.status === "ambiguous" ? (match.candidateIds as Prisma.InputJsonValue) : undefined,
         maxLeadsPerAccountOverride: cap,
+        createdById: actor.userId,
+        updatedById: actor.userId,
       },
     });
     accepted += 1;
@@ -152,7 +154,14 @@ export async function attachTargetAccountList(
       // stale if a client approval commits in the gap (FR-CS-2).
       await assertDraftAndAccessible(tx, actor, campaignId);
 
-      await tx.campaignTargetAccountList.create({ data: { campaignId, listId } });
+      await tx.campaignTargetAccountList.create({
+        data: {
+          campaignId,
+          listId,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        },
+      });
     },
   );
 }
