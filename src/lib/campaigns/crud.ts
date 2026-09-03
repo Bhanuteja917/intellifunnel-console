@@ -44,6 +44,7 @@ export async function createCampaign(
   if (client === null || client.deletedAt !== null) throw new NotFoundError("Client organisation not found");
   if (!client.isClient) throw new ValidationError(`${client.name} is not a client organisation`);
 
+  // Fast-path check for common case (optional optimization)
   const duplicate = await db.campaign.findUnique({ where: { code: input.code } });
   if (duplicate !== null) throw new ValidationError(`Campaign code already exists: ${input.code}`);
 
@@ -55,6 +56,10 @@ export async function createCampaign(
       after: { code: created.code, clientOrganizationId: created.clientOrganizationId },
     }),
     async (tx) => {
+      // Re-verify inside transaction to close TOCTOU race (NFR-D-2)
+      const existingDuplicate = await tx.campaign.findUnique({ where: { code: input.code } });
+      if (existingDuplicate !== null) throw new ValidationError(`Campaign code already exists: ${input.code}`);
+
       const campaign = await tx.campaign.create({
         data: {
           clientOrganizationId: input.clientOrganizationId,
