@@ -320,6 +320,8 @@ model AccountAlias {
   type      AliasType
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  createdById String?
+  updatedById String?
 
   account Account @relation(fields: [accountId], references: [id])
 
@@ -342,6 +344,8 @@ model Contact {
   anonymisedAt    DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  createdById     String?
+  updatedById     String?
 
   account Account @relation(fields: [accountId], references: [id])
 
@@ -360,6 +364,8 @@ model DoNotContact {
   expiresAt            DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+  createdById          String?
+  updatedById          String?
 
   @@unique([clientOrganizationId, type, value])
   @@index([clientOrganizationId, type, valueHash])
