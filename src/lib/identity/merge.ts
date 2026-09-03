@@ -111,6 +111,9 @@ export async function unmergeAccounts(
 ): Promise<void> {
   assertPermission(actor, "account:merge");
 
+  // Fast-path check: fail early without opening a transaction. Every one of
+  // these checks is repeated inside the transaction below, which is where they
+  // actually hold — a check made here can go stale before the restore writes.
   const merge = await db.accountMerge.findUnique({ where: { id: mergeId } });
   if (merge === null) throw new NotFoundError("Merge record not found");
   if (merge.reversedAt !== null) throw new ValidationError("Merge is already reversed");
@@ -122,15 +125,6 @@ export async function unmergeAccounts(
     );
   }
 
-  // Check that the target account hasn't been merged away since
-  const target = await db.account.findUnique({ where: { id: merge.targetAccountId } });
-  if (target === null) throw new NotFoundError("Target account not found");
-  if (target.mergedIntoId !== null) {
-    throw new ValidationError("Cannot reverse: the target account has since been merged into another account");
-  }
-
-  const moved = merge.movedJson as MovedRecords;
-
   await withAudit(
     db,
     actor,
@@ -141,26 +135,56 @@ export async function unmergeAccounts(
       after: { mergeId },
     },
     async (tx) => {
+      // Re-check inside the transaction, the same way mergeAccounts does:
+      // a concurrent unmerge, or a second merge that moved the target away,
+      // would otherwise let this restore yank records out of an account that
+      // no longer holds them.
+      const txMerge = await tx.accountMerge.findUnique({ where: { id: mergeId } });
+      if (txMerge === null) throw new NotFoundError("Merge record not found");
+      if (txMerge.reversedAt !== null) throw new ValidationError("Merge is already reversed");
+
+      const txElapsedHours = (Date.now() - txMerge.mergedAt.getTime()) / 3_600_000;
+      if (txElapsedHours > ACCOUNT_MERGE_REVERSAL_HOURS) {
+        throw new ValidationError(
+          `Merges are reversible for ${ACCOUNT_MERGE_REVERSAL_HOURS} hours; this one is ${Math.floor(txElapsedHours)} hours old`,
+        );
+      }
+
+      const target = await tx.account.findUnique({ where: { id: txMerge.targetAccountId } });
+      if (target === null) throw new NotFoundError("Target account not found");
+      if (target.mergedIntoId !== null) {
+        throw new ValidationError("Cannot reverse: the target account has since been merged into another account");
+      }
+
+      const moved = txMerge.movedJson as MovedRecords;
+
       if (moved.createdAliasId !== null) {
         await tx.accountAlias.delete({ where: { id: moved.createdAliasId } });
       }
       await tx.contact.updateMany({
-        where: { id: { in: moved.contactIds } }, data: { accountId: merge.sourceAccountId },
+        where: { id: { in: moved.contactIds } }, data: { accountId: txMerge.sourceAccountId },
       });
       await tx.accountAlias.updateMany({
-        where: { id: { in: moved.aliasIds } }, data: { accountId: merge.sourceAccountId },
+        where: { id: { in: moved.aliasIds } }, data: { accountId: txMerge.sourceAccountId },
       });
       await tx.account.updateMany({
-        where: { id: { in: moved.childAccountIds } }, data: { parentAccountId: merge.sourceAccountId },
+        where: { id: { in: moved.childAccountIds } }, data: { parentAccountId: txMerge.sourceAccountId },
       });
       await tx.account.update({
-        where: { id: merge.sourceAccountId },
+        where: { id: txMerge.sourceAccountId },
         data: { mergedIntoId: null, primaryDomain: moved.sourcePrimaryDomain },
       });
-      await tx.accountMerge.update({
-        where: { id: mergeId },
+
+      // Guarded like state-machine.ts's applyTransition: the reversal only
+      // lands if this transaction is the one that flips reversedAt, so two
+      // concurrent unmerges cannot both restore the same moved records.
+      const reversed = await tx.accountMerge.updateMany({
+        where: { id: mergeId, reversedAt: null },
         data: { reversedAt: new Date(), reversedById: actor.userId },
       });
+      if (reversed.count === 0) {
+        throw new ValidationError("Merge was reversed concurrently");
+      }
     },
   );
 }

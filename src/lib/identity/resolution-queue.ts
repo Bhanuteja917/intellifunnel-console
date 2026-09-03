@@ -58,6 +58,22 @@ export async function listUnresolvedEntries(
   };
 }
 
+/**
+ * The validity a match must still have at the moment it is written: the
+ * account exists, is not soft-deleted, and has not been merged away since the
+ * match was computed. Called with `tx` so the check and the write commit
+ * together — a merge landing in between would otherwise point an entry at an
+ * account that no longer resolves.
+ */
+async function assertAccountStillLinkable(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+): Promise<void> {
+  const account = await tx.account.findUnique({ where: { id: accountId } });
+  if (account === null || account.deletedAt !== null) throw new NotFoundError("Account not found");
+  if (account.mergedIntoId !== null) throw new ValidationError("Account has been merged away");
+}
+
 export async function resolveEntryToAccount(
   db: PrismaClient,
   actor: Actor,
@@ -80,9 +96,7 @@ export async function resolveEntryToAccount(
       after: { matchStatus: "matched", accountId },
     },
     async (tx) => {
-      const account = await tx.account.findUnique({ where: { id: accountId } });
-      if (account === null || account.deletedAt !== null) throw new NotFoundError("Account not found");
-      if (account.mergedIntoId !== null) throw new ValidationError("Account has been merged away");
+      await assertAccountStillLinkable(tx, accountId);
 
       await tx.targetAccountEntry.update({
         where: { id: entryId },
@@ -141,6 +155,13 @@ export async function rematchEntry(
       after: { matchStatus: match.status, accountId: match.status === "matched" ? match.accountId : null },
     },
     async (tx) => {
+      // `resolveAccount` above ran outside any transaction, so re-verify the
+      // account it picked is still linkable before writing it — the same
+      // check resolveEntryToAccount makes for a manually chosen account.
+      if (match.status === "matched") {
+        await assertAccountStillLinkable(tx, match.accountId);
+      }
+
       await tx.targetAccountEntry.update({
         where: { id: entryId },
         data: {

@@ -176,9 +176,13 @@ export async function decideClientApproval(
     throw new InvalidStateTransitionError(`Campaign is ${campaign.status}, not awaiting client approval`);
   }
 
-  const snapshot = decision === "approved" ? await buildConfigSnapshot(db, campaignId) : null;
-
   return db.$transaction(async (tx) => {
+    // Built inside the transaction so the frozen record and the campaign it
+    // freezes cannot diverge: a config write committing between the snapshot
+    // and the approval would otherwise land on the live campaign while being
+    // absent from what the client is recorded as having approved (FR-CS-1).
+    const snapshot = decision === "approved" ? await buildConfigSnapshot(tx, campaignId) : null;
+
     const approval = await tx.campaignApproval.create({
       data: {
         campaignId,

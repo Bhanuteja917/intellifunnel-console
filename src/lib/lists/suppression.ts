@@ -164,6 +164,10 @@ export async function attachSuppressionList(
     actor,
     { entityType: "Campaign", entityId: campaignId, action: "attachSuppressionList", after: { listId } },
     async (tx) => {
+      // Re-verify draft status inside the transaction: the outer check can go
+      // stale if a client approval commits in the gap (FR-CS-2).
+      await assertDraftAndAccessible(tx, actor, campaignId);
+
       await tx.campaignSuppressionList.create({ data: { campaignId, listId } });
     },
   );

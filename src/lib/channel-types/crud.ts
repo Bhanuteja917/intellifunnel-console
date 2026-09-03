@@ -24,6 +24,7 @@ export async function createChannelType(
 ): Promise<ChannelType> {
   assertPermission(actor, "channelType:write");
 
+  // Fast-path check for the common case; re-verified inside the transaction.
   const existing = await db.channelType.findUnique({ where: { code: input.code } });
   if (existing !== null) throw new ValidationError(`Channel type code already exists: ${input.code}`);
 
@@ -40,8 +41,14 @@ export async function createChannelType(
     (created) => ({
       entityType: "ChannelType", entityId: created.id, action: "create", after: input,
     }),
-    (tx) =>
-      tx.channelType.create({
+    async (tx) => {
+      // Re-verify inside the transaction to close the TOCTOU race: two
+      // concurrent creates both pass the check above, and the loser would
+      // otherwise surface a raw P2002 instead of this domain error.
+      const duplicate = await tx.channelType.findUnique({ where: { code: input.code } });
+      if (duplicate !== null) throw new ValidationError(`Channel type code already exists: ${input.code}`);
+
+      return tx.channelType.create({
         data: {
           code: input.code,
           name: input.name,
@@ -57,7 +64,8 @@ export async function createChannelType(
           createdById: actor.userId,
           updatedById: actor.userId,
         },
-      }),
+      });
+    },
   );
 }
 

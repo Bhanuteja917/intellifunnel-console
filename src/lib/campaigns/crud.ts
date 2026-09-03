@@ -16,6 +16,14 @@ import {
 import { withAudit } from "@/lib/audit/audit";
 import { toMinorUnits } from "@/lib/money/currency";
 
+/**
+ * Accepts either the client or a transaction client, so a check can be made
+ * twice: once as a cheap pre-flight and again inside the transaction that
+ * mutates. Same shape as the `Db` unions in settings.ts, account-resolution.ts
+ * and contact.ts.
+ */
+type Db = PrismaClient | Prisma.TransactionClient;
+
 export type CreateCampaignInput = {
   clientOrganizationId: string;
   name: string;
@@ -83,8 +91,15 @@ export async function createCampaign(
   );
 }
 
+/**
+ * Call this twice for every config mutation: once before opening the
+ * transaction (fast path, gives the caller a clean error) and again with `tx`
+ * immediately before the write. Only the second call is load-bearing — without
+ * it a client approval committing in the gap leaves a mutated configuration on
+ * an already-scheduled campaign, which FR-CS-2 forbids.
+ */
 export async function assertDraftAndAccessible(
-  db: PrismaClient,
+  db: Db,
   actor: Actor,
   campaignId: string,
 ): Promise<Campaign> {
@@ -120,6 +135,10 @@ export async function setIcpCriteria(
     actor,
     { entityType: "Campaign", entityId: campaignId, action: "setIcpCriteria", after: criteria },
     async (tx) => {
+      // Re-verify draft status inside the transaction: a client approval can
+      // commit between the outer check and this write (FR-CS-2).
+      await assertDraftAndAccessible(tx, actor, campaignId);
+
       await tx.icpCriterion.deleteMany({ where: { campaignId } });
       for (const criterion of criteria) {
         await tx.icpCriterion.create({
@@ -163,6 +182,9 @@ export async function setLeadFieldSpec(
     actor,
     { entityType: "Campaign", entityId: campaignId, action: "setLeadFieldSpec", after: fields },
     async (tx) => {
+      // Re-verify draft status inside the transaction (FR-CS-2).
+      await assertDraftAndAccessible(tx, actor, campaignId);
+
       await tx.leadFieldSpec.deleteMany({ where: { campaignId } });
       for (const field of fields) {
         await tx.leadFieldSpec.create({
@@ -227,8 +249,11 @@ export async function addCampaignChannel(
       entityType: "CampaignChannel", entityId: created.id, action: "create",
       after: { campaignId, contractedQuantity: input.contractedQuantity, currency: input.currency },
     }),
-    (tx) =>
-      tx.campaignChannel.create({
+    async (tx) => {
+      // Re-verify draft status inside the transaction (FR-CS-2).
+      await assertDraftAndAccessible(tx, actor, campaignId);
+
+      return tx.campaignChannel.create({
         data: {
           campaignId,
           channelTypeVersionId: input.channelTypeVersionId,
@@ -242,7 +267,8 @@ export async function addCampaignChannel(
           createdById: actor.userId,
           updatedById: actor.userId,
         },
-      }),
+      });
+    },
   );
 }
 
