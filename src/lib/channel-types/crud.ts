@@ -72,6 +72,13 @@ export async function updateChannelType(
   const before = await db.channelType.findUnique({ where: { id } });
   if (before === null) throw new NotFoundError("Channel type not found");
 
+  const effectiveMetricMode = input.metricMode ?? before.metricMode;
+  const effectiveAllowedMetricFields = input.allowedMetricFields ?? (before.allowedMetricFieldsJson as string[]);
+
+  if (effectiveMetricMode === "aggregate" && effectiveAllowedMetricFields.length === 0) {
+    throw new ValidationError("An aggregate channel type must declare its metric fields");
+  }
+
   return withAudit<ChannelType>(
     db,
     actor,

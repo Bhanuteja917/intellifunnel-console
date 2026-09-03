@@ -6,7 +6,7 @@ import { seedChannelTypes } from "../prisma/seed/channel-types";
 import { seedRejectReasons } from "../prisma/seed/reject-reasons";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { createChannelType, deactivateChannelType } from "@/lib/channel-types/crud";
+import { createChannelType, deactivateChannelType, updateChannelType } from "@/lib/channel-types/crud";
 import { ForbiddenError, ValidationError } from "@/lib/errors";
 
 async function actorWithRole(role: string) {
@@ -141,5 +141,42 @@ describe("channel type CRUD (FR-CT-1, FR-CT-4)", () => {
 
     expect(deactivated.isActive).toBe(false);
     expect(await db.channelType.count({ where: { id: created.id } })).toBe(1);
+  });
+
+  it("rejects update setting metricMode to aggregate without allowedMetricFields", async () => {
+    const db = testDb();
+    const actor = await actorWithRole("SUPER_ADMIN");
+    const stage = await db.funnelStage.findUniqueOrThrow({ where: { code: "PROGRAMMATIC" } });
+
+    const created = await createChannelType(db, actor, {
+      code: "EVENT_TYPE", name: "Event type", funnelStageId: stage.id, producesLeads: true,
+      requiresAsset: false, metricMode: "event", pricingUnit: "CPL",
+      requiresTeleVerification: false, allowedMetricFields: [],
+    });
+
+    await expect(
+      updateChannelType(db, actor, created.id, {
+        metricMode: "aggregate",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("allows update setting metricMode to aggregate with allowedMetricFields", async () => {
+    const db = testDb();
+    const actor = await actorWithRole("SUPER_ADMIN");
+    const stage = await db.funnelStage.findUniqueOrThrow({ where: { code: "PROGRAMMATIC" } });
+
+    const created = await createChannelType(db, actor, {
+      code: "EVENT_TYPE_2", name: "Event type 2", funnelStageId: stage.id, producesLeads: true,
+      requiresAsset: false, metricMode: "event", pricingUnit: "CPL",
+      requiresTeleVerification: false, allowedMetricFields: [],
+    });
+
+    const updated = await updateChannelType(db, actor, created.id, {
+      metricMode: "aggregate",
+      allowedMetricFields: ["impressions", "clicks"],
+    });
+
+    expect(updated.metricMode).toBe("aggregate");
   });
 });
