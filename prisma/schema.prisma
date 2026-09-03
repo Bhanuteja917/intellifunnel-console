@@ -271,3 +271,96 @@ model AuthVerification {
   @@index([identifier])
   @@map("authVerification")
 }
+
+enum AliasType {
+  name
+  domain
+}
+
+enum DoNotContactType {
+  email
+  domain
+  phone
+}
+
+model Account {
+  id               String    @id @default(cuid())
+  name             String
+  normalizedName   String
+  primaryDomain    String?   @unique
+  parentAccountId  String?
+  country          String?
+  industry         String?
+  employeeRange    String?
+  revenueRange     String?
+  enrichmentSource String?
+  enrichedAt       DateTime?
+  mergedIntoId     String?
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdById      String?
+  updatedById      String?
+
+  parentAccount Account?       @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children      Account[]      @relation("AccountHierarchy")
+  mergedInto    Account?       @relation("AccountMerge", fields: [mergedIntoId], references: [id])
+  mergeSources  Account[]      @relation("AccountMerge")
+  aliases       AccountAlias[]
+  contacts      Contact[]
+
+  @@index([normalizedName, country])
+  @@index([mergedIntoId])
+}
+
+model AccountAlias {
+  id        String    @id @default(cuid())
+  accountId String
+  value     String    @unique
+  type      AliasType
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+}
+
+model Contact {
+  id              String    @id @default(cuid())
+  accountId       String
+  email           String
+  emailNormalized String    @unique
+  firstName       String?
+  lastName        String?
+  jobTitle        String?
+  seniority       String?
+  jobFunction     String?
+  phone           String?
+  country         String?
+  linkedinUrl     String?
+  anonymisedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+}
+
+/// FR-CP-5: scoped to a client organisation. Enforcement lands in phase 5.
+model DoNotContact {
+  id                   String           @id @default(cuid())
+  type                 DoNotContactType
+  value                String
+  valueHash            String
+  clientOrganizationId String
+  reason               String?
+  addedAt              DateTime         @default(now())
+  expiresAt            DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@unique([clientOrganizationId, type, value])
+  @@index([clientOrganizationId, type, valueHash])
+}
