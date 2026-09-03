@@ -118,4 +118,29 @@ describe("mergeAccounts (FR-ID-4)", () => {
 
     await expect(unmergeAccounts(db, actor, mergeId)).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it("refuses to reverse when target was merged into another account", async () => {
+    const db = testDb();
+    const actor = await adminActor();
+    const s1 = await createAccount(db, actor, { name: "S1", domain: "s1.com", country: "US" });
+    const t1 = await createAccount(db, actor, { name: "T1", domain: "t1.com", country: "US" });
+    const t2 = await createAccount(db, actor, { name: "T2", domain: "t2.com", country: "US" });
+    const contact = await upsertContact(db, { email: "jane@s1.com", accountId: s1.id });
+
+    // Merge S1 into T1
+    const { mergeId: m1 } = await mergeAccounts(db, actor, { sourceAccountId: s1.id, targetAccountId: t1.id });
+    // Verify contact moved to T1
+    expect((await db.contact.findUniqueOrThrow({ where: { id: contact.id } })).accountId).toBe(t1.id);
+
+    // Merge T1 into T2 (this moves contact from T1 to T2)
+    await mergeAccounts(db, actor, { sourceAccountId: t1.id, targetAccountId: t2.id });
+    // Verify contact is now in T2
+    expect((await db.contact.findUniqueOrThrow({ where: { id: contact.id } })).accountId).toBe(t2.id);
+
+    // Try to reverse the S1→T1 merge (should fail because T1 is merged into T2)
+    await expect(unmergeAccounts(db, actor, m1)).rejects.toBeInstanceOf(ValidationError);
+
+    // Verify nothing moved (contact still in T2)
+    expect((await db.contact.findUniqueOrThrow({ where: { id: contact.id } })).accountId).toBe(t2.id);
+  });
 });
