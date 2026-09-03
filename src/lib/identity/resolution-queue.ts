@@ -69,10 +69,6 @@ export async function resolveEntryToAccount(
   const entry = await db.targetAccountEntry.findUnique({ where: { id: entryId } });
   if (entry === null) throw new NotFoundError("Target account entry not found");
 
-  const account = await db.account.findUnique({ where: { id: accountId } });
-  if (account === null || account.deletedAt !== null) throw new NotFoundError("Account not found");
-  if (account.mergedIntoId !== null) throw new ValidationError("Account has been merged away");
-
   await withAudit(
     db,
     actor,
@@ -84,6 +80,10 @@ export async function resolveEntryToAccount(
       after: { matchStatus: "matched", accountId },
     },
     async (tx) => {
+      const account = await tx.account.findUnique({ where: { id: accountId } });
+      if (account === null || account.deletedAt !== null) throw new NotFoundError("Account not found");
+      if (account.mergedIntoId !== null) throw new ValidationError("Account has been merged away");
+
       await tx.targetAccountEntry.update({
         where: { id: entryId },
         data: { accountId, matchStatus: "matched", candidateAccountIdsJson: Prisma.DbNull },
@@ -130,15 +130,28 @@ export async function rematchEntry(
     domain: entry.rawDomain ?? undefined,
   });
 
-  await db.targetAccountEntry.update({
-    where: { id: entryId },
-    data: {
-      matchStatus: match.status,
-      accountId: match.status === "matched" ? match.accountId : null,
-      candidateAccountIdsJson:
-        match.status === "ambiguous" ? (match.candidateIds as Prisma.InputJsonValue) : Prisma.DbNull,
+  await withAudit(
+    db,
+    actor,
+    {
+      entityType: "TargetAccountEntry",
+      entityId: entryId,
+      action: "rematch",
+      before: { matchStatus: entry.matchStatus, accountId: entry.accountId },
+      after: { matchStatus: match.status, accountId: match.status === "matched" ? match.accountId : null },
     },
-  });
+    async (tx) => {
+      await tx.targetAccountEntry.update({
+        where: { id: entryId },
+        data: {
+          matchStatus: match.status,
+          accountId: match.status === "matched" ? match.accountId : null,
+          candidateAccountIdsJson:
+            match.status === "ambiguous" ? (match.candidateIds as Prisma.InputJsonValue) : Prisma.DbNull,
+        },
+      });
+    },
+  );
 
   return match.status;
 }
