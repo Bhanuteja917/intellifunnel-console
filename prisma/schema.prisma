@@ -694,3 +694,51 @@ model CampaignStatusHistory {
 
   @@index([campaignId, changedAt])
 }
+
+enum ImportType {
+  targetAccounts
+  suppression
+  leads
+  metrics
+}
+
+enum ImportStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+model ImportBatch {
+  id             String       @id @default(cuid())
+  type           ImportType
+  uploadedById   String
+  organizationId String
+  fileKey        String?
+  mappingJson    Json
+  rowsTotal      Int          @default(0)
+  rowsAccepted   Int          @default(0)
+  rowsFailed     Int          @default(0)
+  status         ImportStatus @default(pending)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  errors ImportError[]
+
+  @@index([organizationId, type, createdAt])
+}
+
+model ImportError {
+  id        String   @id @default(cuid())
+  batchId   String
+  rowNumber Int
+  field     String?
+  rawValue  String?
+  message   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch ImportBatch @relation(fields: [batchId], references: [id])
+
+  @@index([batchId, rowNumber])
+}
