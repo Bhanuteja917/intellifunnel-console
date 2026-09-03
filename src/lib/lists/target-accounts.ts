@@ -9,6 +9,7 @@ import { withAudit } from "@/lib/audit/audit";
 import { applyMapping, parseDelimited, type RowError } from "@/lib/lists/csv";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { resolveAccount } from "@/lib/identity/account-resolution";
+import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
 
 export type ImportTargetAccountsInput = {
   ownerOrganizationId: string;
@@ -140,10 +141,7 @@ export async function attachTargetAccountList(
   listId: string,
 ): Promise<void> {
   assertPermission(actor, "campaign:write");
-
-  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
-  if (campaign === null) throw new NotFoundError("Campaign not found");
-  assertOrganizationAccess(actor, campaign.clientOrganizationId);
+  await assertDraftAndAccessible(db, actor, campaignId);
 
   await withAudit(
     db,

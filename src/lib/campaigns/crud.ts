@@ -83,7 +83,7 @@ export async function createCampaign(
   );
 }
 
-async function assertDraftAndAccessible(
+export async function assertDraftAndAccessible(
   db: PrismaClient,
   actor: Actor,
   campaignId: string,

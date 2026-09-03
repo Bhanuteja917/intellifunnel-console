@@ -7,6 +7,7 @@ import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { createAccount } from "@/lib/identity/account-resolution";
 import { createCampaign } from "@/lib/campaigns/crud";
+import { ValidationError } from "@/lib/errors";
 import {
   attachTargetAccountList,
   importTargetAccountList,
@@ -165,5 +166,35 @@ describe("resolveAccountCap (PRD decisions 3 and 4)", () => {
     });
 
     expect(await resolveAccountCap(db, campaign.id, acme.id)).toBeNull();
+  });
+});
+
+describe("attachTargetAccountList (FR-CS-2: draft-only mutations)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
+    await seedChannelTypes(db);
+  });
+
+  it("rejects attachment when campaign is not in draft status", async () => {
+    const { db, ops, manager, client } = await setup();
+    const campaign = await createCampaign(db, manager, {
+      clientOrganizationId: client.id, name: "C", code: "DRAFT-CHECK",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+    });
+    const { listId } = await importTargetAccountList(db, ops, {
+      ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
+    });
+
+    // Move campaign out of draft status
+    await db.campaign.update({
+      where: { id: campaign.id },
+      data: { status: "live" },
+    });
+
+    // Attempt to attach should fail
+    await expect(attachTargetAccountList(db, manager, campaign.id, listId)).rejects.toThrow(ValidationError);
   });
 });
