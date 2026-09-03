@@ -386,3 +386,129 @@ model AccountMerge {
   @@index([sourceAccountId])
   @@index([targetAccountId])
 }
+
+enum MetricMode {
+  event
+  aggregate
+}
+
+enum PricingUnit {
+  CPL
+  CPM
+  CPA
+  flat
+}
+
+enum QuestionType {
+  single
+  multi
+  text
+  boolean
+  date
+}
+
+enum RejectReasonCategory {
+  dataQuality
+  icpMismatch
+  suppression
+  duplicate
+  consent
+  qualification
+  contactability
+}
+
+model FunnelStage {
+  id        String        @id @default(cuid())
+  code      String        @unique
+  name      String
+  sortOrder Int
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  channelTypes ChannelType[]
+}
+
+model ChannelType {
+  id                          String      @id @default(cuid())
+  code                        String      @unique
+  name                        String
+  funnelStageId               String
+  producesLeads               Boolean     @default(true)
+  requiresAsset               Boolean     @default(false)
+  metricMode                  MetricMode  @default(event)
+  allowedMetricFieldsJson     Json        @default("[]")
+  pricingUnit                 PricingUnit
+  defaultQualificationFormId  String?
+  verificationRuleSetId       String?
+  requiresTeleVerification    Boolean     @default(false)
+  verificationSlaBusinessDays Int?
+  isActive                    Boolean     @default(true)
+  currentVersion              Int         @default(0)
+  createdAt                   DateTime    @default(now())
+  updatedAt                   DateTime    @updatedAt
+  createdById                 String?
+  updatedById                 String?
+
+  funnelStage              FunnelStage          @relation(fields: [funnelStageId], references: [id])
+  defaultQualificationForm QualificationForm?   @relation(fields: [defaultQualificationFormId], references: [id])
+  versions                 ChannelTypeVersion[]
+
+  @@index([funnelStageId])
+}
+
+model ChannelTypeVersion {
+  id             String   @id @default(cuid())
+  channelTypeId  String
+  version        Int
+  definitionJson Json
+  publishedAt    DateTime @default(now())
+  publishedById  String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  channelType ChannelType @relation(fields: [channelTypeId], references: [id])
+
+  @@unique([channelTypeId, version])
+}
+
+model QualificationForm {
+  id        String   @id @default(cuid())
+  name      String
+  version   Int      @default(1)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  questions    QualificationQuestion[]
+  channelTypes ChannelType[]
+}
+
+model QualificationQuestion {
+  id                    String       @id @default(cuid())
+  formId                String
+  sortOrder             Int
+  text                  String
+  type                  QuestionType
+  optionsJson           Json?
+  isRequired            Boolean      @default(true)
+  isQualifying          Boolean      @default(false)
+  acceptableAnswersJson Json?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  form QualificationForm @relation(fields: [formId], references: [id])
+
+  @@unique([formId, sortOrder])
+  @@index([formId])
+}
+
+model RejectReason {
+  id                   String               @id @default(cuid())
+  code                 String               @unique
+  label                String
+  category             RejectReasonCategory
+  isPartnerReplaceable Boolean
+  isActive             Boolean              @default(true)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+}
