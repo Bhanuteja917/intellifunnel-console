@@ -10,14 +10,40 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# prisma.config.ts resolves DIRECT_URL eagerly via Prisma's env() helper,
-# which throws PrismaConfigEnvError if the variable is unset. .env is
-# excluded by .dockerignore (real secrets don't belong in the image), so
-# `prisma generate` needs a placeholder here purely to satisfy that check —
-# it never connects to a database; migrations run as a separate deploy step.
+# Obviously-fake build-stage placeholders, never present in the runtime stage
+# (which declares only NODE_ENV and HOSTNAME) and never inlined into the
+# bundle (nothing reads them through NEXT_PUBLIC_). Two things need them:
+#   * prisma.config.ts resolves DIRECT_URL eagerly via Prisma's env() helper
+#     and throws PrismaConfigEnvError if it is unset;
+#   * `next build` imports every route module while collecting page data, so
+#     src/lib/auth/better-auth.ts runs, and src/lib/env.ts requires
+#     APP_BASE_URL and BETTER_AUTH_SECRET rather than silently defaulting.
+# .env is excluded by .dockerignore — real secrets do not belong in an image —
+# and none of these placeholders is ever connected to or signed with:
+# migrations and the worker run as separate deploy steps with real values.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV DIRECT_URL="postgresql://build:build@localhost:5432/build"
+ENV APP_BASE_URL="http://build.invalid"
+ENV BETTER_AUTH_SECRET="build-only-not-a-secret"
 RUN pnpm prisma generate && pnpm build
+
+# The scheduled-transition worker and `prisma migrate deploy` both need what
+# the runtime stage deliberately does not carry: node_modules, the Prisma CLI,
+# tsx and src/. They run from this target instead of the slim runtime image —
+# `docker build --target worker` — which is why it exists as a named stage
+# rather than as a comment in the deploy docs.
+#
+# The build stage's placeholder connection and auth variables are blanked out
+# so a deployment that forgets to supply the real ones fails immediately with
+# src/lib/env.ts's "Missing required environment variable" instead of quietly
+# talking to a database that does not exist.
+FROM build AS worker
+ENV NODE_ENV=production
+ENV DATABASE_URL=""
+ENV DIRECT_URL=""
+ENV APP_BASE_URL=""
+ENV BETTER_AUTH_SECRET=""
+CMD ["pnpm", "worker"]
 
 FROM node:24-alpine AS runtime
 WORKDIR /app

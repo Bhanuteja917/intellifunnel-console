@@ -104,6 +104,44 @@ describe("account resolution queue (FR-ID-2)", () => {
       .rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  it("scopes a non-internal actor to its own organisation's entries (AUTH-9)", async () => {
+    const { db, ops, client } = await setup();
+
+    // A second client organisation with its own list and its own unmatched
+    // entry, so there is something the actor below must not see.
+    const otherClient = await createOrganization(db, { isClient: true });
+    await importTargetAccountList(db, ops, {
+      ownerOrganizationId: otherClient.id,
+      name: "Other TAL",
+      content: ["Company,Website", "Other Co,other.test"].join("\n"),
+      mapping: MAPPING,
+    });
+
+    // No client or partner role currently holds account:write, so this actor
+    // is synthesised: it exists to prove listUnresolvedEntries filters by
+    // organisation itself rather than relying on the permission matrix, which
+    // is the only thing standing between a client actor and every client's
+    // accounts today.
+    const clientUser = await createUser(db, client.id, "CLIENT_ADMIN");
+    const clientActor = { ...(await loadActor(db, clientUser.id)), roles: ["OPERATIONS" as const] };
+    expect(clientActor.isInternal).toBe(false);
+
+    // Deliberately asks for the other organisation's entries; the filter is
+    // overridden, not merged.
+    const { entries } = await listUnresolvedEntries(db, clientActor, {
+      organizationId: otherClient.id,
+    });
+
+    const listIds = new Set(entries.map((e) => e.listId));
+    const ownLists = await db.targetAccountList.findMany({
+      where: { ownerOrganizationId: client.id },
+      select: { id: true },
+    });
+    expect(entries.length).toBeGreaterThan(0);
+    expect([...listIds].every((id) => ownLists.some((l) => l.id === id))).toBe(true);
+    expect(entries.some((e) => e.rawName === "Other Co")).toBe(false);
+  });
+
   it("pages with a cursor", async () => {
     const { db, ops, client } = await setup();
     const many = ["Company,Website", ...Array.from({ length: 5 }, (_, i) => `Co ${i},co${i}.test`)].join("\n");

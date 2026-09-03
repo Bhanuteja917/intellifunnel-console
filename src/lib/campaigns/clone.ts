@@ -6,6 +6,7 @@ import {
   type Actor,
 } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
+import { assertClientOrganization } from "@/lib/campaigns/crud";
 
 export type CloneOverrides = {
   code: string;
@@ -34,8 +35,11 @@ export async function cloneCampaign(
   if (source === null || source.deletedAt !== null) throw new NotFoundError("Campaign not found");
   assertOrganizationAccess(actor, source.clientOrganizationId);
 
+  // The clone can be retargeted at another organisation, which then has to
+  // pass exactly the checks createCampaign applies: reachable by this actor,
+  // not soft-deleted, and actually a client.
   const targetClientId = overrides.clientOrganizationId ?? source.clientOrganizationId;
-  assertOrganizationAccess(actor, targetClientId);
+  await assertClientOrganization(db, actor, targetClientId);
 
   const duplicate = await db.campaign.findUnique({ where: { code: overrides.code } });
   if (duplicate !== null) throw new ValidationError(`Campaign code already exists: ${overrides.code}`);

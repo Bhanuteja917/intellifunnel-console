@@ -1,12 +1,16 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { db } from "@/lib/db";
+import { requireEnv } from "@/lib/env";
 import { sendEmail } from "@/lib/email/send";
 
 export const auth = betterAuth({
   database: prismaAdapter(db, { provider: "postgresql" }),
-  baseURL: process.env.APP_BASE_URL,
-  secret: process.env.BETTER_AUTH_SECRET,
+  // Both are required: an absent secret would let Better Auth fall back to a
+  // value nobody chose (invalidating every session on restart), and an absent
+  // base URL would put "undefined/invite/..." in invitation emails.
+  baseURL: requireEnv("APP_BASE_URL"),
+  secret: requireEnv("BETTER_AUTH_SECRET"),
   // Better Auth's own credential/session tables are named to avoid a
   // Prisma model-name collision with this app's own `User` model (Task 6),
   // which is unrelated to Better Auth and must not be clobbered or renamed.

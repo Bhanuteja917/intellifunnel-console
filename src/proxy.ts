@@ -11,9 +11,14 @@ import { getSessionCookie } from "better-auth/cookies";
  * humans, never an authorisation decision. Every page and server action still
  * resolves the real session and re-checks permissions server-side (AUTH-8,
  * NFR-S-1), so a forged or expired cookie gets past this and is then rejected
- * by the service layer.
+ * by the service layer. Next.js calls this an "optimistic check" and
+ * explicitly warns against using it as the authorisation solution.
+ *
+ * `proxy.ts`, not `middleware.ts`: Next.js 16 renamed the convention and
+ * warns on every build that the old filename is deprecated
+ * (node_modules/next/dist/docs/01-app/01-getting-started/16-proxy.md).
  */
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   if (getSessionCookie(request) !== null) return NextResponse.next();
 
   return NextResponse.redirect(new URL("/sign-in", request.nextUrl.origin));

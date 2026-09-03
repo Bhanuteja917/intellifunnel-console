@@ -14,7 +14,7 @@ import {
   type Actor,
 } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
-import { toMinorUnits } from "@/lib/money/currency";
+import { exponentFor, toMinorUnits } from "@/lib/money/currency";
 
 /**
  * Accepts either the client or a transaction client, so a check can be made
@@ -36,21 +36,41 @@ export type CreateCampaignInput = {
   advisoryIcpMatch?: boolean;
 };
 
+/**
+ * A campaign can only belong to an organisation the actor may reach, that
+ * still exists, and that is actually a client. Shared by createCampaign and
+ * cloneCampaign, which can retarget a clone at a different organisation and
+ * must apply the identical checks.
+ */
+export async function assertClientOrganization(
+  db: Db,
+  actor: Actor,
+  organizationId: string,
+): Promise<void> {
+  assertOrganizationAccess(actor, organizationId);
+
+  const client = await db.organization.findUnique({ where: { id: organizationId } });
+  if (client === null || client.deletedAt !== null) throw new NotFoundError("Client organisation not found");
+  if (!client.isClient) throw new ValidationError(`${client.name} is not a client organisation`);
+}
+
 export async function createCampaign(
   db: PrismaClient,
   actor: Actor,
   input: CreateCampaignInput,
 ): Promise<Campaign> {
   assertPermission(actor, "campaign:write");
-  assertOrganizationAccess(actor, input.clientOrganizationId);
 
   if (input.endDate.getTime() < input.startDate.getTime()) {
     throw new ValidationError("Campaign end date precedes its start date");
   }
 
-  const client = await db.organization.findUnique({ where: { id: input.clientOrganizationId } });
-  if (client === null || client.deletedAt !== null) throw new NotFoundError("Client organisation not found");
-  if (!client.isClient) throw new ValidationError(`${client.name} is not a client organisation`);
+  await assertClientOrganization(db, actor, input.clientOrganizationId);
+
+  // CUR-1/CUR-6: the currency has to be one the platform knows an exponent
+  // for, or every minor-unit amount stored against this campaign is wrong.
+  // exponentFor throws ValidationError for anything unsupported.
+  exponentFor(input.currency);
 
   // Fast-path check for common case (optional optimization)
   const duplicate = await db.campaign.findUnique({ where: { code: input.code } });
@@ -273,6 +293,15 @@ export async function addCampaignChannel(
   const campaign = await assertDraftAndAccessible(db, actor, campaignId);
 
   if (input.contractedQuantity <= 0) throw new ValidationError("Contracted quantity must be positive");
+  // The channel's money is frozen into the campaign's config snapshot as minor
+  // units with no currency conversion (FR-CS-1), and the client is billed in
+  // one currency per campaign (CUR-2, FR-CM-7) — nothing in the spec makes a
+  // channel in a different currency from its campaign meaningful.
+  if (input.currency !== campaign.currency) {
+    throw new ValidationError(
+      `Channel currency ${input.currency} does not match the campaign's ${campaign.currency}`,
+    );
+  }
   if (input.endDate.getTime() < input.startDate.getTime()) {
     throw new ValidationError("Channel end date precedes its start date");
   }

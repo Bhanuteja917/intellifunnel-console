@@ -6,6 +6,7 @@ import {
   type Actor,
 } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
+import { requireEnv } from "@/lib/env";
 import { applyMapping, parseDelimited, type RowError } from "@/lib/lists/csv";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
@@ -18,9 +19,14 @@ const ENTRY_TYPES: readonly string[] = ["account", "domain", "email", "contact"]
 /**
  * FR-CP-6: suppression entries are exempt from retention expiry, so the value
  * is also kept as a salted hash that survives anonymisation of the contact.
+ *
+ * The salt is required, with no fallback. Every import writes these hashes
+ * today, and a hash written under a substituted salt can never be matched
+ * against one written under the real salt — the damage is silent, permanent
+ * and only discovered by the phase that starts reading valueHash.
  */
 export function hashSuppressionValue(value: string): string {
-  const salt = process.env.SUPPRESSION_HASH_SALT ?? "development-salt";
+  const salt = requireEnv("SUPPRESSION_HASH_SALT");
   return createHmac("sha256", salt).update(value).digest("hex");
 }
 

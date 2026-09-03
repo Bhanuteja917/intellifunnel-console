@@ -14,7 +14,7 @@ import {
 } from "@/lib/campaigns/crud";
 import { decideClientApproval, decideInternalApproval, submitForInternalApproval } from "@/lib/campaigns/state-machine";
 import { cloneCampaign } from "@/lib/campaigns/clone";
-import { ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 
 async function configuredCampaign(code: string) {
   const db = testDb();
@@ -54,6 +54,35 @@ describe("cloneCampaign (E3)", () => {
     await seedRoles(db);
     await seedFunnelStages(db);
     await seedChannelTypes(db);
+  });
+
+  it("refuses to retarget a clone at an organisation that is not a client", async () => {
+    const { db, manager, campaign } = await configuredCampaign("CLONE-SRC-ORG");
+    const partnerOnly = await createOrganization(db, { isClient: false, isPartner: true });
+
+    await expect(
+      cloneCampaign(db, manager, campaign.id, {
+        code: "CLONE-NOT-CLIENT",
+        clientOrganizationId: partnerOnly.id,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(await db.campaign.findUnique({ where: { code: "CLONE-NOT-CLIENT" } })).toBeNull();
+  });
+
+  it("refuses to retarget a clone at a soft-deleted organisation", async () => {
+    const { db, manager, campaign } = await configuredCampaign("CLONE-SRC-DEL");
+    const gone = await createOrganization(db, { isClient: true });
+    await db.organization.update({ where: { id: gone.id }, data: { deletedAt: new Date() } });
+
+    await expect(
+      cloneCampaign(db, manager, campaign.id, {
+        code: "CLONE-DELETED-ORG",
+        clientOrganizationId: gone.id,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(await db.campaign.findUnique({ where: { code: "CLONE-DELETED-ORG" } })).toBeNull();
   });
 
   it("copies ICP, lead field spec and channels into a new draft", async () => {

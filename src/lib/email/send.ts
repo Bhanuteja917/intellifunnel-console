@@ -1,7 +1,10 @@
 export type EmailInput = { to: string; subject: string; body: string };
 
 export async function sendEmail(input: EmailInput): Promise<void> {
-  if (process.env.EMAIL_PROVIDER_API_KEY === undefined) {
+  // Falsy, not just undefined: .env.example sets EMAIL_PROVIDER_API_KEY to an
+  // empty string, so following it literally used to skip dev logging and POST
+  // to an empty provider URL with an empty bearer token.
+  if (!process.env.EMAIL_PROVIDER_API_KEY) {
     console.info("[email:dev]", input.to, input.subject, input.body);
     return;
   }

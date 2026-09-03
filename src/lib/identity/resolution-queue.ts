@@ -23,13 +23,21 @@ export async function listUnresolvedEntries(
   // The queue is an internal tool: it exposes accounts across every client.
   assertPermission(actor, "account:write");
 
+  // AUTH-9: TargetAccountEntry is organisation-scoped through its list, so a
+  // non-internal actor's results are filtered to their own organisation at the
+  // query level, whatever the caller asked for. Today no client or partner
+  // role holds account:write, so this is defence in depth — but the safety of
+  // this function must not depend on the permission matrix staying that way,
+  // and the one caller (the resolution-queue page) passes no filter at all.
+  const organizationId = actor.isInternal ? filter.organizationId : actor.organizationId;
+
   const limit = filter.limit ?? 50;
   const where: Prisma.TargetAccountEntryWhereInput = {
     matchStatus: { in: ["unmatched", "ambiguous"] },
     ...(filter.listId === undefined ? {} : { listId: filter.listId }),
-    ...(filter.organizationId === undefined
+    ...(organizationId === undefined
       ? {}
-      : { list: { ownerOrganizationId: filter.organizationId } }),
+      : { list: { ownerOrganizationId: organizationId } }),
   };
 
   // NFR-P-1: cursor-based paging, never offset.

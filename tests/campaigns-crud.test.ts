@@ -101,6 +101,37 @@ describe("campaign configuration", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("rejects a currency the platform has no exponent for (CUR-6)", async () => {
+    const { db, manager, client } = await setupCampaign();
+
+    await expect(
+      createCampaign(db, manager, {
+        clientOrganizationId: client.id, name: "C", code: "BAD-CCY",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "XYZ",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(await db.campaign.findUnique({ where: { code: "BAD-CCY" } })).toBeNull();
+  });
+
+  it("rejects a channel whose currency differs from its campaign's", async () => {
+    const { db, manager, client, version } = await setupCampaign();
+    const campaign = await createCampaign(db, manager, {
+      clientOrganizationId: client.id, name: "C", code: "MIXED-CCY",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+    });
+
+    await expect(
+      addCampaignChannel(db, manager, campaign.id, {
+        channelTypeVersionId: version.id, contractedQuantity: 100,
+        clientUnitPrice: "42.50", currency: "EUR",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(await db.campaignChannel.count({ where: { campaignId: campaign.id } })).toBe(0);
+  });
+
   it("replaces ICP criteria wholesale", async () => {
     const { db, manager, client } = await setupCampaign();
     const campaign = await createCampaign(db, manager, {

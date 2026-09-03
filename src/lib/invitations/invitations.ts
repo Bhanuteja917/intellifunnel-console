@@ -13,6 +13,7 @@ import { getSetting } from "@/lib/settings/settings";
 import { normalizeEmail } from "@/lib/normalise/email";
 import { auth } from "@/lib/auth/better-auth";
 import { sendEmail } from "@/lib/email/send";
+import { logger } from "@/lib/logging/logger";
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -93,11 +94,26 @@ export async function createInvitation(
       }),
   );
 
-  await sendEmail({
-    to: email,
-    subject: "You have been invited",
-    body: `Accept your invitation: ${process.env.APP_BASE_URL}/invite/${token}`,
-  });
+  // The send happens after the audited transaction has committed, so a
+  // delivery failure must not fail the call: the invitation row and its token
+  // already exist, a second createInvitation for the same address throws
+  // ConflictError, and the raw token is deliberately never surfaced to the UI
+  // — throwing here would leave the operator with an invitation they can
+  // neither deliver nor recreate. resendInvitation is the retry path, and it
+  // rotates the token (AUTH-5) so nothing is lost by using it.
+  try {
+    await sendEmail({
+      to: email,
+      subject: "You have been invited",
+      body: `Accept your invitation: ${process.env.APP_BASE_URL}/invite/${token}`,
+    });
+  } catch (error) {
+    logger.error("invitation.email.failed", {
+      invitationId: invitation.id,
+      email,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return { invitation, token };
 }

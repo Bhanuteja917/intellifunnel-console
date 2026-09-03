@@ -12,6 +12,15 @@ export async function setup() {
   const url = container.getConnectionUri();
   process.env.DATABASE_URL = url;
   process.env.DIRECT_URL = url;
+
+  // src/lib/env.ts requires these rather than substituting a fallback, so the
+  // suite has to supply them the same way a deployment does. The salt in
+  // particular must be a real value: hashSuppressionValue would otherwise have
+  // to invent one, and hashes written under an invented salt can never be
+  // matched again.
+  process.env.APP_BASE_URL ??= "http://localhost:3000";
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-not-used-outside-the-test-suite";
+  process.env.SUPPRESSION_HASH_SALT ??= "test-suppression-salt";
   execSync("pnpm prisma migrate deploy", {
     stdio: "inherit",
     env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url },
