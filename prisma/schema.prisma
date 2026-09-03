@@ -88,6 +88,7 @@ model Organization {
   domains     OrganizationDomain[]
   users       User[]
   invitations Invitation[]
+  campaigns   Campaign[]
 
   @@index([isClient])
   @@index([isPartner])
@@ -466,7 +467,8 @@ model ChannelTypeVersion {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  channelType ChannelType @relation(fields: [channelTypeId], references: [id])
+  channelType      ChannelType        @relation(fields: [channelTypeId], references: [id])
+  campaignChannels CampaignChannel[]
 
   @@unique([channelTypeId, version])
 }
@@ -479,8 +481,9 @@ model QualificationForm {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  questions    QualificationQuestion[]
-  channelTypes ChannelType[]
+  questions         QualificationQuestion[]
+  channelTypes      ChannelType[]
+  campaignChannels  CampaignChannel[]
 }
 
 model QualificationQuestion {
@@ -511,4 +514,183 @@ model RejectReason {
   isActive             Boolean              @default(true)
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
+}
+
+enum CampaignStatus {
+  draft
+  pendingInternalApproval
+  pendingClientApproval
+  scheduled
+  live
+  paused
+  completed
+  cancelled
+}
+
+enum IcpDimension {
+  industry
+  employeeRange
+  revenueRange
+  country
+  region
+  jobFunction
+  seniority
+  jobTitle
+  custom
+}
+
+enum IcpOperator {
+  in
+  notIn
+  between
+  contains
+}
+
+enum LeadFieldDataType {
+  string
+  number
+  boolean
+  date
+  email
+  phone
+  url
+}
+
+enum ApprovalType {
+  internal
+  client
+}
+
+enum ApprovalDecision {
+  approved
+  rejected
+}
+
+enum CampaignChannelStatus {
+  draft
+  active
+  paused
+  completed
+}
+
+model Campaign {
+  id                         String         @id @default(cuid())
+  clientOrganizationId       String
+  name                       String
+  code                       String         @unique
+  status                     CampaignStatus @default(draft)
+  startDate                  DateTime       @db.Date
+  endDate                    DateTime       @db.Date
+  currency                   String         @db.Char(3)
+  defaultMaxLeadsPerAccount  Int?
+  clonedFromCampaignId       String?
+  approvedSnapshotId         String?
+  advisoryTalMatch           Boolean        @default(false)
+  advisoryIcpMatch           Boolean        @default(false)
+  deletedAt                  DateTime?
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
+  createdById                String?
+  updatedById                String?
+
+  clientOrganization Organization        @relation(fields: [clientOrganizationId], references: [id])
+  clonedFrom         Campaign?           @relation("CampaignClone", fields: [clonedFromCampaignId], references: [id])
+  clones             Campaign[]          @relation("CampaignClone")
+  icpCriteria        IcpCriterion[]
+  leadFieldSpecs     LeadFieldSpec[]
+  channels           CampaignChannel[]
+  approvals          CampaignApproval[]
+  statusHistory      CampaignStatusHistory[]
+
+  @@index([clientOrganizationId, status])
+  @@index([status, startDate])
+}
+
+model IcpCriterion {
+  id          String       @id @default(cuid())
+  campaignId  String
+  dimension   IcpDimension
+  operator    IcpOperator
+  valuesJson  Json
+  isMandatory Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([campaignId])
+}
+
+model LeadFieldSpec {
+  id                String            @id @default(cuid())
+  campaignId        String
+  fieldKey          String
+  label             String
+  isRequired        Boolean           @default(true)
+  dataType          LeadFieldDataType
+  allowedValuesJson Json?
+  validationPattern String?
+  rejectIfMissing   Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@unique([campaignId, fieldKey])
+}
+
+model CampaignChannel {
+  id                   String                @id @default(cuid())
+  campaignId           String
+  channelTypeVersionId String
+  contractedQuantity   Int
+  clientUnitPriceMinor BigInt
+  costBudgetMinor      BigInt?
+  currency             String                @db.Char(3)
+  startDate            DateTime              @db.Date
+  endDate              DateTime              @db.Date
+  status               CampaignChannelStatus @default(draft)
+  qualificationFormId  String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  createdById          String?
+  updatedById          String?
+
+  campaign           Campaign           @relation(fields: [campaignId], references: [id])
+  channelTypeVersion ChannelTypeVersion @relation(fields: [channelTypeVersionId], references: [id])
+  qualificationForm  QualificationForm? @relation(fields: [qualificationFormId], references: [id])
+
+  @@index([campaignId])
+}
+
+model CampaignApproval {
+  id                 String           @id @default(cuid())
+  campaignId         String
+  type               ApprovalType
+  decision           ApprovalDecision
+  decidedByUserId    String
+  decidedAt          DateTime         @default(now())
+  comments           String?
+  configSnapshotJson Json?
+  snapshotVersion    Int?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([campaignId, type])
+}
+
+model CampaignStatusHistory {
+  id              String         @id @default(cuid())
+  campaignId      String
+  fromStatus      CampaignStatus?
+  toStatus        CampaignStatus
+  changedByUserId String?
+  changedAt       DateTime       @default(now())
+  reason          String?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+
+  @@index([campaignId, changedAt])
 }
