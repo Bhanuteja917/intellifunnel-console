@@ -13,14 +13,14 @@ import { Button } from "@/components/ui/button";
  * The message itself is deliberately not shown: Next.js only hands a digest to
  * this component in production, and the underlying error may name internals.
  */
-export default function AdminError({ reset }: { error: Error; reset: () => void }) {
+export default function AdminError({ retry }: { error: Error; retry: () => void }) {
   return (
     <Alert variant="destructive">
       <AlertTitle>This page could not be loaded.</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
         You may not have access to it. If you think you should, ask an
         administrator to check your role.
-        <Button variant="outline" size="sm" onClick={reset}>
+        <Button variant="outline" size="sm" onClick={() => retry()}>
           Try again
         </Button>
       </AlertDescription>

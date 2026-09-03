@@ -848,15 +848,15 @@ model SuppressionList {
 }
 
 model SuppressionEntry {
-  id        String               @id @default(cuid())
-  listId    String
-  type      SuppressionEntryType
-  value     String
-  valueHash String
-  accountId String?
-  contactId String?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  id          String               @id @default(cuid())
+  listId      String
+  type        SuppressionEntryType
+  value       String
+  valueHash   String
+  accountId   String?
+  contactId   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
   createdById String?
   updatedById String?
 
