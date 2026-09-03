@@ -795,3 +795,64 @@ model CampaignTargetAccountList {
 
   @@unique([campaignId, listId])
 }
+
+enum SuppressionListType {
+  client
+  competitor
+  existingCustomer
+  prior
+  custom
+}
+
+enum SuppressionEntryType {
+  account
+  domain
+  email
+  contact
+}
+
+model SuppressionList {
+  id                  String              @id @default(cuid())
+  ownerOrganizationId String
+  name                String
+  isReusable          Boolean             @default(true)
+  type                SuppressionListType @default(custom)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  createdById         String?
+  updatedById         String?
+
+  entries   SuppressionEntry[]
+  campaigns CampaignSuppressionList[]
+
+  @@index([ownerOrganizationId])
+}
+
+model SuppressionEntry {
+  id        String               @id @default(cuid())
+  listId    String
+  type      SuppressionEntryType
+  value     String
+  valueHash String
+  accountId String?
+  contactId String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  list SuppressionList @relation(fields: [listId], references: [id])
+
+  @@unique([listId, type, value])
+  @@index([listId, type, valueHash])
+}
+
+model CampaignSuppressionList {
+  id         String   @id @default(cuid())
+  campaignId String
+  listId     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  list SuppressionList @relation(fields: [listId], references: [id])
+
+  @@unique([campaignId, listId])
+}
