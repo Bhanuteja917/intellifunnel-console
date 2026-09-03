@@ -20,6 +20,15 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<CampaignStatus, readonly Campa
   cancelled: [],
 };
 
+/** Transitions that must go through dedicated approval functions, not transitionCampaign. */
+const GATED_TRANSITIONS: ReadonlySet<string> = new Set([
+  "draft->pendingInternalApproval",
+  "pendingInternalApproval->pendingClientApproval",
+  "pendingInternalApproval->draft",
+  "pendingClientApproval->scheduled",
+  "pendingClientApproval->draft",
+]);
+
 async function applyTransition(
   tx: Prisma.TransactionClient,
   actor: Actor | null,
@@ -34,10 +43,18 @@ async function applyTransition(
     );
   }
 
-  const updated = await tx.campaign.update({
-    where: { id: campaign.id },
+  // Re-verify the campaign's status hasn't changed since it was read, closing
+  // a TOCTOU race between concurrent transitions on the same campaign.
+  const result = await tx.campaign.updateMany({
+    where: { id: campaign.id, status: campaign.status },
     data: { status: toStatus, updatedById: actor?.userId, ...extraData },
   });
+  if (result.count === 0) {
+    throw new InvalidStateTransitionError(
+      `Campaign status changed concurrently; expected ${campaign.status}`,
+    );
+  }
+  const updated = await tx.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
 
   await tx.campaignStatusHistory.create({
     data: {
@@ -82,6 +99,11 @@ export async function transitionCampaign(
 ): Promise<Campaign> {
   assertPermission(actor, "campaign:write");
   const campaign = await loadAccessibleCampaign(db, actor, campaignId);
+  if (GATED_TRANSITIONS.has(`${campaign.status}->${toStatus}`)) {
+    throw new ValidationError(
+      `Use submitForInternalApproval/decideInternalApproval/decideClientApproval for ${campaign.status} -> ${toStatus}`,
+    );
+  }
   return db.$transaction((tx) => applyTransition(tx, actor, campaign, toStatus, reason));
 }
 

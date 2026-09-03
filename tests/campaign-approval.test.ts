@@ -189,6 +189,22 @@ describe("approval workflow (E6, FR-CS-1)", () => {
     expect((await transitionCampaign(db, manager, campaign.id, "paused")).status).toBe("paused");
     expect((await transitionCampaign(db, manager, campaign.id, "live")).status).toBe("live");
   });
+
+  it("refuses transitionCampaign on draft -> pendingInternalApproval (gated transition)", async () => {
+    const { db, manager, campaign } = await scenario("GATE-1");
+
+    await expect(transitionCampaign(db, manager, campaign.id, "pendingInternalApproval"))
+      .rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("refuses transitionCampaign on pendingClientApproval -> scheduled (gated transition)", async () => {
+    const { db, manager, campaign } = await scenario("GATE-2");
+    await submitForInternalApproval(db, manager, campaign.id);
+    await decideInternalApproval(db, manager, campaign.id, "approved");
+
+    await expect(transitionCampaign(db, manager, campaign.id, "scheduled"))
+      .rejects.toBeInstanceOf(ValidationError);
+  });
 });
 
 describe("scheduled transitions", () => {
