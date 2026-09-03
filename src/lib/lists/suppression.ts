@@ -1,6 +1,5 @@
 import { createHmac } from "node:crypto";
 import type { PrismaClient, SuppressionEntryType, SuppressionListType } from "@prisma/client";
-import { NotFoundError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
   assertPermission,
@@ -12,6 +11,7 @@ import { normalizeDomain } from "@/lib/normalise/domain";
 import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
 import type { ImportResult } from "@/lib/lists/target-accounts";
 import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
+import { resolveAccount } from "@/lib/identity/account-resolution";
 
 const ENTRY_TYPES: readonly string[] = ["account", "domain", "email", "contact"];
 
@@ -76,6 +76,33 @@ export async function importSuppressionList(
 
     if (!ENTRY_TYPES.includes(rawType)) {
       errors.push({ rowNumber, field: "type", rawValue: rawType, message: `Unknown suppression type: ${rawType}` });
+      continue;
+    }
+
+    if (rawType === "account") {
+      // For account type, resolve via domain and require a match
+      const match = await resolveAccount(db, { domain: rawValue });
+      if (match.status !== "matched") {
+        errors.push({
+          rowNumber, field: "value", rawValue,
+          message: `Could not resolve account for suppression: ${rawValue}`,
+        });
+        continue;
+      }
+
+      const normalizedValue = normalizeDomain(rawValue) ?? rawValue;
+      await db.suppressionEntry.upsert({
+        where: { listId_type_value: { listId: list.id, type: "account", value: normalizedValue } },
+        update: {},
+        create: {
+          listId: list.id,
+          type: "account" as const,
+          value: normalizedValue,
+          valueHash: hashSuppressionValue(normalizedValue),
+          accountId: match.accountId,
+        },
+      });
+      accepted += 1;
       continue;
     }
 

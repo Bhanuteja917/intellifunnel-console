@@ -10,6 +10,7 @@ import {
   importSuppressionList,
   isSuppressed,
 } from "@/lib/lists/suppression";
+import { createAccount } from "@/lib/identity/account-resolution";
 
 async function setup() {
   const db = testDb();
@@ -81,6 +82,33 @@ describe("suppression list import", () => {
 
     expect(result.rowsFailed).toBe(1);
     expect(result.errors[0]?.message).toMatch(/type/i);
+  });
+
+  it("resolves account type entries and sets accountId on matched accounts", async () => {
+    const { db, ops, manager, client, campaign } = await setup();
+
+    // Create an account with a domain
+    const account = await createAccount(db, ops, {
+      name: "Acme Corp",
+      domain: "acme.com",
+    });
+
+    // Import suppression list with account type
+    const content = "Type,Value\naccount,acme.com\n";
+    const { listId } = await importSuppressionList(db, ops, {
+      ownerOrganizationId: client.id, name: "AccountSuppression", type: "custom",
+      content, mapping: MAPPING,
+    });
+
+    // Verify the entry has the correct accountId
+    const entry = await db.suppressionEntry.findFirstOrThrow({
+      where: { listId, type: "account" },
+    });
+    expect(entry.accountId).toBe(account.id);
+
+    // Attach list to campaign and verify isSuppressed matches
+    await attachSuppressionList(db, manager, campaign.id, listId);
+    expect(await isSuppressed(db, campaign.id, { accountId: account.id })).toBe(true);
   });
 });
 
