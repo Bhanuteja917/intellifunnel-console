@@ -188,7 +188,7 @@ export async function revokeInvitation(
 export async function acceptInvitation(
   db: PrismaClient,
   input: { token: string; name: string; password: string },
-): Promise<{ userId: string }> {
+): Promise<{ userId: string; email: string }> {
   const tokenHash = hashToken(input.token);
 
   const user = await db.$transaction(async (tx) => {
@@ -250,8 +250,17 @@ export async function acceptInvitation(
     }
 
     const passwordHash = await authContext.password.hash(input.password);
+    // AUTH-4: the invitation token was delivered to this exact mailbox and the
+    // token itself is the credential (AUTH-3), so successfully claiming it is
+    // proof of control over the address — the same reasoning every
+    // invitation-based system uses. Leaving `emailVerified: false` would make
+    // the account unusable: `emailAndPassword.requireEmailVerification: true`
+    // (src/lib/auth/better-auth.ts) blocks sign-in unconditionally until the
+    // flag is set, and nothing in this phase ever sends a verification email.
+    // This does not weaken AUTH-1 — there is still no public registration, and
+    // this line is only reachable from a real, unexpired, unclaimed invitation.
     const authUser = await authContext.internalAdapter.createUser(
-      { email: invitation.email, name: input.name, emailVerified: false },
+      { email: invitation.email, name: input.name, emailVerified: true },
       { method: "email-password" },
     );
     await authContext.internalAdapter.linkAccount({
@@ -295,5 +304,8 @@ export async function acceptInvitation(
     return created;
   });
 
-  return { userId: user.id };
+  // The email is returned so the caller can sign the new user in with the
+  // credential it just created, using the address the invitation carried
+  // rather than anything the browser supplied (AUTH-4).
+  return { userId: user.id, email: user.email };
 }

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { authClient } from "@/lib/auth/client";
 import { acceptInvitationAction } from "./actions";
 
 export function AcceptForm({ token, email }: { token: string; email: string }) {
@@ -15,18 +16,35 @@ export function AcceptForm({ token, email }: { token: string; email: string }) {
 
   function onSubmit(formData: FormData) {
     setError(null);
+    const password = String(formData.get("password") ?? "");
     startTransition(async () => {
       const result = await acceptInvitationAction({
         token,
         name: String(formData.get("name") ?? ""),
-        password: String(formData.get("password") ?? ""),
+        password,
       });
-      if (result.ok) {
-        toast.success("Account created");
-        router.push("/campaigns");
-      } else {
+      if (!result.ok) {
         setError(result.error);
+        return;
       }
+
+      // The account now exists but the browser holds no session yet: a server
+      // action cannot set Better Auth's session cookie, only its route handler
+      // can. So sign in with the credential just created, which is what makes
+      // the redirect below land on an authenticated page instead of tripping
+      // getCurrentActor's "Not authenticated".
+      const signIn = await authClient.signIn.email({
+        email: result.data.email,
+        password,
+      });
+      if (signIn.error !== null && signIn.error !== undefined) {
+        toast.success("Account created — please sign in");
+        router.push("/sign-in");
+        return;
+      }
+
+      toast.success("Account created");
+      router.push("/campaigns");
     });
   }
 

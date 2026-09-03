@@ -17,10 +17,12 @@ import { ConflictError, ForbiddenError, ValidationError } from "@/lib/errors";
 // `internalAdapter.createUser` + `linkAccount` (not the public-signup-gated
 // `auth.api.signUpEmail` — see the comment on `acceptInvitation`), so that's
 // what this mock stands in for.
-const createAuthUser = vi.fn(async (user: { email: string }) => ({
-  id: "auth-new",
-  ...user,
-}));
+const createAuthUser = vi.fn(
+  async (user: { email: string; name: string; emailVerified: boolean }) => ({
+    id: "auth-new",
+    ...user,
+  }),
+);
 const linkAuthAccount = vi.fn(async () => undefined);
 const hashAuthPassword = vi.fn(async () => "hashed-password");
 // `config.{min,max}PasswordLength` mirrors the shape `auth.$context.password`
@@ -168,6 +170,16 @@ describe("invitations", () => {
 
     const invitation = await db.invitation.findFirstOrThrow({ where: { email: "jane@acme.com" } });
     expect(invitation.status).toBe("accepted");
+
+    // AUTH-4: claiming the token proves control of the invited mailbox, so the
+    // Better Auth user is created already verified. Without this,
+    // `requireEmailVerification: true` would block sign-in forever, since
+    // nothing in this phase sends a verification email. Asserted against the
+    // arguments handed to Better Auth's own `internalAdapter.createUser`,
+    // which this suite mocks; tests/invitations.real-auth.test.ts asserts the
+    // resulting `authUser.emailVerified` column against a real database.
+    expect(createAuthUser).toHaveBeenCalledTimes(1);
+    expect(createAuthUser.mock.calls[0]?.[0]).toMatchObject({ emailVerified: true });
   });
 
   it("is single-use (AUTH-3)", async () => {

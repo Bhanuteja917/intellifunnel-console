@@ -78,15 +78,90 @@ describe("acceptInvitation against the real Better Auth instance", () => {
     expect(authAccount.password).not.toBe("correct horse battery staple");
 
     // The credential is a real, verifiable Better Auth password hash — not
-    // just an opaque string. (A live `auth.api.signInEmail` call is a
-    // separate check: `requireEmailVerification: true` blocks sign-in until
-    // the user verifies their email, which is orthogonal to whether the
-    // credential itself was created correctly.)
+    // just an opaque string.
     const verified = await verifyPassword({
       hash: authAccount.password!,
       password: "correct horse battery staple",
     });
     expect(verified).toBe(true);
+  });
+
+  it("signs the new user in immediately after acceptance, and resolves an actor", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const { token } = await createInvitation(db, actor, {
+      email: "signin@acme.com",
+      organizationId: client.id,
+      roleCode: "CLIENT_ADMIN",
+    });
+
+    const { userId, email } = await acceptInvitation(db, {
+      token,
+      name: "Sign In",
+      password: "correct horse battery staple",
+    });
+
+    // AUTH-4: the mailbox is proven by the token, so the account is created
+    // already verified. `emailAndPassword.requireEmailVerification: true`
+    // blocks `signInEmail` unconditionally otherwise, which made every
+    // invited user permanently unable to sign in.
+    const appUser = await db.user.findUniqueOrThrow({ where: { id: userId } });
+    const authUser = await db.authUser.findUniqueOrThrow({
+      where: { id: appUser.authUserId! },
+    });
+    expect(authUser.emailVerified).toBe(true);
+
+    // The real sign-in endpoint, unmocked, with the credential acceptance
+    // just created. This is the check that structurally cannot pass unless the
+    // whole invitation -> credential -> session chain works.
+    const signedIn = await auth.api.signInEmail({
+      body: { email, password: "correct horse battery staple" },
+      asResponse: true,
+    });
+    expect(signedIn.status).toBe(200);
+    // The session cookie the browser needs is issued by this endpoint — a
+    // server action cannot set it, which is why the acceptance form calls the
+    // Better Auth route handler through `authClient.signIn.email`.
+    expect(signedIn.headers.get("set-cookie")).toContain("session_token");
+
+    const session = await db.authSession.findFirstOrThrow({
+      where: { userId: authUser.id },
+    });
+    expect(session.expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+    // And the session actually resolves to the application actor every
+    // service function requires (the same lookup `getCurrentActor` performs).
+    const sessionUser = await db.user.findUniqueOrThrow({
+      where: { authUserId: session.userId },
+    });
+    const signedInActor = await loadActor(db, sessionUser.id);
+    expect(signedInActor.userId).toBe(userId);
+    expect(signedInActor.organizationId).toBe(client.id);
+    expect(signedInActor.roles).toEqual(["CLIENT_ADMIN"]);
+  });
+
+  it("refuses sign-in with the wrong password for an accepted invitation", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const { token } = await createInvitation(db, actor, {
+      email: "wrongpass@acme.com",
+      organizationId: client.id,
+      roleCode: "CLIENT_ADMIN",
+    });
+    const { email } = await acceptInvitation(db, {
+      token,
+      name: "Wrong Pass",
+      password: "correct horse battery staple",
+    });
+
+    const attempt = await auth.api.signInEmail({
+      body: { email, password: "not the right password" },
+      asResponse: true,
+    });
+    expect(attempt.status).not.toBe(200);
+    expect(await db.authSession.count()).toBe(0);
   });
 
   it("rejects a password shorter than Better Auth's real minPasswordLength default (8)", async () => {

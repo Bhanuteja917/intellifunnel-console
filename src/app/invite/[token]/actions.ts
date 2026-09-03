@@ -9,6 +9,6 @@ export async function acceptInvitationAction(input: {
   token: string;
   name: string;
   password: string;
-}): Promise<ActionResult<{ userId: string }>> {
+}): Promise<ActionResult<{ userId: string; email: string }>> {
   return toActionResult(() => acceptInvitation(db, input));
 }

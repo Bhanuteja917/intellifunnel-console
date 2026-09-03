@@ -1,0 +1,35 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { getSessionCookie } from "better-auth/cookies";
+
+/**
+ * Session guard for the admin console. Without it, an unauthenticated request
+ * to any `(admin)` route reaches `getCurrentActor` and throws
+ * `ForbiddenError("Not authenticated")` with no boundary to catch it — an
+ * unhandled 500 instead of a sign-in prompt.
+ *
+ * This is a cookie-presence check only, deliberately: it is a redirect for
+ * humans, never an authorisation decision. Every page and server action still
+ * resolves the real session and re-checks permissions server-side (AUTH-8,
+ * NFR-S-1), so a forged or expired cookie gets past this and is then rejected
+ * by the service layer.
+ */
+export function middleware(request: NextRequest): NextResponse {
+  if (getSessionCookie(request) !== null) return NextResponse.next();
+
+  return NextResponse.redirect(new URL("/sign-in", request.nextUrl.origin));
+}
+
+export const config = {
+  // The `(admin)` route group's own routes. `/invite/[token]` and `/sign-in`
+  // are unauthenticated by design and must stay out of this list.
+  matcher: [
+    "/campaigns",
+    "/campaigns/:path*",
+    "/channel-types",
+    "/channel-types/:path*",
+    "/organizations",
+    "/organizations/:path*",
+    "/resolution-queue",
+    "/resolution-queue/:path*",
+  ],
+};
