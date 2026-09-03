@@ -60,12 +60,14 @@ export async function createCampaign(
   input: CreateCampaignInput,
 ): Promise<Campaign> {
   assertPermission(actor, "campaign:write");
+  // Before the input checks below, so a caller who may not reach this
+  // organisation is refused on that ground rather than learning anything about
+  // the input it sent.
+  await assertClientOrganization(db, actor, input.clientOrganizationId);
 
   if (input.endDate.getTime() < input.startDate.getTime()) {
     throw new ValidationError("Campaign end date precedes its start date");
   }
-
-  await assertClientOrganization(db, actor, input.clientOrganizationId);
 
   // CUR-1/CUR-6: the currency has to be one the platform knows an exponent
   // for, or every minor-unit amount stored against this campaign is wrong.
