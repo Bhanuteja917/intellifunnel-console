@@ -36,6 +36,14 @@ describe("parseDelimited", () => {
   it("rejects duplicate headers", () => {
     expect(() => parseDelimited("Company,Company\nA,B\n")).toThrow(ValidationError);
   });
+
+  it("handles leading blank lines before header row", () => {
+    const result = parseDelimited("\nCompany,Domain\nAcme,acme.com\n");
+    expect(result.headers).toEqual(["Company", "Domain"]);
+    expect(result.rows).toEqual([
+      { Company: "Acme", Domain: "acme.com" },
+    ]);
+  });
 });
 
 describe("applyMapping", () => {
