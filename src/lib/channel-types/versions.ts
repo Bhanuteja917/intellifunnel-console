@@ -1,4 +1,5 @@
 import type { ChannelTypeVersion, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { NotFoundError } from "@/lib/errors";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
@@ -98,7 +99,7 @@ export async function publishChannelTypeVersion(
         data: {
           channelTypeId,
           version: nextVersion,
-          definitionJson: definition,
+          definitionJson: definition as unknown as Prisma.InputJsonValue,
           publishedById: actor.userId,
         },
       });

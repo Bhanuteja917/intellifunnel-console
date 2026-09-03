@@ -1,0 +1,110 @@
+import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { requireActor } from "@/lib/auth/require";
+import { getCampaignForActor } from "@/lib/campaigns/crud";
+import { hasPermission } from "@/lib/auth/permissions";
+import { fromMinorUnits } from "@/lib/money/currency";
+import { NotFoundError } from "@/lib/errors";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ApprovalActions } from "./approval-actions";
+
+export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const actor = await requireActor();
+
+  let campaign;
+  try {
+    campaign = await getCampaignForActor(db, actor, id);
+  } catch (error) {
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-semibold">{campaign.name}</h1>
+        <Badge variant="outline">{campaign.code}</Badge>
+        <Badge>{campaign.status}</Badge>
+      </div>
+
+      <ApprovalActions
+        campaignId={campaign.id}
+        status={campaign.status}
+        canSubmit={hasPermission(actor, "campaign:submitInternal")}
+        canApproveInternal={hasPermission(actor, "campaign:approveInternal")}
+        canApproveClient={hasPermission(actor, "campaign:approveClient")}
+      />
+
+      <Card>
+        <CardHeader><CardTitle>ICP criteria</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Dimension</TableHead>
+                <TableHead>Operator</TableHead>
+                <TableHead>Values</TableHead>
+                <TableHead>Mandatory</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {campaign.icpCriteria.map((criterion) => (
+                <TableRow key={criterion.id}>
+                  <TableCell>{criterion.dimension}</TableCell>
+                  <TableCell>{criterion.operator}</TableCell>
+                  <TableCell>{JSON.stringify(criterion.valuesJson)}</TableCell>
+                  <TableCell>{criterion.isMandatory ? "yes" : "advisory"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Channels</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Channel type</TableHead>
+                <TableHead>Quantity</TableHead>
+                <TableHead>Unit price</TableHead>
+                <TableHead>Window</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {campaign.channels.map((channel) => (
+                <TableRow key={channel.id}>
+                  <TableCell>
+                    {(channel.channelTypeVersion.definitionJson as { code?: string }).code} v
+                    {channel.channelTypeVersion.version}
+                  </TableCell>
+                  <TableCell>{channel.contractedQuantity}</TableCell>
+                  <TableCell>
+                    {channel.currency}{" "}
+                    {fromMinorUnits(channel.clientUnitPriceMinor, channel.currency)}
+                  </TableCell>
+                  <TableCell>
+                    {channel.startDate.toISOString().slice(0, 10)} –{" "}
+                    {channel.endDate.toISOString().slice(0, 10)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
