@@ -36,7 +36,9 @@ export type Permission =
   | "setting:write"
   | "audit:read"
   | "lead:read"
-  | "lead:write";
+  | "lead:write"
+  | "asset:read"
+  | "asset:write";
 
 const CLIENT_READ: Permission[] = ["campaign:read", "account:read", "list:read", "organization:read"];
 
@@ -47,10 +49,12 @@ const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
     "campaign:read", "campaign:write", "campaign:submitInternal",
     "campaign:approveInternal", "campaign:clone",
     "list:read", "list:write", "audit:read",
+    "asset:read", "asset:write",
   ],
   OPERATIONS: [
     "organization:read", "account:read", "account:write", "channelType:read",
     "campaign:read", "list:read", "list:write",
+    "asset:read", "asset:write",
   ],
   QUALITY: ["organization:read", "account:read", "campaign:read", "channelType:read", "lead:read", "lead:write"],
   ACCOUNT_MANAGER: [

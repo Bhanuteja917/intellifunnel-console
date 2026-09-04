@@ -89,6 +89,7 @@ model Organization {
   users       User[]
   invitations Invitation[]
   campaigns   Campaign[]
+  assets      Asset[]
 
   @@index([isClient])
   @@index([isPartner])
@@ -677,6 +678,7 @@ model CampaignChannel {
   qualificationForm  QualificationForm? @relation(fields: [qualificationFormId], references: [id])
   leadSubmissions    LeadSubmission[]
   leads              Lead[]
+  assets             AssetPlacement[]
 
   @@index([campaignId])
 }
@@ -1039,4 +1041,98 @@ model VerificationRecord {
   lead Lead @relation(fields: [leadId], references: [id])
 
   @@index([leadId])
+}
+
+enum AssetType {
+  whitepaper
+  ebook
+  researchPaper
+  creative
+  webinar
+  other
+}
+
+enum AssetStatus {
+  draft
+  active
+  archived
+}
+
+enum AssetPlacementStatus {
+  draft
+  active
+  paused
+  archived
+}
+
+model Asset {
+  id                  String      @id @default(cuid())
+  ownerOrganizationId String
+  name                String
+  type                AssetType
+  language            String
+  currentVersionId    String?
+  status              AssetStatus @default(draft)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  createdById         String?
+  updatedById         String?
+
+  ownerOrganization Organization      @relation(fields: [ownerOrganizationId], references: [id])
+  versions          AssetVersion[]
+  placements        AssetPlacement[]
+
+  @@index([ownerOrganizationId])
+}
+
+model AssetVersion {
+  id           String   @id @default(cuid())
+  assetId      String
+  version      Int
+  storageKey   String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  asset      Asset            @relation(fields: [assetId], references: [id])
+  placements AssetPlacement[]
+
+  @@unique([assetId, version])
+}
+
+model ConsentTextVersion {
+  id            String   @id @default(cuid())
+  name          String
+  body          String
+  version       Int
+  language      String
+  effectiveFrom DateTime @db.Date
+  createdAt     DateTime @default(now())
+  createdById   String?
+
+  placements AssetPlacement[]
+}
+
+model AssetPlacement {
+  id                   String               @id @default(cuid())
+  campaignChannelId    String
+  assetId              String
+  assetVersionId       String
+  landingPageUrl       String
+  formSlug             String               @unique
+  consentTextVersionId String?
+  status               AssetPlacementStatus @default(draft)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  createdById          String?
+  updatedById          String?
+
+  campaignChannel    CampaignChannel     @relation(fields: [campaignChannelId], references: [id])
+  asset              Asset               @relation(fields: [assetId], references: [id])
+  assetVersion       AssetVersion        @relation(fields: [assetVersionId], references: [id])
+  consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
+
+  @@index([campaignChannelId])
 }
