@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AddChannelDialog } from "./add-channel-dialog";
 import { ApprovalActions } from "./approval-actions";
 import { IcpCriteriaEditor } from "./icp-criteria-editor";
 import { LeadFieldSpecEditor } from "./lead-field-spec-editor";
@@ -30,6 +31,15 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
     if (error instanceof NotFoundError) notFound();
     throw error;
   }
+
+  const canAddChannel = hasPermission(actor, "campaign:write") && campaign.status === "draft";
+  const channelTypes = canAddChannel
+    ? await db.channelType.findMany({
+        where: { isActive: true, currentVersion: { gt: 0 } },
+        select: { id: true, name: true, code: true },
+        orderBy: { name: "asc" },
+      })
+    : [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -83,7 +93,18 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Channels</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Channels</CardTitle>
+          {canAddChannel && (
+            <AddChannelDialog
+              campaignId={campaign.id}
+              campaignCurrency={campaign.currency}
+              campaignStartDate={campaign.startDate.toISOString().slice(0, 10)}
+              campaignEndDate={campaign.endDate.toISOString().slice(0, 10)}
+              channelTypes={channelTypes}
+            />
+          )}
+        </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
