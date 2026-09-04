@@ -1,38 +1,22 @@
-import Link from "next/link";
+import { db } from "@/lib/db";
+import { requireActor } from "@/lib/auth/require";
+import { AppSidebar } from "@/components/app-sidebar";
 import {
-  Sidebar,
-  SidebarContent,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
-const NAV = [
-  { href: "/campaigns", label: "Campaigns" },
-  { href: "/channel-types", label: "Channel types" },
-  { href: "/organizations", label: "Organisations" },
-  { href: "/resolution-queue", label: "Resolution queue" },
-] as const;
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const actor = await requireActor();
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: actor.userId },
+    select: { name: true, email: true },
+  });
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <Sidebar>
-        <SidebarContent>
-          <SidebarMenu>
-            {NAV.map((item) => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton asChild>
-                  <Link href={item.href}>{item.label}</Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarContent>
-      </Sidebar>
+      <AppSidebar user={user} />
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger />
