@@ -28,7 +28,7 @@ type Props = {
   campaignCurrency: string;
   campaignStartDate: string;
   campaignEndDate: string;
-  channelTypes: { id: string; name: string; code: string }[];
+  channelTypes: { id: string; name: string }[];
 };
 
 export function AddChannelDialog({ campaignId, campaignCurrency, campaignStartDate, campaignEndDate, channelTypes }: Props) {
@@ -72,7 +72,7 @@ export function AddChannelDialog({ campaignId, campaignCurrency, campaignStartDa
 
   const canSubmit =
     channelTypeId !== "" &&
-    Number.isFinite(Number(quantity)) && Number(quantity) > 0 &&
+    Number.isInteger(Number(quantity)) && Number(quantity) > 0 &&
     unitPrice.trim() !== "" &&
     startDate !== "" && endDate !== "";
 
@@ -97,7 +97,7 @@ export function AddChannelDialog({ campaignId, campaignCurrency, campaignStartDa
           </Field>
           <Field>
             <FieldLabel htmlFor="channel-quantity">Contracted quantity</FieldLabel>
-            <Input id="channel-quantity" type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+            <Input id="channel-quantity" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </Field>
           <Field>
             <FieldLabel htmlFor="channel-price">Client unit price ({campaignCurrency})</FieldLabel>

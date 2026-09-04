@@ -32,11 +32,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
     throw error;
   }
 
-  const canAddChannel = hasPermission(actor, "campaign:write") && campaign.status === "draft";
-  const channelTypes = canAddChannel
+  const canEditConfig = hasPermission(actor, "campaign:write") && campaign.status === "draft";
+  const channelTypes = canEditConfig
     ? await db.channelType.findMany({
         where: { isActive: true, currentVersion: { gt: 0 } },
-        select: { id: true, name: true, code: true },
+        select: { id: true, name: true },
         orderBy: { name: "asc" },
       })
     : [];
@@ -65,10 +65,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
             initialCriteria={campaign.icpCriteria.map((c) => ({
               dimension: c.dimension,
               operator: c.operator,
-              values: c.valuesJson as unknown[],
+              values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
               isMandatory: c.isMandatory,
             }))}
-            canEdit={hasPermission(actor, "campaign:write") && campaign.status === "draft"}
+            canEdit={canEditConfig}
           />
         </CardContent>
       </Card>
@@ -84,10 +84,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
               dataType: f.dataType,
               isRequired: f.isRequired,
               rejectIfMissing: f.rejectIfMissing,
-              allowedValues: (f.allowedValuesJson as unknown[] | null) ?? undefined,
+              allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
               validationPattern: f.validationPattern ?? undefined,
             }))}
-            canEdit={hasPermission(actor, "campaign:write") && campaign.status === "draft"}
+            canEdit={canEditConfig}
           />
         </CardContent>
       </Card>
@@ -95,7 +95,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Channels</CardTitle>
-          {canAddChannel && (
+          {canEditConfig && (
             <AddChannelDialog
               campaignId={campaign.id}
               campaignCurrency={campaign.currency}
