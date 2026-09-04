@@ -6,6 +6,7 @@ import { validateFieldValues, type LeadFieldSpecRow } from "@/lib/leads/field-va
 import { checkDoNotContact, checkSuppression, matchesIcp, matchesTal, resolveLeadCap } from "@/lib/leads/matching";
 import { createAccount, resolveAccount } from "@/lib/identity/account-resolution";
 import { upsertContact } from "@/lib/identity/contact";
+import { normalizeCompanyName } from "@/lib/normalise/name";
 
 export type SubmitLeadFileInput = {
   campaignChannelId: string;
@@ -99,6 +100,18 @@ export async function submitLeadFile(
     validationPattern: s.validationPattern ?? undefined,
   }));
 
+  // The canonical fieldKey convention (companyName, companyDomain, email, ...)
+  // is case-insensitive, but `values` (from validateFieldValues) is keyed by
+  // whatever exact case the campaign admin typed for each LeadFieldSpec's
+  // fieldKey. Build a lowercased-canonical -> actual-fieldKey lookup once per
+  // submission so every canonical read below is case-insensitive too, not
+  // just the "email" existence gate above.
+  const canonicalKeyMap = new Map<string, string>(specRows.map((s) => [s.fieldKey.toLowerCase(), s.fieldKey]));
+  const canonicalField = (values: Record<string, unknown>, canonicalKey: string): string | undefined => {
+    const actualKey = canonicalKeyMap.get(canonicalKey.toLowerCase());
+    return actualKey === undefined ? undefined : stringField(values[actualKey]);
+  };
+
   const parsed = parseDelimited(input.content);
 
   const submission = await db.leadSubmission.create({
@@ -116,48 +129,51 @@ export async function submitLeadFile(
   let rowsAccepted = 0;
   let rowsFailed = 0; // counts ROWS that never became a Lead — NOT submissionErrors.length, which can be >1 per row (a single row can fail more than one field)
 
+  // Scoped to this one submitLeadFile call: without this, a CSV with many
+  // rows for the same company but no `country` column would independently
+  // resolve every row to "unmatched" (resolveAccount's name-match branch
+  // requires both name AND country) and call createAccount once per row,
+  // producing N accounts for one company. Domain is preferred as the cache
+  // key when present (the stronger identifier); otherwise the normalized
+  // company name.
+  const accountIdByCompanyKey = new Map<string, string>();
+
   for (const [index, rawRow] of parsed.rows.entries()) {
     const rowNumber = index + 2; // header is row 1
-    const mapped = applyMapping(rawRow, input.mapping);
-    const { values, errors } = validateFieldValues(specs, mapped);
+    try {
+      const mapped = applyMapping(rawRow, input.mapping);
+      const { values, errors } = validateFieldValues(specs, mapped);
 
-    if (errors.length > 0) {
-      for (const e of errors) {
-        submissionErrors.push({ rowNumber, field: e.field, rawValue: e.rawValue, message: e.message });
+      if (errors.length > 0) {
+        for (const e of errors) {
+          submissionErrors.push({ rowNumber, field: e.field, rawValue: e.rawValue, message: e.message });
+        }
+        rowsFailed += 1; // one failed ROW, even though it may have pushed several entries above
+        continue; // this row never becomes a Lead
       }
-      rowsFailed += 1; // one failed ROW, even though it may have pushed several entries above
-      continue; // this row never becomes a Lead
-    }
 
-    const companyName = stringField(values.companyName);
-    const companyDomain = stringField(values.companyDomain);
-    const country = stringField(values.country);
-    const email = stringField(values.email);
+      const companyName = canonicalField(values, "companyName");
+      const companyDomain = canonicalField(values, "companyDomain");
+      const country = canonicalField(values, "country");
+      const email = canonicalField(values, "email");
 
-    // Defensive: the campaign is required to have an "email" LeadFieldSpec
-    // (checked above), but nothing forces that spec to be
-    // isRequired+rejectIfMissing, so field validation alone can't guarantee
-    // `email` survived into `values`. upsertContact requires a real email
-    // string, so treat an absent one here as a structural intake failure
-    // rather than let it crash with a Prisma error deeper in the pipeline.
-    if (email === undefined) {
-      submissionErrors.push({
-        rowNumber,
-        field: "email",
-        rawValue: null,
-        message: "email is required to create or match a contact",
-      });
-      rowsFailed += 1;
-      continue;
-    }
+      // Defensive: the campaign is required to have an "email" LeadFieldSpec
+      // (checked above), but nothing forces that spec to be
+      // isRequired+rejectIfMissing, so field validation alone can't guarantee
+      // `email` survived into `values`. upsertContact requires a real email
+      // string, so treat an absent one here as a structural intake failure
+      // rather than let it crash with a Prisma error deeper in the pipeline.
+      if (email === undefined) {
+        submissionErrors.push({
+          rowNumber,
+          field: "email",
+          rawValue: null,
+          message: "email is required to create or match a contact",
+        });
+        rowsFailed += 1;
+        continue;
+      }
 
-    // --- Step 2: account resolution ---
-    const match = await resolveAccount(db, { name: companyName, domain: companyDomain, country });
-
-    let account: Account;
-    if (match.status === "matched") {
-      account = await db.account.findUniqueOrThrow({ where: { id: match.accountId } });
-    } else if (match.status === "unmatched") {
       if (companyName === undefined && companyDomain === undefined) {
         // Neither field present — creating an account would only produce a
         // useless "Unknown" record. Fail the row structurally: no Account
@@ -171,158 +187,189 @@ export async function submitLeadFile(
         rowsFailed += 1;
         continue;
       }
-      account = await createAccount(db, actor, {
-        name: companyName ?? companyDomain ?? "Unknown",
-        domain: companyDomain,
+
+      // --- Step 2: account resolution (cached per company within this file) ---
+      const companyKey = companyDomain !== undefined ? companyDomain.toLowerCase() : normalizeCompanyName(companyName ?? "");
+      const cachedAccountId = accountIdByCompanyKey.get(companyKey);
+
+      let account: Account;
+      if (cachedAccountId !== undefined) {
+        account = await db.account.findUniqueOrThrow({ where: { id: cachedAccountId } });
+      } else {
+        const match = await resolveAccount(db, { name: companyName, domain: companyDomain, country });
+
+        if (match.status === "matched") {
+          account = await db.account.findUniqueOrThrow({ where: { id: match.accountId } });
+        } else if (match.status === "unmatched") {
+          account = await createAccount(db, actor, {
+            name: companyName ?? companyDomain ?? "Unknown",
+            domain: companyDomain,
+            country,
+          });
+        } else {
+          // match.status === "ambiguous": this plan does not attempt to
+          // auto-resolve ambiguous account matches (same precedent as
+          // importTargetAccountList — a human resolves it via the resolution
+          // queue). There is no RejectReason for "a human needs to look at
+          // this before we can even attempt validation" — inventing one
+          // would misrepresent this as a business-rule outcome, so this row
+          // produces only a LeadSubmissionError, never a Lead.
+          submissionErrors.push({
+            rowNumber,
+            field: null,
+            rawValue: null,
+            message: "Account match is ambiguous — resolve manually before resubmitting",
+          });
+          rowsFailed += 1;
+          continue;
+        }
+        accountIdByCompanyKey.set(companyKey, account.id);
+      }
+
+      const contact: Contact = await upsertContact(db, {
+        email,
+        accountId: account.id,
+        firstName: canonicalField(values, "firstName"),
+        lastName: canonicalField(values, "lastName"),
+        jobTitle: canonicalField(values, "jobTitle"),
+        seniority: canonicalField(values, "seniority"),
+        jobFunction: canonicalField(values, "jobFunction"),
+        phone: canonicalField(values, "phone"),
         country,
       });
-    } else {
-      // match.status === "ambiguous": this plan does not attempt to
-      // auto-resolve ambiguous account matches (same precedent as
-      // importTargetAccountList — a human resolves it via the resolution
-      // queue). There is no RejectReason for "a human needs to look at this
-      // before we can even attempt validation" — inventing one would
-      // misrepresent this as a business-rule outcome, so this row produces
-      // only a LeadSubmissionError, never a Lead.
+
+      // --- Step 3: the per-row business-rule pipeline ---
+      let outcome: Outcome = "passed";
+      let rejectReasonCode: string | null = null;
+
+      checkDoNotContact(); // always false, deliberate no-op (see Task 3's brief / Global Constraints)
+
+      const suppressed = await checkSuppression(db, campaign.id, {
+        email,
+        domain: account.primaryDomain ?? undefined,
+        accountId: account.id,
+      });
+      if (suppressed) {
+        outcome = "failed";
+        rejectReasonCode = "SUPPRESSED_ACCOUNT";
+      }
+
+      if (outcome !== "failed") {
+        const duplicate = await db.lead.findFirst({
+          where: { contactId: contact.id, campaignChannel: { campaignId: campaign.id } },
+        });
+        if (duplicate !== null) {
+          outcome = "failed";
+          rejectReasonCode = "DUPLICATE_IN_CAMPAIGN";
+        }
+      }
+
+      if (outcome !== "failed") {
+        const talResult = await matchesTal(db, campaign.id, account.id);
+        if (talResult === "unmatched") {
+          if (campaign.advisoryTalMatch) {
+            if (outcome === "passed") outcome = "needsReview";
+            if (rejectReasonCode === null) rejectReasonCode = "NOT_ON_TARGET_ACCOUNT_LIST";
+            // advisory: do not stop, continue to the next check
+          } else {
+            outcome = "failed";
+            rejectReasonCode = "NOT_ON_TARGET_ACCOUNT_LIST";
+          }
+        }
+        // "noList" or "matched": no effect, continue
+      }
+
+      if (outcome !== "failed") {
+        const cap = await resolveLeadCap(db, campaign.id, account.id);
+        if (cap !== null) {
+          const acceptedCount = await db.lead.count({
+            where: { accountId: account.id, campaignChannel: { campaignId: campaign.id }, lifecycleStatus: "accepted" },
+          });
+          if (acceptedCount >= cap) {
+            // No advisory mode for this check per the spec.
+            outcome = "failed";
+            rejectReasonCode = "ACCOUNT_CAP_REACHED";
+          }
+        }
+      }
+
+      if (outcome !== "failed") {
+        const icp = await matchesIcp(
+          db,
+          campaign.id,
+          { industry: account.industry, employeeRange: account.employeeRange, revenueRange: account.revenueRange, country: account.country },
+          { jobFunction: contact.jobFunction, seniority: contact.seniority, jobTitle: contact.jobTitle },
+        );
+        if (icp.mandatoryFailed) {
+          const dimension = icp.failedDimensions[0];
+          const icpCode = dimension === undefined ? undefined : ICP_CODE_BY_DIMENSION[dimension];
+          if (icpCode === undefined) {
+            // Invariant from Task 3: a mandatoryFailed result always pushes
+            // at least one mapped dimension into failedDimensions. If this
+            // ever fires, something upstream broke the invariant — surface
+            // it loudly rather than silently mis-tagging the reject reason.
+            throw new Error(
+              `matchesIcp reported mandatoryFailed with no mappable dimension (row ${rowNumber}, failedDimensions=${JSON.stringify(icp.failedDimensions)})`,
+            );
+          }
+          if (campaign.advisoryIcpMatch) {
+            if (outcome === "passed") outcome = "needsReview";
+            if (rejectReasonCode === null) rejectReasonCode = icpCode;
+          } else {
+            outcome = "failed";
+            rejectReasonCode = icpCode;
+          }
+        }
+      }
+
+      const verificationStatus = outcome; // "passed" | "needsReview" | "failed" map 1:1 onto LeadVerificationStatus
+
+      let rejectReasonId: string | null = null;
+      if (rejectReasonCode !== null) {
+        const reason = await db.rejectReason.findUniqueOrThrow({ where: { code: rejectReasonCode } });
+        rejectReasonId = reason.id;
+      }
+
+      await db.$transaction(async (tx) => {
+        const lead = await tx.lead.create({
+          data: {
+            campaignChannelId: input.campaignChannelId,
+            submissionId: submission.id,
+            contactId: contact.id,
+            accountId: account.id,
+            sourceType: input.sourceType,
+            verificationStatus,
+            lifecycleStatus: "new", // always "new" at intake — acceptance/rejection is E9's job, not this pipeline's
+            clientVisible: false,
+            rejectReasonId,
+            fieldValuesJson: values as Prisma.InputJsonValue,
+          },
+        });
+        await tx.leadStatusHistory.create({
+          data: {
+            leadId: lead.id,
+            dimension: "verification",
+            fromValue: null,
+            toValue: verificationStatus,
+          },
+        });
+      });
+      rowsAccepted += 1; // this row produced a Lead — "passed"/"needsReview"/"failed" all count as accepted at the file-structural level
+    } catch (err) {
+      // Any unexpected failure anywhere in this row's processing (a
+      // malformed campaign config slipping past a gate, a transient DB
+      // error, the ICP invariant check above, etc.) degrades to a row-level
+      // failure exactly like a field-validation error — it must never abort
+      // the whole loop, or every row after it silently vanishes from the
+      // counts and the LeadSubmission is stuck at "processing" forever.
       submissionErrors.push({
         rowNumber,
         field: null,
         rawValue: null,
-        message: "Account match is ambiguous — resolve manually before resubmitting",
+        message: err instanceof Error ? err.message : String(err),
       });
       rowsFailed += 1;
-      continue;
     }
-
-    const contact: Contact = await upsertContact(db, {
-      email,
-      accountId: account.id,
-      firstName: stringField(values.firstName),
-      lastName: stringField(values.lastName),
-      jobTitle: stringField(values.jobTitle),
-      seniority: stringField(values.seniority),
-      jobFunction: stringField(values.jobFunction),
-      phone: stringField(values.phone),
-      country,
-    });
-
-    // --- Step 3: the per-row business-rule pipeline ---
-    let outcome: Outcome = "passed";
-    let rejectReasonCode: string | null = null;
-
-    checkDoNotContact(); // always false, deliberate no-op (see Task 3's brief / Global Constraints)
-
-    const suppressed = await checkSuppression(db, campaign.id, {
-      email,
-      domain: account.primaryDomain ?? undefined,
-      accountId: account.id,
-    });
-    if (suppressed) {
-      outcome = "failed";
-      rejectReasonCode = "SUPPRESSED_ACCOUNT";
-    }
-
-    if (outcome !== "failed") {
-      const duplicate = await db.lead.findFirst({
-        where: { contactId: contact.id, campaignChannel: { campaignId: campaign.id } },
-      });
-      if (duplicate !== null) {
-        outcome = "failed";
-        rejectReasonCode = "DUPLICATE_IN_CAMPAIGN";
-      }
-    }
-
-    if (outcome !== "failed") {
-      const talResult = await matchesTal(db, campaign.id, account.id);
-      if (talResult === "unmatched") {
-        if (campaign.advisoryTalMatch) {
-          if (outcome === "passed") outcome = "needsReview";
-          if (rejectReasonCode === null) rejectReasonCode = "NOT_ON_TARGET_ACCOUNT_LIST";
-          // advisory: do not stop, continue to the next check
-        } else {
-          outcome = "failed";
-          rejectReasonCode = "NOT_ON_TARGET_ACCOUNT_LIST";
-        }
-      }
-      // "noList" or "matched": no effect, continue
-    }
-
-    if (outcome !== "failed") {
-      const cap = await resolveLeadCap(db, campaign.id, account.id);
-      if (cap !== null) {
-        const acceptedCount = await db.lead.count({
-          where: { accountId: account.id, campaignChannel: { campaignId: campaign.id }, lifecycleStatus: "accepted" },
-        });
-        if (acceptedCount >= cap) {
-          // No advisory mode for this check per the spec.
-          outcome = "failed";
-          rejectReasonCode = "ACCOUNT_CAP_REACHED";
-        }
-      }
-    }
-
-    if (outcome !== "failed") {
-      const icp = await matchesIcp(
-        db,
-        campaign.id,
-        { industry: account.industry, employeeRange: account.employeeRange, revenueRange: account.revenueRange, country: account.country },
-        { jobFunction: contact.jobFunction, seniority: contact.seniority, jobTitle: contact.jobTitle },
-      );
-      if (icp.mandatoryFailed) {
-        const dimension = icp.failedDimensions[0];
-        const icpCode = dimension === undefined ? undefined : ICP_CODE_BY_DIMENSION[dimension];
-        if (icpCode === undefined) {
-          // Invariant from Task 3: a mandatoryFailed result always pushes at
-          // least one mapped dimension into failedDimensions. If this ever
-          // fires, something upstream broke the invariant — surface it
-          // loudly rather than silently mis-tagging the reject reason.
-          throw new Error(
-            `matchesIcp reported mandatoryFailed with no mappable dimension (row ${rowNumber}, failedDimensions=${JSON.stringify(icp.failedDimensions)})`,
-          );
-        }
-        if (campaign.advisoryIcpMatch) {
-          if (outcome === "passed") outcome = "needsReview";
-          if (rejectReasonCode === null) rejectReasonCode = icpCode;
-        } else {
-          outcome = "failed";
-          rejectReasonCode = icpCode;
-        }
-      }
-    }
-
-    const verificationStatus = outcome; // "passed" | "needsReview" | "failed" map 1:1 onto LeadVerificationStatus
-
-    let rejectReasonId: string | null = null;
-    if (rejectReasonCode !== null) {
-      const reason = await db.rejectReason.findUniqueOrThrow({ where: { code: rejectReasonCode } });
-      rejectReasonId = reason.id;
-    }
-
-    await db.$transaction(async (tx) => {
-      const lead = await tx.lead.create({
-        data: {
-          campaignChannelId: input.campaignChannelId,
-          submissionId: submission.id,
-          contactId: contact.id,
-          accountId: account.id,
-          sourceType: input.sourceType,
-          verificationStatus,
-          lifecycleStatus: "new", // always "new" at intake — acceptance/rejection is E9's job, not this pipeline's
-          clientVisible: false,
-          rejectReasonId,
-          fieldValuesJson: values as Prisma.InputJsonValue,
-        },
-      });
-      await tx.leadStatusHistory.create({
-        data: {
-          leadId: lead.id,
-          dimension: "verification",
-          fromValue: null,
-          toValue: verificationStatus,
-        },
-      });
-    });
-    rowsAccepted += 1; // this row produced a Lead — "passed"/"needsReview"/"failed" all count as accepted at the file-structural level
   }
 
   if (submissionErrors.length > 0) {
