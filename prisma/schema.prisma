@@ -315,6 +315,7 @@ model Account {
   mergeSources  Account[]      @relation("AccountMerge")
   aliases       AccountAlias[]
   contacts      Contact[]
+  leads         Lead[]
 
   @@index([normalizedName, country])
   @@index([mergedIntoId])
@@ -355,6 +356,7 @@ model Contact {
   updatedById     String?
 
   account Account @relation(fields: [accountId], references: [id])
+  leads   Lead[]
 
   @@index([accountId])
 }
@@ -520,6 +522,8 @@ model RejectReason {
   isActive             Boolean              @default(true)
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
+
+  leads Lead[]
 }
 
 enum CampaignStatus {
@@ -671,6 +675,8 @@ model CampaignChannel {
   campaign           Campaign           @relation(fields: [campaignId], references: [id])
   channelTypeVersion ChannelTypeVersion @relation(fields: [channelTypeVersionId], references: [id])
   qualificationForm  QualificationForm? @relation(fields: [qualificationFormId], references: [id])
+  leadSubmissions    LeadSubmission[]
+  leads              Lead[]
 
   @@index([campaignId])
 }
@@ -879,4 +885,117 @@ model CampaignSuppressionList {
   list     SuppressionList @relation(fields: [listId], references: [id])
 
   @@unique([campaignId, listId])
+}
+
+enum LeadSourceType {
+  internal
+  partner
+  form
+}
+
+enum LeadVerificationStatus {
+  pending
+  autoValidating
+  failed
+  needsReview
+  passed
+}
+
+enum LeadLifecycleStatus {
+  new
+  accepted
+  rejected
+  delivered
+}
+
+enum LeadEnrichmentStatus {
+  notRequired
+  pending
+  inProgress
+  complete
+}
+
+enum LeadStatusDimension {
+  verification
+  lifecycle
+  enrichment
+}
+
+model LeadSubmission {
+  id                String         @id @default(cuid())
+  campaignChannelId String
+  sourceType        LeadSourceType
+  submittedById     String
+  fileKey           String?
+  mappingJson       Json
+  rowsTotal         Int            @default(0)
+  rowsAccepted      Int            @default(0)
+  rowsFailed        Int            @default(0)
+  status            ImportStatus   @default(pending)
+  submittedAt       DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  campaignChannel CampaignChannel       @relation(fields: [campaignChannelId], references: [id])
+  leads           Lead[]
+  errors          LeadSubmissionError[]
+
+  @@index([campaignChannelId, status])
+}
+
+model LeadSubmissionError {
+  id           String   @id @default(cuid())
+  submissionId String
+  rowNumber    Int
+  field        String?
+  rawValue     String?
+  message      String
+  createdAt    DateTime @default(now())
+
+  submission LeadSubmission @relation(fields: [submissionId], references: [id])
+
+  @@index([submissionId, rowNumber])
+}
+
+model Lead {
+  id                 String                 @id @default(cuid())
+  campaignChannelId  String
+  submissionId       String
+  contactId          String
+  accountId          String
+  sourceType         LeadSourceType
+  verificationStatus LeadVerificationStatus @default(pending)
+  lifecycleStatus    LeadLifecycleStatus    @default(new)
+  enrichmentStatus   LeadEnrichmentStatus   @default(notRequired)
+  clientVisible      Boolean                @default(false)
+  rejectReasonId     String?
+  fieldValuesJson    Json
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  campaignChannel CampaignChannel     @relation(fields: [campaignChannelId], references: [id])
+  submission      LeadSubmission      @relation(fields: [submissionId], references: [id])
+  contact         Contact             @relation(fields: [contactId], references: [id])
+  account         Account             @relation(fields: [accountId], references: [id])
+  rejectReason    RejectReason?       @relation(fields: [rejectReasonId], references: [id])
+  statusHistory   LeadStatusHistory[]
+
+  @@index([campaignChannelId, verificationStatus])
+  @@index([accountId])
+  @@index([contactId])
+}
+
+model LeadStatusHistory {
+  id              String              @id @default(cuid())
+  leadId          String
+  dimension       LeadStatusDimension
+  fromValue       String?
+  toValue         String
+  changedByUserId String?
+  changedAt       DateTime            @default(now())
+  reason          String?
+
+  lead Lead @relation(fields: [leadId], references: [id])
+
+  @@index([leadId, dimension])
 }

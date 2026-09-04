@@ -35,6 +35,8 @@ export const REJECT_REASONS: readonly Seed[] = [
   { code: "QUALIFYING_ANSWER_MISSING", label: "Qualifying question unanswered", category: "qualification", isPartnerReplaceable: true },
   { code: "TELE_UNREACHABLE", label: "Unreachable on tele-verification", category: "contactability", isPartnerReplaceable: true },
   { code: "TELE_DENIED_INTEREST", label: "Denied interest on tele-verification", category: "contactability", isPartnerReplaceable: true },
+  { code: "INVALID_FIELD_FORMAT", label: "Value does not match the expected format", category: "dataQuality", isPartnerReplaceable: true },
+  { code: "VALUE_NOT_ALLOWED", label: "Value is outside the field's allowed values", category: "dataQuality", isPartnerReplaceable: true },
 ];
 
 export async function seedRejectReasons(db: PrismaClient): Promise<void> {
