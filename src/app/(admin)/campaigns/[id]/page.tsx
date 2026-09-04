@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ApprovalActions } from "./approval-actions";
 import { IcpCriteriaEditor } from "./icp-criteria-editor";
+import { LeadFieldSpecEditor } from "./lead-field-spec-editor";
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -56,6 +57,25 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
               operator: c.operator,
               values: c.valuesJson as unknown[],
               isMandatory: c.isMandatory,
+            }))}
+            canEdit={hasPermission(actor, "campaign:write") && campaign.status === "draft"}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Lead field spec</CardTitle></CardHeader>
+        <CardContent>
+          <LeadFieldSpecEditor
+            campaignId={campaign.id}
+            initialFields={campaign.leadFieldSpecs.map((f) => ({
+              fieldKey: f.fieldKey,
+              label: f.label,
+              dataType: f.dataType,
+              isRequired: f.isRequired,
+              rejectIfMissing: f.rejectIfMissing,
+              allowedValues: (f.allowedValuesJson as unknown[] | null) ?? undefined,
+              validationPattern: f.validationPattern ?? undefined,
             }))}
             canEdit={hasPermission(actor, "campaign:write") && campaign.status === "draft"}
           />
