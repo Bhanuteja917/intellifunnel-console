@@ -41,7 +41,7 @@ const CLIENT_READ: Permission[] = ["campaign:read", "account:read", "list:read",
 const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
   SUPER_ADMIN: [], // handled by the explicit check below
   CAMPAIGN_MANAGER: [
-    "organization:read", "account:read", "channelType:read",
+    "organization:read", "account:read", "account:write", "channelType:read",
     "campaign:read", "campaign:write", "campaign:submitInternal",
     "campaign:approveInternal", "campaign:clone",
     "list:read", "list:write", "audit:read",
