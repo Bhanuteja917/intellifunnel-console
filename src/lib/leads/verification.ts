@@ -91,6 +91,16 @@ export async function decideLeadVerification(
 
   assertOrganizationAccess(actor, lead.campaignChannel.campaign.clientOrganizationId);
 
+  // A lead can only ever be decided once — `needsReview` (or any other
+  // pending status) is the only state this function may act on. Without
+  // this guard, a double-submit / retried request / stale tab would append
+  // two more `LeadStatusHistory` rows, create a second `VerificationRecord`,
+  // and silently overwrite the SLA snapshot that's meant to be written
+  // exactly once at decision time.
+  if (lead.verificationStatus !== "needsReview") {
+    throw new ValidationError("This lead has already been decided and cannot be re-verified.");
+  }
+
   const channelType = lead.campaignChannel.channelTypeVersion.channelType;
 
   let effectiveDecision: "accept" | "reject" = input.decision;
@@ -99,9 +109,13 @@ export async function decideLeadVerification(
 
   if (input.decision === "accept") {
     if (channelType.requiresTeleVerification) {
-      if (input.tele === undefined) {
+      if (
+        input.tele === undefined ||
+        input.tele.callSystem.trim().length === 0 ||
+        input.tele.callReferenceId.trim().length === 0
+      ) {
         throw new ValidationError(
-          `Channel type "${channelType.code}" requires a completed tele-verification before a lead can be accepted.`,
+          `Channel type "${channelType.code}" requires a completed tele-verification (with a populated callSystem and callReferenceId) before a lead can be accepted.`,
         );
       }
       verificationRecordInput = teleVerificationRecordInput(input.tele);
@@ -158,9 +172,9 @@ export async function decideLeadVerification(
         verificationStatus: verificationStatusTo,
         lifecycleStatus: lifecycleStatusTo,
         clientVisible: effectiveDecision === "accept",
-        acceptedAt: effectiveDecision === "accept" ? now : undefined,
-        rejectedAt: effectiveDecision === "reject" ? now : undefined,
-        rejectReasonId: effectiveDecision === "reject" ? rejectReasonId : undefined,
+        acceptedAt: effectiveDecision === "accept" ? now : null,
+        rejectedAt: effectiveDecision === "reject" ? now : null,
+        rejectReasonId: effectiveDecision === "reject" ? rejectReasonId : null,
         verificationElapsedMinutes: sla.elapsedMinutes,
         verificationElapsedBusinessMinutes: sla.elapsedBusinessMinutes,
         slaBreached: sla.breached,
