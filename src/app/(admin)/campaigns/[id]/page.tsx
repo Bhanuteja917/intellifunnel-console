@@ -49,9 +49,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <h1 className="text-2xl font-semibold">{campaign.name}</h1>
         <Badge variant="outline">{campaign.code}</Badge>
         <Badge>{campaign.status}</Badge>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/campaigns/${campaign.id}/leads`}>View leads</Link>
-        </Button>
+        {actor.isInternal && (
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/campaigns/${campaign.id}/leads`}>View leads</Link>
+          </Button>
+        )}
       </div>
 
       <ApprovalActions

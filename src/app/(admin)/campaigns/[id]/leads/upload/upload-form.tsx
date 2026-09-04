@@ -3,6 +3,7 @@
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import Papa from "papaparse";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,8 +53,17 @@ export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
     const text = await file.text();
     setFileName(file.name);
     setContent(text);
-    const headerRow = text.split("\n")[0]?.split(",").map((h) => h.trim()) ?? [];
-    setHeaders(headerRow);
+    // The selected header becomes the actual key of `mapping` sent to the
+    // server, so it must match parseDelimited's (src/lib/lists/csv.ts) header
+    // row byte-for-byte — including its delimiter auto-detection, which a
+    // naive `split(",")` doesn't do (e.g. semicolon-delimited CSVs).
+    const parsedHeaders = Papa.parse<Record<string, string>>(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.trim(),
+      preview: 1,
+    });
+    setHeaders(parsedHeaders.meta.fields ?? []);
     setHeaderByFieldKey({});
   }
 
@@ -86,7 +96,7 @@ export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
         mapping,
       });
       if (result.ok) {
-        toast.success(`${result.data.rowsAccepted} of ${result.data.rowsTotal} rows accepted`);
+        toast.success(`${result.data.rowsAccepted} of ${result.data.rowsTotal} rows staged`);
         // No `/campaigns/[id]/leads` list page exists yet (a later task adds
         // it), so typedRoutes can't validate this literal — same cast
         // header-breadcrumb.tsx uses for a route it builds dynamically.

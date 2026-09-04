@@ -6,6 +6,7 @@ import { requireActor } from "@/lib/auth/require";
 import { assertPermission } from "@/lib/auth/permissions";
 import { getCampaignForActor } from "@/lib/campaigns/crud";
 import { NotFoundError } from "@/lib/errors";
+import { Card, CardContent } from "@/components/ui/card";
 import { UploadForm } from "./upload-form";
 
 export default async function UploadLeadsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,6 +34,20 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
     isRequired: spec.isRequired,
   }));
 
+  // Global Constraints: a campaign with no email-keyed field spec cannot use
+  // lead intake at all, and the upload UI must say so upfront — not after the
+  // operator has already picked a file and mapped every column.
+  const hasEmailSpec = campaign.leadFieldSpecs.some((s) => s.fieldKey.toLowerCase() === "email");
+  const hasChannels = campaign.channels.length > 0;
+  const hasFieldSpecs = campaign.leadFieldSpecs.length > 0;
+  const blockedReason = !hasFieldSpecs
+    ? "This campaign has no lead field specs configured. Configure field mappings on the campaign detail page before uploading leads."
+    : !hasEmailSpec
+      ? "This campaign has no 'email' lead field configured. Add one on the campaign detail page before uploading leads."
+      : !hasChannels
+        ? "This campaign has no channels configured. Add a channel on the campaign detail page before uploading leads."
+        : null;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
@@ -51,7 +66,18 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
         </div>
       </div>
 
-      <UploadForm campaignId={campaign.id} channels={channels} leadFieldKeys={leadFieldKeys} />
+      {blockedReason !== null ? (
+        <Card>
+          <CardContent className="text-muted-foreground">
+            <p>{blockedReason}</p>
+            <Link href={`/campaigns/${campaign.id}`} className="text-sm text-primary underline">
+              Back to campaign
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <UploadForm campaignId={campaign.id} channels={channels} leadFieldKeys={leadFieldKeys} />
+      )}
     </div>
   );
 }

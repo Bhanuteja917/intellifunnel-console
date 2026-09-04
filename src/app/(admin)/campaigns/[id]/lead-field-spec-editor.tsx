@@ -143,6 +143,11 @@ export function LeadFieldSpecEditor({ campaignId, initialFields, canEdit }: Prop
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        The intake pipeline recognises these field keys specially (case-insensitive): email
+        (required for intake), companyName, companyDomain, firstName, lastName, jobTitle, phone,
+        seniority, jobFunction, country, industry, employeeRange, revenueRange.
+      </p>
       <Table>
         <TableHeader>
           <TableRow>
@@ -160,7 +165,7 @@ export function LeadFieldSpecEditor({ campaignId, initialFields, canEdit }: Prop
           {rows.map((row, index) => (
             <TableRow key={index}>
               <TableCell>
-                <Input value={row.fieldKey} onChange={(e) => updateRow(index, { fieldKey: e.target.value })} placeholder="job_title" className="w-32" />
+                <Input value={row.fieldKey} onChange={(e) => updateRow(index, { fieldKey: e.target.value })} placeholder="jobTitle" className="w-32" />
               </TableCell>
               <TableCell>
                 <Input value={row.label} onChange={(e) => updateRow(index, { label: e.target.value })} placeholder="Job title" className="w-32" />

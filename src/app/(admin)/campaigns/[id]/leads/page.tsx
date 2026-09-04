@@ -47,18 +47,39 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
   }
 
   const [submissions, leads] = await Promise.all([
-    db.leadSubmission.findMany({
-      where: { campaignChannel: { campaignId: id } },
-      include: { errors: { take: 10 } },
-      orderBy: { submittedAt: "desc" },
-    }),
+    // Submissions (and their per-row errors) expose raw, pre-verification
+    // CSV data — an internal-only concern — so this query only runs when
+    // the Submissions card below will actually render.
+    actor.isInternal
+      ? db.leadSubmission.findMany({
+          where: { campaignChannel: { campaignId: id } },
+          include: { errors: { take: 10 } },
+          orderBy: { submittedAt: "desc" },
+        })
+      : Promise.resolve([]),
+    // FR-IN-1: no lead is client-visible before verification passes — a
+    // non-internal actor only ever sees clientVisible leads (see
+    // src/app/(admin)/campaigns/page.tsx's isInternal precedent).
     db.lead.findMany({
-      where: { campaignChannel: { campaignId: id } },
+      where: {
+        campaignChannel: { campaignId: id },
+        ...(actor.isInternal ? {} : { clientVisible: true }),
+      },
       include: { account: true, contact: true, rejectReason: true },
       orderBy: { createdAt: "desc" },
       take: 100,
     }),
   ]);
+
+  // Rejected-per-submission counts, derived from the already-fetched leads
+  // (no extra query) — a lead counts as "rejected" if it didn't pass
+  // verification, regardless of whether it also produced a LeadSubmissionError.
+  const rejectedBySubmissionId = new Map<string, number>();
+  for (const lead of leads) {
+    if (lead.verificationStatus !== "passed") {
+      rejectedBySubmissionId.set(lead.submissionId, (rejectedBySubmissionId.get(lead.submissionId) ?? 0) + 1);
+    }
+  }
 
   const canUpload = hasPermission(actor, "campaign:write");
 
@@ -70,6 +91,7 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
         <span className="text-muted-foreground">Leads</span>
       </div>
 
+      {actor.isInternal && (
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Submissions</CardTitle>
@@ -85,7 +107,7 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
               <TableRow>
                 <TableHead>Submitted</TableHead>
                 <TableHead>Source</TableHead>
-                <TableHead>Rows (total / accepted / failed)</TableHead>
+                <TableHead>Rows (total / staged / failed)</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead />
               </TableRow>
@@ -98,12 +120,17 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
                   </TableCell>
                 </TableRow>
               )}
-              {submissions.map((submission) => (
+              {submissions.map((submission) => {
+                const rejected = rejectedBySubmissionId.get(submission.id) ?? 0;
+                return (
                 <TableRow key={submission.id}>
                   <TableCell>{submission.submittedAt.toISOString().slice(0, 19).replace("T", " ")}</TableCell>
                   <TableCell>{submission.sourceType}</TableCell>
                   <TableCell>
                     {submission.rowsTotal} / {submission.rowsAccepted} / {submission.rowsFailed}
+                    {rejected > 0 && (
+                      <p className="text-xs text-muted-foreground">{rejected} rejected</p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={submissionStatusVariant(submission.status)}>{submission.status}</Badge>
@@ -114,11 +141,13 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -156,6 +156,13 @@ export async function submitLeadFile(
       const companyDomain = canonicalField(values, "companyDomain");
       const country = canonicalField(values, "country");
       const email = canonicalField(values, "email");
+      // Optional account-dimension ICP criteria (industry/employeeRange/
+      // revenueRange) are otherwise inert for a CSV-created account: matchesIcp
+      // skips any criterion whose source value is null, so a brand-new account
+      // with no industry etc. would auto-pass a mandatory criterion on it.
+      const industry = canonicalField(values, "industry");
+      const employeeRange = canonicalField(values, "employeeRange");
+      const revenueRange = canonicalField(values, "revenueRange");
 
       // Defensive: the campaign is required to have an "email" LeadFieldSpec
       // (checked above), but nothing forces that spec to be
@@ -205,6 +212,9 @@ export async function submitLeadFile(
             name: companyName ?? companyDomain ?? "Unknown",
             domain: companyDomain,
             country,
+            industry,
+            employeeRange,
+            revenueRange,
           });
         } else {
           // match.status === "ambiguous": this plan does not attempt to
@@ -336,6 +346,11 @@ export async function submitLeadFile(
             campaignChannelId: input.campaignChannelId,
             submissionId: submission.id,
             contactId: contact.id,
+            // Deliberately the CSV-asserted account, which can diverge from
+            // contact.accountId if this email was previously matched to a
+            // different account under a different company name — a known,
+            // accepted limitation; cross-account contact reconciliation is
+            // out of scope for this epic.
             accountId: account.id,
             sourceType: input.sourceType,
             verificationStatus,
