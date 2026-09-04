@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApprovalActions } from "./approval-actions";
+import { IcpCriteriaEditor } from "./icp-criteria-editor";
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -48,26 +49,16 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       <Card>
         <CardHeader><CardTitle>ICP criteria</CardTitle></CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Dimension</TableHead>
-                <TableHead>Operator</TableHead>
-                <TableHead>Values</TableHead>
-                <TableHead>Mandatory</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campaign.icpCriteria.map((criterion) => (
-                <TableRow key={criterion.id}>
-                  <TableCell>{criterion.dimension}</TableCell>
-                  <TableCell>{criterion.operator}</TableCell>
-                  <TableCell>{JSON.stringify(criterion.valuesJson)}</TableCell>
-                  <TableCell>{criterion.isMandatory ? "yes" : "advisory"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <IcpCriteriaEditor
+            campaignId={campaign.id}
+            initialCriteria={campaign.icpCriteria.map((c) => ({
+              dimension: c.dimension,
+              operator: c.operator,
+              values: c.valuesJson as unknown[],
+              isMandatory: c.isMandatory,
+            }))}
+            canEdit={hasPermission(actor, "campaign:write") && campaign.status === "draft"}
+          />
         </CardContent>
       </Card>
 
