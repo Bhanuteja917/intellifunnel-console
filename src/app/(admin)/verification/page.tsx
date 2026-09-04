@@ -29,20 +29,25 @@ export default async function VerificationQueuePage({
   const actor = await requireActor();
   assertPermission(actor, "lead:read");
 
-  const orgScope = actor.isInternal
-    ? {}
-    : { campaignChannel: { campaign: { clientOrganizationId: actor.organizationId } } };
+  // Both the org-scoping clause and the campaignId clause target the same
+  // top-level `campaignChannel` key in the Prisma `where`. They must be
+  // merged into ONE object here — two separate top-level spreads that both
+  // write `campaignChannel` would have the second silently clobber the
+  // first (shallow spread), dropping the org check entirely whenever a
+  // campaignId was also present.
+  const campaignChannelFilter = {
+    ...(actor.isInternal ? {} : { campaign: { clientOrganizationId: actor.organizationId } }),
+    ...(campaignId ? { campaignId } : {}),
+  };
 
   const leads = await db.lead.findMany({
     where: {
       verificationStatus: "needsReview",
-      ...orgScope,
-      ...(campaignId ? { campaignChannel: { campaignId } } : {}),
+      ...(Object.keys(campaignChannelFilter).length > 0 ? { campaignChannel: campaignChannelFilter } : {}),
     },
     include: {
       account: true,
       contact: true,
-      rejectReason: true,
       campaignChannel: { include: { campaign: true, channelTypeVersion: { include: { channelType: true } } } },
     },
     orderBy: { createdAt: "asc" }, // oldest first — the queue's whole point is age-ordering
