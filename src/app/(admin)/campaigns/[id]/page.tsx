@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
@@ -6,6 +7,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { NotFoundError } from "@/lib/errors";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -47,6 +49,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <h1 className="text-2xl font-semibold">{campaign.name}</h1>
         <Badge variant="outline">{campaign.code}</Badge>
         <Badge>{campaign.status}</Badge>
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/campaigns/${campaign.id}/leads`}>View leads</Link>
+        </Button>
       </div>
 
       <ApprovalActions
