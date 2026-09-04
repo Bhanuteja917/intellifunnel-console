@@ -117,9 +117,17 @@ export function validateFieldValues(specs: LeadFieldSpecRow[], rawRow: Record<st
       if (spec.allowedValues !== undefined && spec.allowedValues.length > 0 && !spec.allowedValues.some((v) => String(v).toLowerCase() === raw.toLowerCase())) {
         errors.push({ field: spec.fieldKey, rawValue: raw, rejectReasonCode: "VALUE_NOT_ALLOWED", message: `${raw} is not one of the allowed values for ${spec.fieldKey}` });
         delete values[spec.fieldKey];
-      } else if (spec.validationPattern !== undefined && !new RegExp(spec.validationPattern).test(raw)) {
-        errors.push({ field: spec.fieldKey, rawValue: raw, rejectReasonCode: "INVALID_FIELD_FORMAT", message: `${raw} does not match the required pattern for ${spec.fieldKey}` });
-        delete values[spec.fieldKey];
+      } else if (spec.validationPattern !== undefined) {
+        let patternMatches: boolean;
+        try {
+          patternMatches = new RegExp(spec.validationPattern).test(raw);
+        } catch {
+          patternMatches = false; // malformed pattern config — treat as a format failure, don't crash the whole row
+        }
+        if (!patternMatches) {
+          errors.push({ field: spec.fieldKey, rawValue: raw, rejectReasonCode: "INVALID_FIELD_FORMAT", message: `${raw} does not match the required pattern for ${spec.fieldKey}` });
+          delete values[spec.fieldKey];
+        }
       }
     }
   }
