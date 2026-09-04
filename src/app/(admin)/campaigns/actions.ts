@@ -9,6 +9,30 @@ import {
   submitForInternalApproval,
 } from "@/lib/campaigns/state-machine";
 import { cloneCampaign } from "@/lib/campaigns/clone";
+import { createCampaign } from "@/lib/campaigns/crud";
+
+export async function createCampaignAction(input: {
+  clientOrganizationId: string;
+  name: string;
+  code: string;
+  startDate: string;
+  endDate: string;
+  currency: string;
+}): Promise<ActionResult<{ id: string }>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    const campaign = await createCampaign(db, actor, {
+      clientOrganizationId: input.clientOrganizationId,
+      name: input.name,
+      code: input.code,
+      startDate: new Date(input.startDate),
+      endDate: new Date(input.endDate),
+      currency: input.currency,
+    });
+    revalidatePath("/campaigns");
+    return { id: campaign.id };
+  });
+}
 
 export async function submitCampaignAction(campaignId: string): Promise<ActionResult<null>> {
   return toActionResult(async () => {

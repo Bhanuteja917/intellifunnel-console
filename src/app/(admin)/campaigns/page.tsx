@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, hasPermission } from "@/lib/auth/permissions";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CampaignTable } from "./campaign-table";
 
@@ -19,6 +21,8 @@ export default async function CampaignsPage() {
     take: 50,
   });
 
+  const canCreate = hasPermission(actor, "campaign:write");
+
   // Serialise for the client component: Date and BigInt do not cross the boundary.
   const rows = campaigns.map((campaign) => ({
     id: campaign.id,
@@ -32,8 +36,13 @@ export default async function CampaignsPage() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Campaigns</CardTitle>
+        {canCreate && (
+          <Button asChild>
+            <Link href="/campaigns/new">New campaign</Link>
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         <CampaignTable rows={rows} />
