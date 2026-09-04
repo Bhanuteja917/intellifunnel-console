@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { Fragment } from "react";
 import { usePathname } from "next/navigation";
 import {
@@ -21,8 +22,10 @@ const SEGMENT_LABELS: Readonly<Record<string, string>> = {
 };
 
 function labelFor(segment: string): string {
-  const known = SEGMENT_LABELS[segment];
-  if (known !== undefined) return known;
+  // hasOwn, not a bare lookup: a segment named after an Object.prototype key
+  // ("constructor", "toString") matches /campaigns/[id] and would otherwise
+  // resolve to an inherited function that React then tries to render.
+  if (Object.hasOwn(SEGMENT_LABELS, segment)) return SEGMENT_LABELS[segment]!;
   if (!segment.includes(" ") && !segment.includes("-") && segment.length > 10) return "Details";
   return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
 }
@@ -38,14 +41,15 @@ export function HeaderBreadcrumb() {
       <BreadcrumbList>
         {segments.map((segment, index) => {
           const isLast = index === segments.length - 1;
+          const crumbHref = `/${segments.slice(0, index + 1).join("/")}` as Route;
           return (
-            <Fragment key={`${index}`}>
+            <Fragment key={crumbHref}>
               <BreadcrumbItem>
                 {isLast ? (
                   <BreadcrumbPage>{labelFor(segment)}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
-                    <Link href={`/${segments.slice(0, index + 1).join("/")}` as any}>{labelFor(segment)}</Link>
+                    <Link href={crumbHref}>{labelFor(segment)}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
