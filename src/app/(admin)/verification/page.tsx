@@ -3,7 +3,7 @@ import type { Route } from "next";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission } from "@/lib/auth/permissions";
-import { computeVerificationSla } from "@/lib/leads/sla";
+import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,7 +85,7 @@ export default async function VerificationQueuePage({
       const sla = await computeVerificationSla(db, {
         createdAt: lead.createdAt,
         asOf: new Date(),
-        channelTypeId: lead.campaignChannel.channelTypeVersion.channelType.id,
+        allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
       });
       const assignedUser = lead.assignedToUserId !== null ? userById.get(lead.assignedToUserId) : undefined;
       return { lead, sla, assignedUser };

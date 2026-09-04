@@ -30,6 +30,7 @@ const NAV = [
   { href: "/channel-types", label: "Channel types" },
   { href: "/organizations", label: "Organisations" },
   { href: "/resolution-queue", label: "Resolution queue" },
+  { href: "/verification", label: "Verification" },
 ] as const;
 
 function initials(name: string): string {

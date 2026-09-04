@@ -4,7 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission } from "@/lib/auth/permissions";
-import { computeVerificationSla } from "@/lib/leads/sla";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
+import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
@@ -62,7 +63,7 @@ export default async function LeadReviewPage({
   const sla = await computeVerificationSla(db, {
     createdAt: lead.createdAt,
     asOf: new Date(),
-    channelTypeId: lead.campaignChannel.channelTypeVersion.channelType.id,
+    allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
   });
 
   // `fieldValuesJson` is a flat Record<string, string> keyed by canonical
@@ -73,7 +74,11 @@ export default async function LeadReviewPage({
   // label/value list rather than attempting a question-keyed mapping that
   // doesn't exist.
   const fieldValues = lead.fieldValuesJson as Record<string, string>;
-  const requiresTeleVerification = lead.campaignChannel.channelTypeVersion.channelType.requiresTeleVerification;
+  // Frozen version snapshot, matching the gate decideLeadVerification applies —
+  // reading the live row here could show a tele form the server won't require.
+  const definition = lead.campaignChannel.channelTypeVersion.definitionJson as Partial<ChannelTypeDefinition> | null;
+  const requiresTeleVerification =
+    definition?.requiresTeleVerification ?? lead.campaignChannel.channelTypeVersion.channelType.requiresTeleVerification;
 
   return (
     <div className="flex flex-col gap-6">

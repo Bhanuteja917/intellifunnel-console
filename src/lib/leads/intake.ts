@@ -357,6 +357,13 @@ export async function submitLeadFile(
         rejectReasonId = reason.id;
       }
 
+      // SRS §5.2: `passed` is a terminal automated verification status with no
+      // manual step after it, so acceptance happens here rather than being
+      // queued — E9's manual queue only ever handles `needsReview`, so an
+      // auto-passed lead left at "new" could never be moved by anything.
+      const autoAccepted = verificationStatus === "passed";
+      const now = new Date();
+
       await db.$transaction(async (tx) => {
         const lead = await tx.lead.create({
           data: {
@@ -371,8 +378,17 @@ export async function submitLeadFile(
             accountId: account.id,
             sourceType: input.sourceType,
             verificationStatus,
-            lifecycleStatus: "new", // always "new" at intake — acceptance/rejection is E9's job, not this pipeline's
-            clientVisible: false,
+            lifecycleStatus: autoAccepted ? "accepted" : "new", // "needsReview"/"failed" stay at "new" — E9 decides those
+            clientVisible: autoAccepted,
+            ...(autoAccepted
+              ? {
+                  acceptedAt: now,
+                  // Verification completed instantly via automation — no manual-review clock ever ran, so there is nothing to measure.
+                  verificationElapsedMinutes: 0,
+                  verificationElapsedBusinessMinutes: 0,
+                  slaBreached: false,
+                }
+              : {}),
             rejectReasonId,
             fieldValuesJson: values as Prisma.InputJsonValue,
           },
@@ -385,6 +401,17 @@ export async function submitLeadFile(
             toValue: verificationStatus,
           },
         });
+        if (autoAccepted) {
+          await tx.leadStatusHistory.create({
+            data: {
+              leadId: lead.id,
+              dimension: "lifecycle",
+              fromValue: "new",
+              toValue: "accepted",
+              changedByUserId: null, // automated acceptance — no human actor, consistent with the verification row above
+            },
+          });
+        }
       });
       rowsAccepted += 1; // this row produced a Lead — "passed"/"needsReview"/"failed" all count as accepted at the file-structural level
     } catch (err) {

@@ -19,6 +19,7 @@ const SEGMENT_LABELS: Readonly<Record<string, string>> = {
   "channel-types": "Channel types",
   organizations: "Organisations",
   "resolution-queue": "Resolution queue",
+  verification: "Verification",
 };
 
 function labelFor(segment: string): string {

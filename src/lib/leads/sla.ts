@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { getSetting, type WeekDay } from "@/lib/settings/settings";
 import { operatingDayStart } from "@/lib/time/operating-day";
 
@@ -18,6 +19,26 @@ export type VerificationSlaResult = {
   breached: boolean;
   percentElapsed: number;
 };
+
+/**
+ * The SLA allowance comes from the version a campaign channel is bound to, not
+ * the live `ChannelType` row — `publishChannelTypeVersion` freezes it into
+ * `definitionJson` precisely so a later edit cannot reach bound campaigns.
+ * A snapshot predating that field (`undefined`, as opposed to a real `null`
+ * meaning "use the platform default") falls back to the live row.
+ */
+export async function resolveAllowedBusinessDays(
+  db: Db,
+  channelTypeVersion: {
+    definitionJson: unknown;
+    channelType: { verificationSlaBusinessDays: number | null };
+  },
+): Promise<number> {
+  const snapshot = (channelTypeVersion.definitionJson as Partial<ChannelTypeDefinition> | null)
+    ?.verificationSlaBusinessDays;
+  const allowed = snapshot === undefined ? channelTypeVersion.channelType.verificationSlaBusinessDays : snapshot;
+  return allowed ?? (await getSetting(db, "defaultVerificationSlaBusinessDays"));
+}
 
 /**
  * FR-VF-2b/2c: business-day SLA computation for lead verification.
@@ -40,18 +61,14 @@ export type VerificationSlaResult = {
  */
 export async function computeVerificationSla(
   db: Db,
-  params: { createdAt: Date; asOf: Date; channelTypeId: string },
+  params: { createdAt: Date; asOf: Date; allowedBusinessDays: number },
 ): Promise<VerificationSlaResult> {
-  const { createdAt, asOf, channelTypeId } = params;
+  const { createdAt, asOf, allowedBusinessDays } = params;
 
-  const [channelType, operatingTimezone, workingDays, defaultVerificationSlaBusinessDays] = await Promise.all([
-    db.channelType.findUniqueOrThrow({ where: { id: channelTypeId } }),
+  const [operatingTimezone, workingDays] = await Promise.all([
     getSetting(db, "operatingTimezone"),
     getSetting(db, "workingDays"),
-    getSetting(db, "defaultVerificationSlaBusinessDays"),
   ]);
-
-  const allowedBusinessDays = channelType.verificationSlaBusinessDays ?? defaultVerificationSlaBusinessDays;
 
   const startDay = operatingDayStart(createdAt, operatingTimezone);
   const endDay = operatingDayStart(asOf, operatingTimezone);

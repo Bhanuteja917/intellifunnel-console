@@ -68,7 +68,9 @@ export function ReviewForm({ leadId, requiresTeleVerification, rejectReasons }: 
     startTransition(async () => {
       const result = await acceptLeadAction(leadId, buildTele());
       if (result.ok) {
-        toast.success("Lead accepted");
+        // A failed tele-verification rejects the lead despite the Accept
+        // button, so report what the server actually did.
+        toast.success(result.data.decision === "accept" ? "Lead accepted" : "Lead rejected");
         router.push("/verification");
       } else {
         // Covers the "already decided" ValidationError from
@@ -87,7 +89,7 @@ export function ReviewForm({ leadId, requiresTeleVerification, rejectReasons }: 
     startTransition(async () => {
       const result = await rejectLeadAction(leadId, rejectReasonCode, buildTele());
       if (result.ok) {
-        toast.success("Lead rejected");
+        toast.success(result.data.decision === "accept" ? "Lead accepted" : "Lead rejected");
         router.push("/verification");
       } else {
         toast.error(result.error);

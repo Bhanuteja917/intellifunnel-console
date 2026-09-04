@@ -8,7 +8,8 @@ import type {
 } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
-import { computeVerificationSla } from "@/lib/leads/sla";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
+import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
 
 export type TeleVerificationInput = {
   callSystem: string;
@@ -28,6 +29,10 @@ export type DecideLeadVerificationInput = {
 
 export type DecideLeadVerificationResult = {
   lead: Lead & { campaignChannel: { campaign: { id: string } } };
+  // What actually happened, which is not always `input.decision` — a failed
+  // tele-verification turns a requested "accept" into a rejection, and the UI
+  // must report the outcome it got, not the button that was pressed.
+  effectiveDecision: "accept" | "reject";
 };
 
 // FR-VF-2: when a caller asks to "accept" a lead whose own tele-verification
@@ -64,8 +69,9 @@ function teleVerificationRecordInput(tele: TeleVerificationInput): VerificationR
  * FR-VF-2/FR-VF-3: the human accept/reject decision on a lead sitting in the
  * verification queue. This is the one place a `Lead` ever moves out of
  * `verificationStatus: "needsReview"` (or any other pending status) into a
- * terminal `passed`/`failed` + `accepted`/`rejected` state — intake
- * (`submitLeadFile`) deliberately never does this itself.
+ * terminal `passed`/`failed` + `accepted`/`rejected` state. Intake
+ * (`submitLeadFile`) only ever auto-accepts its own `passed` rows; anything
+ * it parks at `needsReview` can move only through here.
  *
  * Tele-verification override (the trickiest control flow here): a caller
  * asking to "accept" a lead on a channel that `requiresTeleVerification` is
@@ -102,13 +108,18 @@ export async function decideLeadVerification(
   }
 
   const channelType = lead.campaignChannel.channelTypeVersion.channelType;
+  // Read the frozen version snapshot, not the live row — a later edit to the
+  // channel type must not change the gate for an already-bound campaign. An
+  // old snapshot predating this field falls back to the live row.
+  const definition = lead.campaignChannel.channelTypeVersion.definitionJson as Partial<ChannelTypeDefinition> | null;
+  const requiresTeleVerification = definition?.requiresTeleVerification ?? channelType.requiresTeleVerification;
 
   let effectiveDecision: "accept" | "reject" = input.decision;
   let rejectReasonCode: string | null = input.rejectReasonCode ?? null;
   let verificationRecordInput: VerificationRecordInput;
 
   if (input.decision === "accept") {
-    if (channelType.requiresTeleVerification) {
+    if (requiresTeleVerification) {
       if (
         input.tele === undefined ||
         input.tele.callSystem.trim().length === 0 ||
@@ -157,7 +168,7 @@ export async function decideLeadVerification(
   const sla = await computeVerificationSla(db, {
     createdAt: lead.createdAt,
     asOf: now,
-    channelTypeId: channelType.id,
+    allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
   });
 
   const verificationStatusFrom = lead.verificationStatus;
@@ -166,8 +177,11 @@ export async function decideLeadVerification(
   const lifecycleStatusTo: LeadLifecycleStatus = effectiveDecision === "accept" ? "accepted" : "rejected";
 
   const updatedLead = await db.$transaction(async (tx) => {
-    const updated = await tx.lead.update({
-      where: { id: input.leadId },
+    // Conditional update, not a plain update: the read-based guard above can
+    // be passed by two concurrent callers before either commits, so the
+    // `needsReview` predicate has to be part of the write itself.
+    const { count } = await tx.lead.updateMany({
+      where: { id: input.leadId, verificationStatus: "needsReview" },
       data: {
         verificationStatus: verificationStatusTo,
         lifecycleStatus: lifecycleStatusTo,
@@ -179,8 +193,10 @@ export async function decideLeadVerification(
         verificationElapsedBusinessMinutes: sla.elapsedBusinessMinutes,
         slaBreached: sla.breached,
       },
-      include: { campaignChannel: { include: { campaign: true } } },
     });
+    if (count === 0) {
+      throw new ValidationError("This lead has already been decided and cannot be re-verified.");
+    }
 
     await tx.verificationRecord.create({
       data: {
@@ -209,8 +225,13 @@ export async function decideLeadVerification(
       },
     });
 
-    return updated;
+    // `updateMany` returns only a count, so re-read the row this transaction
+    // just wrote to keep the existing return value intact.
+    return tx.lead.findUniqueOrThrow({
+      where: { id: input.leadId },
+      include: { campaignChannel: { include: { campaign: true } } },
+    });
   });
 
-  return { lead: updatedLead };
+  return { lead: updatedLead, effectiveDecision };
 }
