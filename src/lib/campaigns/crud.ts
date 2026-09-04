@@ -295,6 +295,13 @@ export async function addCampaignChannel(
   const campaign = await assertDraftAndAccessible(db, actor, campaignId);
 
   if (input.contractedQuantity <= 0) throw new ValidationError("Contracted quantity must be positive");
+  // CampaignChannel.contractedQuantity is an Int column: a fractional value
+  // would otherwise reach tx.campaignChannel.create and throw an untyped
+  // PrismaClientValidationError, which escapes toActionResult as a raw 500
+  // instead of a message the caller can show.
+  if (!Number.isInteger(input.contractedQuantity)) {
+    throw new ValidationError("Contracted quantity must be a whole number");
+  }
   // The channel's money is frozen into the campaign's config snapshot as minor
   // units with no currency conversion (FR-CS-1), and the client is billed in
   // one currency per campaign (CUR-2, FR-CM-7) — nothing in the spec makes a

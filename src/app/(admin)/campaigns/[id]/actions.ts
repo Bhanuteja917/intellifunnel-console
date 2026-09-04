@@ -5,11 +5,13 @@ import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import {
   addCampaignChannel,
+  assertDraftAndAccessible,
   setIcpCriteria,
   setLeadFieldSpec,
   type IcpCriterionInput,
   type LeadFieldSpecInput,
 } from "@/lib/campaigns/crud";
+import { assertPermission } from "@/lib/auth/permissions";
 import { getPublishedVersion } from "@/lib/channel-types/versions";
 import { ValidationError } from "@/lib/errors";
 
@@ -51,14 +53,21 @@ export async function addCampaignChannelAction(
   return toActionResult(async () => {
     const actor = await requireActor();
 
+    // Authorise before reading anything: a caller without campaign:write, or
+    // without access to this campaign's organisation, is turned away before the
+    // channel-type lookups below (which check nothing campaign-specific).
+    // assertDraftAndAccessible also gives a clean NotFoundError for an unknown
+    // campaign id, and returns the row we need for `currency`.
+    // addCampaignChannel re-checks both internally (defence in depth).
+    assertPermission(actor, "campaign:write");
+    const campaign = await assertDraftAndAccessible(db, actor, campaignId);
+
     const channelType = await db.channelType.findUnique({ where: { id: input.channelTypeId } });
     if (channelType === null) throw new ValidationError("Channel type not found");
     if (channelType.currentVersion === 0) {
       throw new ValidationError(`${channelType.name} has no published version yet`);
     }
     const version = await getPublishedVersion(db, input.channelTypeId, channelType.currentVersion);
-
-    const campaign = await db.campaign.findUniqueOrThrow({ where: { id: campaignId } });
 
     const channel = await addCampaignChannel(db, actor, campaignId, {
       channelTypeVersionId: version.id,
