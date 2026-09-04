@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, ShapesIcon, User } from "lucide-react";
+import { toast } from "sonner";
 import { authClient } from "@/lib/auth/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -41,9 +43,25 @@ function initials(name: string): string {
 export function AppSidebar({ user }: { user: { name: string; email: string } }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
 
   async function logout() {
-    await authClient.signOut();
+    // A second click while the first request is still in flight would fire a
+    // redundant sign-out and could navigate before the first one resolved.
+    if (signingOut) return;
+    setSigningOut(true);
+
+    // signOut resolves to { data, error } rather than rejecting, so an ignored
+    // result would send the reader to /sign-in still holding a valid session
+    // cookie, believing they had logged out.
+    const result = await authClient.signOut();
+
+    if (result.error !== null && result.error !== undefined) {
+      toast.error("Could not sign you out. Please try again.");
+      setSigningOut(false);
+      return;
+    }
+
     router.push("/sign-in");
     router.refresh();
   }
@@ -63,7 +81,10 @@ export function AppSidebar({ user }: { user: { name: string; email: string } }) 
         <SidebarMenu>
           {NAV.map((item) => (
             <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton asChild isActive={pathname.startsWith(item.href)}>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
+              >
                 <Link href={item.href}>{item.label}</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
