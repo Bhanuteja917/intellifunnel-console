@@ -275,6 +275,23 @@ export async function submitLeadFile(
       }
 
       if (outcome !== "failed") {
+        const crossCampaignDuplicate = await db.lead.findFirst({
+          where: {
+            contactId: contact.id,
+            lifecycleStatus: { in: ["new", "accepted", "delivered"] },
+            campaignChannel: {
+              campaignId: { not: campaign.id },
+              campaign: { clientOrganizationId: campaign.clientOrganizationId },
+            },
+          },
+        });
+        if (crossCampaignDuplicate !== null) {
+          outcome = "failed";
+          rejectReasonCode = "DUPLICATE_CROSS_CAMPAIGN";
+        }
+      }
+
+      if (outcome !== "failed") {
         const talResult = await matchesTal(db, campaign.id, account.id);
         if (talResult === "unmatched") {
           if (campaign.advisoryTalMatch) {
