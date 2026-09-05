@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { IcpDimension, IcpOperator, Prisma } from "@prisma/client";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { createOrganization, createUser } from "./helpers/factories";
@@ -15,7 +16,12 @@ async function opsActor() {
 }
 
 async function createCampaignWithCriteria(
-  criteria: { dimension: string; operator: string; valuesJson: unknown; isMandatory: boolean }[],
+  criteria: {
+    dimension: IcpDimension;
+    operator: IcpOperator;
+    valuesJson: Prisma.InputJsonValue;
+    isMandatory: boolean;
+  }[],
 ) {
   const db = testDb();
   const actor = await opsActor();
