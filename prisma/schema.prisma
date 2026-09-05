@@ -90,6 +90,7 @@ model Organization {
   invitations Invitation[]
   campaigns   Campaign[]
   assets      Asset[]
+  allocations PartnerAllocation[]
 
   @@index([isClient])
   @@index([isPartner])
@@ -577,6 +578,13 @@ enum ApprovalDecision {
   rejected
 }
 
+enum AllocationStatus {
+  draft
+  active
+  paused
+  ended
+}
+
 enum CampaignChannelStatus {
   draft
   active
@@ -679,8 +687,32 @@ model CampaignChannel {
   leadSubmissions    LeadSubmission[]
   leads              Lead[]
   assets             AssetPlacement[]
+  allocations        PartnerAllocation[]
 
   @@index([campaignId])
+}
+
+model PartnerAllocation {
+  id                    String            @id @default(cuid())
+  campaignChannelId     String
+  partnerOrganizationId String
+  allocatedQuantity     Int
+  payoutRateMinor       BigInt
+  payoutCurrency        String            @db.Char(3)
+  startDate             DateTime          @db.Date
+  endDate               DateTime          @db.Date
+  status                AllocationStatus  @default(draft)
+  revealClientIdentity  Boolean           @default(false)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  createdById           String?
+  updatedById           String?
+
+  campaignChannel     CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+  partnerOrganization Organization    @relation(fields: [partnerOrganizationId], references: [id])
+
+  @@index([campaignChannelId])
+  @@index([partnerOrganizationId])
 }
 
 model CampaignApproval {
