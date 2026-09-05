@@ -38,7 +38,9 @@ export type Permission =
   | "lead:read"
   | "lead:write"
   | "asset:read"
-  | "asset:write";
+  | "asset:write"
+  | "allocation:read"
+  | "allocation:write";
 
 const CLIENT_READ: Permission[] = ["campaign:read", "account:read", "list:read", "organization:read"];
 
@@ -54,7 +56,7 @@ const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
   OPERATIONS: [
     "organization:read", "account:read", "account:write", "channelType:read",
     "campaign:read", "list:read", "list:write",
-    "asset:read", "asset:write",
+    "asset:read", "asset:write", "allocation:read", "allocation:write",
   ],
   QUALITY: ["organization:read", "account:read", "campaign:read", "channelType:read", "lead:read", "lead:write"],
   ACCOUNT_MANAGER: [
@@ -64,8 +66,8 @@ const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
   FINANCE: ["organization:read", "campaign:read", "exchangeRate:write", "audit:read"],
   CLIENT_ADMIN: [...CLIENT_READ, "campaign:approveClient", "user:invite", "list:write"],
   CLIENT_VIEWER: [...CLIENT_READ],
-  PARTNER_ADMIN: ["organization:read", "campaign:read", "user:invite"],
-  PARTNER_OPERATOR: ["organization:read", "campaign:read"],
+  PARTNER_ADMIN: ["organization:read", "campaign:read", "user:invite", "allocation:read"],
+  PARTNER_OPERATOR: ["organization:read", "campaign:read", "allocation:read"],
 };
 
 export type Actor = {
