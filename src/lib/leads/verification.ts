@@ -6,7 +6,7 @@ import type {
   VerificationMethod,
   VerificationOutcome,
 } from "@prisma/client";
-import { ValidationError } from "@/lib/errors";
+import { ForbiddenError, ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
@@ -96,6 +96,14 @@ export async function decideLeadVerification(
   });
 
   assertOrganizationAccess(actor, lead.campaignChannel.campaign.clientOrganizationId);
+
+  // A lead claimed via assignLeadToSelfAction (verification/actions.ts) may
+  // only be decided by whoever claimed it — an unassigned lead is still
+  // decidable by anyone with lead:write (matching the queue UI, which never
+  // blocks a direct decide on an unclaimed lead).
+  if (lead.assignedToUserId !== null && lead.assignedToUserId !== actor.userId) {
+    throw new ForbiddenError("This lead is assigned to another reviewer");
+  }
 
   // A lead can only ever be decided once — `needsReview` (or any other
   // pending status) is the only state this function may act on. Without
