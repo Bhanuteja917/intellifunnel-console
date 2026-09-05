@@ -6,3 +6,5 @@ node_modules/
 coverage/
 *.tsbuildinfo
 .data/
+DEMO_ACCOUNTS.md
+.worktrees/
