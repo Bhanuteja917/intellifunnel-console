@@ -1113,6 +1113,8 @@ model ConsentTextVersion {
   createdById   String?
 
   placements AssetPlacement[]
+
+  @@unique([name, version])
 }
 
 model AssetPlacement {
