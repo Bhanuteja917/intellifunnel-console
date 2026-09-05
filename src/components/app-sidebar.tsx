@@ -31,6 +31,8 @@ const NAV = [
   { href: "/organizations", label: "Organisations" },
   { href: "/resolution-queue", label: "Resolution queue" },
   { href: "/verification", label: "Verification" },
+  { href: "/assets", label: "Assets" },
+  { href: "/consent-texts", label: "Consent texts" },
 ] as const;
 
 function initials(name: string): string {

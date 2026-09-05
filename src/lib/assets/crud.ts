@@ -1,5 +1,5 @@
-import type { Asset, AssetType, AssetVersion, PrismaClient } from "@prisma/client";
-import { NotFoundError } from "@/lib/errors";
+import { Prisma, type Asset, type AssetType, type AssetVersion, type PrismaClient } from "@prisma/client";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import type { StorageAdapter } from "@/lib/storage";
 
@@ -65,22 +65,33 @@ export async function uploadAssetVersion(
 
   await storage.put(key, input.file.buffer, input.file.mimeType);
 
-  return db.$transaction(async (tx) => {
-    const assetVersion = await tx.assetVersion.create({
-      data: {
-        assetId: input.assetId,
-        version,
-        storageKey: key,
-        fileName: input.file.fileName,
-        mimeType: input.file.mimeType,
-        sizeBytes: input.file.sizeBytes,
-        uploadedById: actor.userId,
-      },
+  try {
+    return await db.$transaction(async (tx) => {
+      const assetVersion = await tx.assetVersion.create({
+        data: {
+          assetId: input.assetId,
+          version,
+          storageKey: key,
+          fileName: input.file.fileName,
+          mimeType: input.file.mimeType,
+          sizeBytes: input.file.sizeBytes,
+          uploadedById: actor.userId,
+        },
+      });
+      await tx.asset.update({
+        where: { id: input.assetId },
+        data: { currentVersionId: assetVersion.id, updatedById: actor.userId },
+      });
+      return assetVersion;
     });
-    await tx.asset.update({
-      where: { id: input.assetId },
-      data: { currentVersionId: assetVersion.id, updatedById: actor.userId },
-    });
-    return assetVersion;
-  });
+  } catch (error) {
+    // (assetId, version) is @unique — a concurrent upload to the same asset
+    // can race this read-then-increment; surface it as a friendly error
+    // rather than a raw Prisma error. The just-written file at `key` is left
+    // in place, an acceptable orphan per this function's own doc comment.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ValidationError("Another version was just uploaded for this asset — try again");
+    }
+    throw error;
+  }
 }

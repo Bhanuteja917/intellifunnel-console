@@ -38,5 +38,9 @@ export const config = {
     "/resolution-queue/:path*",
     "/verification",
     "/verification/:path*",
+    "/assets",
+    "/assets/:path*",
+    "/consent-texts",
+    "/consent-texts/:path*",
   ],
 };
