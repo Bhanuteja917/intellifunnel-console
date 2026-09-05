@@ -104,6 +104,28 @@ export function assertOrganizationAccess(actor: Actor, organizationId: string): 
 }
 
 /**
+ * Org-scope where-clause for a query reached *through* a CampaignChannel
+ * (Lead, LeadSubmission, ...). `{}` for an internal actor; otherwise
+ * `{ campaign: { clientOrganizationId } }`, meant to be merged into (or
+ * nested one level under a `campaignChannel:` key of) the caller's own
+ * where-clause — never spread alongside another top-level write to the same
+ * key (see verification/page.tsx's own comment on why that silently drops
+ * the scope).
+ */
+export function campaignChannelOrgScopeClause(
+  actor: Actor,
+): Record<string, never> | { campaign: { clientOrganizationId: string } } {
+  return actor.isInternal ? {} : { campaign: { clientOrganizationId: actor.organizationId } };
+}
+
+/** Org-scope where-clause for a direct Campaign query. `{}` for an internal actor. */
+export function campaignOrgScopeClause(
+  actor: Actor,
+): Record<string, never> | { clientOrganizationId: string } {
+  return actor.isInternal ? {} : { clientOrganizationId: actor.organizationId };
+}
+
+/**
  * Guards a portal-specific route segment. Next.js's `error.js` convention
  * never wraps the `layout.js` beside it in the same segment — only what's
  * below it — so a throw from this check inside a `layout.tsx` is only ever

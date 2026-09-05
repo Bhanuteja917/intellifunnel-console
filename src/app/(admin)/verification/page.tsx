@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, campaignChannelOrgScopeClause, campaignOrgScopeClause } from "@/lib/auth/permissions";
 import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,7 @@ export default async function VerificationQueuePage({
   // first (shallow spread), dropping the org check entirely whenever a
   // campaignId was also present.
   const campaignChannelFilter = {
-    ...(actor.isInternal ? {} : { campaign: { clientOrganizationId: actor.organizationId } }),
+    ...campaignChannelOrgScopeClause(actor),
     ...(campaignId ? { campaignId } : {}),
   };
 
@@ -59,7 +59,7 @@ export default async function VerificationQueuePage({
   // (no distinct-query cleverness, just dedupe the fetched rows' campaigns).
   const campaignsWithNeedsReview = await db.campaign.findMany({
     where: {
-      ...(actor.isInternal ? {} : { clientOrganizationId: actor.organizationId }),
+      ...campaignOrgScopeClause(actor),
       channels: { some: { leads: { some: { verificationStatus: "needsReview" } } } },
     },
     select: { id: true, name: true },

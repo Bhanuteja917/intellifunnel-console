@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, campaignChannelOrgScopeClause } from "@/lib/auth/permissions";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +32,11 @@ export default async function LeadReviewPage({
   // fetched-then-checked with assertOrganizationAccess) so that "not found"
   // and "not this actor's organisation" collapse into the same 404 — no
   // separate ForbiddenError path to handle on a page component.
+  const channelScope = campaignChannelOrgScopeClause(actor);
   const lead = await db.lead.findFirst({
     where: {
       id: leadId,
-      ...(actor.isInternal
-        ? {}
-        : { campaignChannel: { campaign: { clientOrganizationId: actor.organizationId } } }),
+      ...(Object.keys(channelScope).length > 0 ? { campaignChannel: channelScope } : {}),
     },
     include: {
       account: true,

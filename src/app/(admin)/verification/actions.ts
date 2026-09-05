@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
-import { assertPermission } from "@/lib/auth/permissions";
-import { ForbiddenError, ValidationError } from "@/lib/errors";
+import { assertOrganizationAccess, assertPermission } from "@/lib/auth/permissions";
+import { ValidationError } from "@/lib/errors";
 import { decideLeadVerification, type TeleVerificationInput } from "@/lib/leads/verification";
 
 export async function assignLeadToSelfAction(leadId: string): Promise<ActionResult<{ assignedToUserId: string }>> {
@@ -17,9 +17,7 @@ export async function assignLeadToSelfAction(leadId: string): Promise<ActionResu
       include: { campaignChannel: { include: { campaign: true } } },
     });
 
-    if (!actor.isInternal && lead.campaignChannel.campaign.clientOrganizationId !== actor.organizationId) {
-      throw new ForbiddenError("Lead not accessible to this actor");
-    }
+    assertOrganizationAccess(actor, lead.campaignChannel.campaign.clientOrganizationId);
 
     if (lead.verificationStatus !== "needsReview") {
       throw new ValidationError("This lead is no longer awaiting verification.");
