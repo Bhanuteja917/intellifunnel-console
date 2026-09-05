@@ -28,6 +28,11 @@ export async function createAssetPlacement(
     throw new ValidationError("The selected version does not belong to the selected asset");
   }
 
+  const asset = await db.asset.findUniqueOrThrow({ where: { id: input.assetId } });
+  if (asset.status !== "active") {
+    throw new ValidationError(`Cannot place asset "${asset.name}" while it is ${asset.status} — it must be active`);
+  }
+
   try {
     return await db.assetPlacement.create({
       data: {
@@ -66,8 +71,18 @@ export async function setPlacementStatus(
   const existing = await db.assetPlacement.findUnique({ where: { id: input.placementId } });
   if (existing === null) throw new NotFoundError("Placement not found");
 
-  // AssetPlacementStatus transitions are unrestricted (draft/active/paused/
-  // archived, any -> any) — the PRD doesn't specify a constrained flow here.
+  // Moving a placement TO "active" requires its asset to itself be active —
+  // an operator can flip an Asset back to draft/archived after a placement
+  // using it was already approved, and this is the one point that catches
+  // it. Moving to any other status (paused/archived/back to draft) doesn't
+  // put the asset in front of a lead, so it's unrestricted either way.
+  if (input.status === "active") {
+    const asset = await db.asset.findUniqueOrThrow({ where: { id: existing.assetId } });
+    if (asset.status !== "active") {
+      throw new ValidationError(`Cannot activate this placement — its asset "${asset.name}" is ${asset.status}, not active`);
+    }
+  }
+
   return db.assetPlacement.update({
     where: { id: input.placementId },
     data: { status: input.status, updatedById: actor.userId },
