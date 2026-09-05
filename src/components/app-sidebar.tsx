@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, ShapesIcon, User } from "lucide-react";
@@ -25,15 +26,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-const NAV = [
-  { href: "/campaigns", label: "Campaigns" },
-  { href: "/channel-types", label: "Channel types" },
-  { href: "/organizations", label: "Organisations" },
-  { href: "/resolution-queue", label: "Resolution queue" },
-  { href: "/verification", label: "Verification" },
-  { href: "/assets", label: "Assets" },
-  { href: "/consent-texts", label: "Consent texts" },
-] as const;
+type NavItem = { href: string; label: string };
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -43,7 +36,17 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-export function AppSidebar({ user }: { user: { name: string; email: string } }) {
+export function AppSidebar({
+  user,
+  nav,
+  title,
+  subtitle,
+}: {
+  user: { name: string; email: string };
+  nav: readonly NavItem[];
+  title: string;
+  subtitle: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
@@ -75,20 +78,20 @@ export function AppSidebar({ user }: { user: { name: string; email: string } }) 
         <div className="flex items-center gap-2 px-2 py-1.5">
           <ShapesIcon className="size-6 shrink-0" />
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">IntelliFunnelLabs</span>
-            <span className="text-xs text-muted-foreground">Admin Console</span>
+            <span className="text-sm font-semibold">{title}</span>
+            <span className="text-xs text-muted-foreground">{subtitle}</span>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <SidebarMenuItem key={item.href}>
               <SidebarMenuButton
                 asChild
                 isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
               >
-                <Link href={item.href}>{item.label}</Link>
+                <Link href={item.href as Route}>{item.label}</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
