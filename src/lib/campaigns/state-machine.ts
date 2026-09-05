@@ -10,6 +10,7 @@ import { buildConfigSnapshot, SNAPSHOT_VERSION } from "@/lib/campaigns/snapshot"
 import { getSetting } from "@/lib/settings/settings";
 import { logger } from "@/lib/logging/logger";
 import { operatingDayStart } from "@/lib/time/operating-day";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 
 /** SRS §5.1, transcribed exactly. */
 export const ALLOWED_TRANSITIONS: Readonly<Record<CampaignStatus, readonly CampaignStatus[]>> = {
@@ -123,6 +124,24 @@ async function assertReadyForApproval(db: PrismaClient, campaignId: string): Pro
   const criteria = await db.icpCriterion.count({ where: { campaignId } });
   if (criteria === 0) {
     throw new ValidationError("A campaign needs at least one ICP criterion before approval");
+  }
+
+  // Check that channels requiring assets have at least one active placement
+  for (const channel of channels) {
+    const definition = channel.channelTypeVersion.definitionJson as ChannelTypeDefinition;
+    if (definition.requiresAsset) {
+      const activeCount = await db.assetPlacement.count({
+        where: {
+          campaignChannelId: channel.id,
+          status: "active",
+        },
+      });
+      if (activeCount === 0) {
+        throw new ValidationError(
+          `Channel "${definition.name}" requires at least one active asset placement before approval`,
+        );
+      }
+    }
   }
 }
 
