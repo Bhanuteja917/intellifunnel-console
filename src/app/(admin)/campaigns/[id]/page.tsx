@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
@@ -120,6 +121,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                 <TableHead>Quantity</TableHead>
                 <TableHead>Unit price</TableHead>
                 <TableHead>Window</TableHead>
+                <TableHead>Placements</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -137,6 +139,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                   <TableCell>
                     {channel.startDate.toISOString().slice(0, 10)} –{" "}
                     {channel.endDate.toISOString().slice(0, 10)}
+                  </TableCell>
+                  <TableCell>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/campaigns/${campaign.id}/channels/${channel.id}/placements` as Route}>
+                        Placements
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
