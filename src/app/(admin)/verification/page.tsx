@@ -25,11 +25,17 @@ const PAGE_SIZE = 50;
 export default async function VerificationQueuePage({
   searchParams,
 }: {
-  searchParams: Promise<{ campaignId?: string; cursor?: string }>;
+  searchParams: Promise<{ campaignId?: string; cursor?: string; partnerOrganizationId?: string; minAgeDays?: string }>;
 }) {
-  const { campaignId, cursor } = await searchParams;
+  const { campaignId, cursor, partnerOrganizationId, minAgeDays } = await searchParams;
   const actor = await requireActor();
   assertPermission(actor, "lead:read");
+
+  const parsedMinAgeDays = minAgeDays !== undefined && minAgeDays !== "" ? Number(minAgeDays) : undefined;
+  const ageCutoff =
+    parsedMinAgeDays !== undefined && Number.isFinite(parsedMinAgeDays) && parsedMinAgeDays > 0
+      ? new Date(Date.now() - parsedMinAgeDays * 24 * 60 * 60 * 1000)
+      : undefined;
 
   // Both the org-scoping clause and the campaignId clause target the same
   // top-level `campaignChannel` key in the Prisma `where`. They must be
@@ -50,6 +56,8 @@ export default async function VerificationQueuePage({
     where: {
       verificationStatus: "needsReview",
       ...(Object.keys(campaignChannelFilter).length > 0 ? { campaignChannel: campaignChannelFilter } : {}),
+      ...(partnerOrganizationId ? { submission: { partnerOrganizationId } } : {}),
+      ...(ageCutoff ? { createdAt: { lte: ageCutoff } } : {}),
     },
     include: {
       account: true,
@@ -71,6 +79,17 @@ export default async function VerificationQueuePage({
     where: {
       ...campaignOrgScopeClause(actor),
       channels: { some: { leads: { some: { verificationStatus: "needsReview" } } } },
+    },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  // Partner organizations with at least one needsReview lead — the partner
+  // filter's option list, mirroring campaignsWithNeedsReview above.
+  const partnersWithNeedsReview = await db.organization.findMany({
+    where: {
+      isPartner: true,
+      leadSubmissions: { some: { leads: { some: { verificationStatus: "needsReview" } } } },
     },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
@@ -108,23 +127,56 @@ export default async function VerificationQueuePage({
         <CardTitle>Verification queue</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <form className="flex items-center gap-2" action="/verification">
-          <label htmlFor="campaignId" className="text-sm text-muted-foreground">
-            Campaign
-          </label>
-          <select
-            id="campaignId"
-            name="campaignId"
-            defaultValue={campaignId ?? ""}
-            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-          >
-            <option value="">All campaigns</option>
-            {campaignsWithNeedsReview.map((campaign) => (
-              <option key={campaign.id} value={campaign.id}>
-                {campaign.name}
-              </option>
-            ))}
-          </select>
+        <form className="flex flex-wrap items-end gap-2" action="/verification">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="campaignId" className="text-sm text-muted-foreground">
+              Campaign
+            </label>
+            <select
+              id="campaignId"
+              name="campaignId"
+              defaultValue={campaignId ?? ""}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="">All campaigns</option>
+              {campaignsWithNeedsReview.map((campaign) => (
+                <option key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="partnerOrganizationId" className="text-sm text-muted-foreground">
+              Partner
+            </label>
+            <select
+              id="partnerOrganizationId"
+              name="partnerOrganizationId"
+              defaultValue={partnerOrganizationId ?? ""}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="">All partners</option>
+              {partnersWithNeedsReview.map((partner) => (
+                <option key={partner.id} value={partner.id}>
+                  {partner.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="minAgeDays" className="text-sm text-muted-foreground">
+              Older than (days)
+            </label>
+            <input
+              id="minAgeDays"
+              name="minAgeDays"
+              type="number"
+              min={0}
+              defaultValue={minAgeDays ?? ""}
+              className="h-9 w-24 rounded-md border border-input bg-transparent px-3 text-sm"
+            />
+          </div>
           <button
             type="submit"
             className="h-9 rounded-md border border-input px-3 text-sm hover:bg-muted"
