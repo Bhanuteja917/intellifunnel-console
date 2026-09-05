@@ -39,10 +39,30 @@ async function scenario(code: string) {
   await setIcpCriteria(db, manager, campaign.id, [
     { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
   ]);
-  await addCampaignChannel(db, manager, campaign.id, {
+  const channel = await addCampaignChannel(db, manager, campaign.id, {
     channelTypeVersionId: version.id, contractedQuantity: 500,
     clientUnitPrice: "42.50", currency: "USD",
     startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+  });
+
+  // CONTENT_SYNDICATION is seeded requiresAsset:true (E5) — every test in
+  // this file submits for approval, so give it a satisfying active placement
+  // here rather than duplicating this setup per test.
+  const asset = await db.asset.create({
+    data: { ownerOrganizationId: client.id, name: "Whitepaper", type: "whitepaper", language: "en" },
+  });
+  const assetVersion = await db.assetVersion.create({
+    data: {
+      assetId: asset.id, version: 1, storageKey: `assets/${asset.id}/1-whitepaper.pdf`,
+      fileName: "whitepaper.pdf", mimeType: "application/pdf", sizeBytes: 1024,
+    },
+  });
+  await db.assetPlacement.create({
+    data: {
+      campaignChannelId: channel.id, assetId: asset.id, assetVersionId: assetVersion.id,
+      landingPageUrl: "https://client.example.com/landing", formSlug: `form-${code}`,
+      status: "active",
+    },
   });
 
   return { db, admin, manager, client, clientAdmin, clientViewer, campaign, version };

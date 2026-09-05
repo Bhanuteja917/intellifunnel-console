@@ -139,7 +139,28 @@ describe("cloneCampaign (E3)", () => {
   });
 
   it("copies no approvals, snapshot or status history from the source", async () => {
-    const { db, manager, clientAdmin, campaign } = await configuredCampaign("CLONE-SRC-4");
+    const { db, manager, clientAdmin, client, campaign } = await configuredCampaign("CLONE-SRC-4");
+
+    // CONTENT_SYNDICATION is seeded requiresAsset:true (E5) — give the
+    // channel an active placement so approval can proceed.
+    const channel = await db.campaignChannel.findFirstOrThrow({ where: { campaignId: campaign.id } });
+    const asset = await db.asset.create({
+      data: { ownerOrganizationId: client.id, name: "Whitepaper", type: "whitepaper", language: "en" },
+    });
+    const assetVersion = await db.assetVersion.create({
+      data: {
+        assetId: asset.id, version: 1, storageKey: `assets/${asset.id}/1-whitepaper.pdf`,
+        fileName: "whitepaper.pdf", mimeType: "application/pdf", sizeBytes: 1024,
+      },
+    });
+    await db.assetPlacement.create({
+      data: {
+        campaignChannelId: channel.id, assetId: asset.id, assetVersionId: assetVersion.id,
+        landingPageUrl: "https://client.example.com/landing", formSlug: "form-clone-src-4",
+        status: "active",
+      },
+    });
+
     await submitForInternalApproval(db, manager, campaign.id);
     await decideInternalApproval(db, manager, campaign.id, "approved");
     await decideClientApproval(db, clientAdmin, campaign.id, "approved");
