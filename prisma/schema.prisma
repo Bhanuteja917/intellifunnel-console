@@ -85,12 +85,13 @@ model Organization {
   createdById            String?
   updatedById            String?
 
-  domains     OrganizationDomain[]
-  users       User[]
-  invitations Invitation[]
-  campaigns   Campaign[]
-  assets      Asset[]
-  allocations PartnerAllocation[]
+  domains         OrganizationDomain[]
+  users           User[]
+  invitations     Invitation[]
+  campaigns       Campaign[]
+  assets          Asset[]
+  allocations     PartnerAllocation[]
+  leadSubmissions LeadSubmission[]
 
   @@index([isClient])
   @@index([isPartner])
@@ -956,25 +957,28 @@ enum LeadStatusDimension {
 }
 
 model LeadSubmission {
-  id                String         @id @default(cuid())
-  campaignChannelId String
-  sourceType        LeadSourceType
-  submittedById     String
-  fileKey           String?
-  mappingJson       Json
-  rowsTotal         Int            @default(0)
-  rowsAccepted      Int            @default(0)
-  rowsFailed        Int            @default(0)
-  status            ImportStatus   @default(pending)
-  submittedAt       DateTime       @default(now())
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                    String         @id @default(cuid())
+  campaignChannelId     String
+  sourceType            LeadSourceType
+  submittedById         String
+  partnerOrganizationId String?
+  fileKey               String?
+  mappingJson           Json
+  rowsTotal             Int            @default(0)
+  rowsAccepted          Int            @default(0)
+  rowsFailed            Int            @default(0)
+  status                ImportStatus   @default(pending)
+  submittedAt           DateTime       @default(now())
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
-  campaignChannel CampaignChannel       @relation(fields: [campaignChannelId], references: [id])
-  leads           Lead[]
-  errors          LeadSubmissionError[]
+  campaignChannel     CampaignChannel       @relation(fields: [campaignChannelId], references: [id])
+  partnerOrganization Organization?         @relation(fields: [partnerOrganizationId], references: [id])
+  leads               Lead[]
+  errors              LeadSubmissionError[]
 
   @@index([campaignChannelId, status])
+  @@index([partnerOrganizationId])
 }
 
 model LeadSubmissionError {

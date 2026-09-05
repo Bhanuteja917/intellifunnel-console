@@ -11,6 +11,7 @@ import { normalizeCompanyName } from "@/lib/normalise/name";
 export type SubmitLeadFileInput = {
   campaignChannelId: string;
   sourceType: "internal" | "partner" | "form"; // "form" accepted by the type but this plan's UI (Task 5) never sends it — file upload only
+  partnerOrganizationId?: string;
   content: string;
   mapping: Record<string, string>; // CSV header -> LeadFieldSpec.fieldKey
 };
@@ -83,6 +84,24 @@ export async function submitLeadFile(
   });
   assertOrganizationAccess(actor, campaignChannel.campaign.clientOrganizationId);
 
+  // FR-VF-1: partner attribution on the submission, so the verification
+  // queue can filter by partner. A "partner" submission must name a partner
+  // that's actually allocated to this channel; an "internal" submission
+  // must not claim one at all.
+  if (input.sourceType === "partner") {
+    if (input.partnerOrganizationId === undefined) {
+      throw new ValidationError("partnerOrganizationId is required when sourceType is \"partner\"");
+    }
+    const allocation = await db.partnerAllocation.findFirst({
+      where: { campaignChannelId: input.campaignChannelId, partnerOrganizationId: input.partnerOrganizationId },
+    });
+    if (allocation === null) {
+      throw new ValidationError("This partner has no allocation on the selected channel");
+    }
+  } else if (input.partnerOrganizationId !== undefined) {
+    throw new ValidationError("partnerOrganizationId can only be set when sourceType is \"partner\"");
+  }
+
   const campaign = campaignChannel.campaign;
 
   const specRows = await db.leadFieldSpec.findMany({ where: { campaignId: campaignChannel.campaignId } });
@@ -119,6 +138,7 @@ export async function submitLeadFile(
       campaignChannelId: input.campaignChannelId,
       sourceType: input.sourceType,
       submittedById: actor.userId,
+      partnerOrganizationId: input.partnerOrganizationId,
       mappingJson: input.mapping,
       rowsTotal: parsed.rows.length,
       status: "processing",

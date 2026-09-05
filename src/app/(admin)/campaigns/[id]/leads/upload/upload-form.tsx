@@ -25,6 +25,7 @@ type Props = {
   campaignId: string;
   channels: Channel[];
   leadFieldKeys: LeadFieldKey[];
+  partnersByChannelId: Record<string, { id: string; name: string }[]>;
 };
 
 const SOURCE_TYPES = ["internal", "partner"] as const;
@@ -35,17 +36,20 @@ type SourceType = (typeof SOURCE_TYPES)[number];
 // any CSV header uses this instead of "".
 const UNMAPPED = "__unmapped__";
 
-export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
+export function UploadForm({ campaignId, channels, leadFieldKeys, partnersByChannelId }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   const [campaignChannelId, setCampaignChannelId] = useState(channels[0]?.id ?? "");
   const [sourceType, setSourceType] = useState<SourceType>("internal");
+  const [partnerOrganizationId, setPartnerOrganizationId] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   // fieldKey -> selected CSV header (or UNMAPPED)
   const [headerByFieldKey, setHeaderByFieldKey] = useState<Record<string, string>>({});
+
+  const availablePartners = partnersByChannelId[campaignChannelId] ?? [];
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -81,6 +85,7 @@ export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
   const canSubmit =
     campaignChannelId !== "" &&
     content !== null &&
+    (sourceType !== "partner" || partnerOrganizationId !== "") &&
     leadFieldKeys
       .filter((f) => f.isRequired)
       .every((f) => headerByFieldKey[f.fieldKey] !== undefined && headerByFieldKey[f.fieldKey] !== UNMAPPED);
@@ -92,6 +97,7 @@ export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
         campaignChannelId,
         campaignId,
         sourceType,
+        partnerOrganizationId: sourceType === "partner" ? partnerOrganizationId : undefined,
         content,
         mapping,
       });
@@ -152,6 +158,30 @@ export function UploadForm({ campaignId, channels, leadFieldKeys }: Props) {
                 </Select>
               </Field>
             </div>
+            {sourceType === "partner" && (
+              <div className="mt-4">
+                <Field>
+                  <FieldLabel htmlFor="upload-partner">Partner *</FieldLabel>
+                  <Select value={partnerOrganizationId} onValueChange={setPartnerOrganizationId}>
+                    <SelectTrigger id="upload-partner" className="w-full">
+                      <SelectValue placeholder="Select partner..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {availablePartners.map((partner) => (
+                          <SelectItem key={partner.id} value={partner.id}>
+                            {partner.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {availablePartners.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No partner is allocated to this channel yet.</p>
+                  )}
+                </Field>
+              </div>
+            )}
           </FieldGroup>
         </CardContent>
       </Card>

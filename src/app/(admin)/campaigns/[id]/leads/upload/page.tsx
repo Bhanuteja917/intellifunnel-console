@@ -28,6 +28,18 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
     return { id: channel.id, label };
   });
 
+  const allocations = await db.partnerAllocation.findMany({
+    where: { campaignChannelId: { in: campaign.channels.map((c) => c.id) } },
+    include: { partnerOrganization: { select: { id: true, name: true } } },
+  });
+  const partnersByChannelId: Record<string, { id: string; name: string }[]> = {};
+  for (const allocation of allocations) {
+    (partnersByChannelId[allocation.campaignChannelId] ??= []).push({
+      id: allocation.partnerOrganizationId,
+      name: allocation.partnerOrganization.name,
+    });
+  }
+
   const leadFieldKeys = campaign.leadFieldSpecs.map((spec) => ({
     fieldKey: spec.fieldKey,
     label: spec.label,
@@ -76,7 +88,12 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
           </CardContent>
         </Card>
       ) : (
-        <UploadForm campaignId={campaign.id} channels={channels} leadFieldKeys={leadFieldKeys} />
+        <UploadForm
+          campaignId={campaign.id}
+          channels={channels}
+          leadFieldKeys={leadFieldKeys}
+          partnersByChannelId={partnersByChannelId}
+        />
       )}
     </div>
   );

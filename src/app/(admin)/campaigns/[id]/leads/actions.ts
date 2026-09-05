@@ -9,6 +9,7 @@ export async function submitLeadFileAction(input: {
   campaignChannelId: string;
   campaignId: string; // only for revalidatePath — not passed into submitLeadFile
   sourceType: "internal" | "partner";
+  partnerOrganizationId?: string;
   content: string;
   mapping: Record<string, string>;
 }): Promise<ActionResult<{ submissionId: string; rowsTotal: number; rowsAccepted: number; rowsFailed: number }>> {
@@ -17,6 +18,7 @@ export async function submitLeadFileAction(input: {
     const result = await submitLeadFile(db, actor, {
       campaignChannelId: input.campaignChannelId,
       sourceType: input.sourceType,
+      partnerOrganizationId: input.partnerOrganizationId,
       content: input.content,
       mapping: input.mapping,
     });
