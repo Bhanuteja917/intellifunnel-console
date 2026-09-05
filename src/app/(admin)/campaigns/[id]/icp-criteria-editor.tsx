@@ -27,7 +27,38 @@ type IcpDimension = "industry" | "employeeRange" | "revenueRange" | "country" | 
 type IcpOperator = "in" | "notIn" | "between" | "contains";
 
 const ICP_DIMENSIONS: IcpDimension[] = ["industry", "employeeRange", "revenueRange", "country", "region", "jobFunction", "seniority", "jobTitle", "custom"];
-const ICP_OPERATORS: IcpOperator[] = ["in", "notIn", "between", "contains"];
+
+const STRING_OPERATORS: IcpOperator[] = ["in", "notIn", "contains"];
+const RANGE_OPERATORS: IcpOperator[] = ["in", "notIn", "contains", "between"];
+
+// `between` only makes sense against a numeric value — matchesIcp
+// (src/lib/leads/matching.ts) parses it as Number(account.<field>), which is
+// only ever meaningful for the two range dimensions. Every other dimension
+// compares strings, so offering `between` there is a dead, confusing choice
+// (this is the jobFunction/"between" bug from TESTING.md item 6).
+const DIMENSION_OPERATORS: Readonly<Record<IcpDimension, IcpOperator[]>> = {
+  industry: STRING_OPERATORS,
+  employeeRange: RANGE_OPERATORS,
+  revenueRange: RANGE_OPERATORS,
+  country: STRING_OPERATORS,
+  region: STRING_OPERATORS,
+  jobFunction: STRING_OPERATORS,
+  seniority: STRING_OPERATORS,
+  jobTitle: STRING_OPERATORS,
+  custom: STRING_OPERATORS,
+};
+
+const DIMENSION_PLACEHOLDERS: Readonly<Record<IcpDimension, string>> = {
+  industry: "e.g. Software, Fintech",
+  employeeRange: "e.g. 50-200, 200-1000",
+  revenueRange: "e.g. 1000000-5000000",
+  country: "e.g. US, IN, GB",
+  region: "e.g. APAC, EMEA",
+  jobFunction: "e.g. Engineering, Sales",
+  seniority: "e.g. Director, VP, C-Level",
+  jobTitle: "e.g. VP Engineering, Head of Growth",
+  custom: "e.g. value1, value2",
+};
 
 type Row = {
   dimension: IcpDimension;
@@ -125,7 +156,15 @@ export function IcpCriteriaEditor({ campaignId, initialCriteria, canEdit }: Prop
           {rows.map((row, index) => (
             <TableRow key={index}>
               <TableCell>
-                <Select value={row.dimension} onValueChange={(value) => updateRow(index, { dimension: value as IcpDimension })}>
+                <Select
+                  value={row.dimension}
+                  onValueChange={(value) => {
+                    const dimension = value as IcpDimension;
+                    const allowedOperators = DIMENSION_OPERATORS[dimension];
+                    const operator = allowedOperators.includes(row.operator) ? row.operator : allowedOperators[0]!;
+                    updateRow(index, { dimension, operator });
+                  }}
+                >
                   <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
@@ -139,7 +178,7 @@ export function IcpCriteriaEditor({ campaignId, initialCriteria, canEdit }: Prop
                   <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {ICP_OPERATORS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                      {DIMENSION_OPERATORS[row.dimension].map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
@@ -148,7 +187,7 @@ export function IcpCriteriaEditor({ campaignId, initialCriteria, canEdit }: Prop
                 <Input
                   value={row.valuesText}
                   onChange={(event) => updateRow(index, { valuesText: event.target.value })}
-                  placeholder="e.g. Software, Fintech"
+                  placeholder={DIMENSION_PLACEHOLDERS[row.dimension]}
                 />
               </TableCell>
               <TableCell>

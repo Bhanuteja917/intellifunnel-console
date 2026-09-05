@@ -9,7 +9,8 @@ export type CampaignStatusFilter =
   | "live"
   | "paused"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "deleted";
 
 type CampaignFiltersState = {
   status: CampaignStatusFilter;

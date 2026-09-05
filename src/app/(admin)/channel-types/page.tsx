@@ -12,6 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChannelTypeActions } from "./channel-type-actions";
+import { EditChannelTypeDialog } from "./edit-channel-type-dialog";
+import { NewChannelTypeDialog } from "./new-channel-type-dialog";
 
 export default async function ChannelTypesPage() {
   const actor = await requireActor();
@@ -24,10 +26,16 @@ export default async function ChannelTypesPage() {
 
   const canPublish = hasPermission(actor, "channelType:publish");
   const canWrite = hasPermission(actor, "channelType:write");
+  const funnelStages = canWrite
+    ? await db.funnelStage.findMany({ orderBy: { sortOrder: "asc" }, select: { id: true, name: true } })
+    : [];
 
   return (
     <Card>
-      <CardHeader><CardTitle>Channel types</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Channel types</CardTitle>
+        {canWrite && <NewChannelTypeDialog funnelStages={funnelStages} />}
+      </CardHeader>
       <CardContent>
         <Table>
           <TableHeader>
@@ -54,12 +62,32 @@ export default async function ChannelTypesPage() {
                 </TableCell>
                 {(canPublish || canWrite) && (
                   <TableCell>
-                    <ChannelTypeActions
-                      channelTypeId={channelType.id}
-                      isActive={channelType.isActive}
-                      canPublish={canPublish}
-                      canDeactivate={canWrite}
-                    />
+                    <div className="flex gap-2">
+                      {canWrite && (
+                        <EditChannelTypeDialog
+                          channelType={{
+                            id: channelType.id,
+                            code: channelType.code,
+                            name: channelType.name,
+                            funnelStageId: channelType.funnelStageId,
+                            metricMode: channelType.metricMode,
+                            pricingUnit: channelType.pricingUnit,
+                            producesLeads: channelType.producesLeads,
+                            requiresAsset: channelType.requiresAsset,
+                            requiresTeleVerification: channelType.requiresTeleVerification,
+                            verificationSlaBusinessDays: channelType.verificationSlaBusinessDays,
+                            allowedMetricFields: channelType.allowedMetricFieldsJson as string[],
+                          }}
+                          funnelStages={funnelStages}
+                        />
+                      )}
+                      <ChannelTypeActions
+                        channelTypeId={channelType.id}
+                        isActive={channelType.isActive}
+                        canPublish={canPublish}
+                        canDeactivate={canWrite}
+                      />
+                    </div>
                   </TableCell>
                 )}
               </TableRow>

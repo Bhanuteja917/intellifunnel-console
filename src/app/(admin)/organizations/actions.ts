@@ -4,7 +4,19 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { createInvitation, resendInvitation, revokeInvitation } from "@/lib/invitations/invitations";
+import { createOrganization, type CreateOrganizationInput } from "@/lib/organizations/crud";
 import type { RoleCode } from "@/lib/auth/permissions";
+
+export async function createOrganizationAction(
+  input: CreateOrganizationInput,
+): Promise<ActionResult<{ id: string }>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    const organization = await createOrganization(db, actor, input);
+    revalidatePath("/organizations");
+    return { id: organization.id };
+  });
+}
 
 export async function inviteUserAction(input: {
   email: string;

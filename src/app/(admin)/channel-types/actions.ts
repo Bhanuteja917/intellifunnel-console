@@ -3,8 +3,31 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
-import { deactivateChannelType } from "@/lib/channel-types/crud";
+import { createChannelType, deactivateChannelType, updateChannelType, type ChannelTypeInput } from "@/lib/channel-types/crud";
 import { publishChannelTypeVersion } from "@/lib/channel-types/versions";
+
+export async function createChannelTypeAction(
+  input: ChannelTypeInput,
+): Promise<ActionResult<{ id: string }>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    const channelType = await createChannelType(db, actor, input);
+    revalidatePath("/channel-types");
+    return { id: channelType.id };
+  });
+}
+
+export async function updateChannelTypeAction(
+  id: string,
+  input: Partial<Omit<ChannelTypeInput, "code">>,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await updateChannelType(db, actor, id, input);
+    revalidatePath("/channel-types");
+    return null;
+  });
+}
 
 export async function publishChannelTypeAction(
   channelTypeId: string,

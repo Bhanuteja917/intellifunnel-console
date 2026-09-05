@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
+import { CURRENCY_EXPONENTS } from "@/lib/money/currency";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { InviteUserDialog } from "./invite-user-dialog";
 import { InvitationRowActions } from "./invitation-row-actions";
+import { NewOrganizationDialog } from "./new-organization-dialog";
 
 export default async function OrganizationsPage() {
   const actor = await requireActor();
@@ -27,6 +29,7 @@ export default async function OrganizationsPage() {
     orderBy: { name: "asc" },
   });
 
+  const canCreateOrganization = hasPermission(actor, "organization:write");
   const canInvite = hasPermission(actor, "user:invite");
   const roles = canInvite ? await db.role.findMany({ orderBy: { name: "asc" } }) : [];
   const pendingInvitations = canInvite
@@ -45,15 +48,20 @@ export default async function OrganizationsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Organisations</CardTitle>
-          {canInvite && (
-            <InviteUserDialog
-              organizations={organizations.map((organization) => ({
-                id: organization.id,
-                name: organization.name,
-              }))}
-              roles={roles.map((role) => ({ code: role.code, name: role.name }))}
-            />
-          )}
+          <div className="flex gap-2">
+            {canCreateOrganization && (
+              <NewOrganizationDialog currencies={Object.keys(CURRENCY_EXPONENTS)} />
+            )}
+            {canInvite && (
+              <InviteUserDialog
+                organizations={organizations.map((organization) => ({
+                  id: organization.id,
+                  name: organization.name,
+                }))}
+                roles={roles.map((role) => ({ code: role.code, name: role.name }))}
+              />
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <Table>

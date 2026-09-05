@@ -11,9 +11,10 @@ export default async function CampaignsPage() {
   assertPermission(actor, "campaign:read");
 
   // AUTH-9: a non-internal actor's list is filtered at the query, not the view.
+  // Deleted campaigns stay in the result set so the "deleted" filter can
+  // surface them — they're just marked via isDeleted for the client to sort out.
   const campaigns = await db.campaign.findMany({
     where: {
-      deletedAt: null,
       ...(actor.isInternal ? {} : { clientOrganizationId: actor.organizationId }),
     },
     include: { clientOrganization: { select: { name: true } } },
@@ -30,6 +31,7 @@ export default async function CampaignsPage() {
     name: campaign.name,
     clientName: campaign.clientOrganization.name,
     status: campaign.status,
+    isDeleted: campaign.deletedAt !== null,
     startDate: campaign.startDate.toISOString().slice(0, 10),
     endDate: campaign.endDate.toISOString().slice(0, 10),
   }));
@@ -45,7 +47,7 @@ export default async function CampaignsPage() {
         )}
       </CardHeader>
       <CardContent>
-        <CampaignTable rows={rows} />
+        <CampaignTable rows={rows} canDelete={canCreate} />
       </CardContent>
     </Card>
   );

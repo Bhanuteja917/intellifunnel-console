@@ -4,7 +4,20 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, ShapesIcon, User } from "lucide-react";
+import {
+  Building2,
+  Circle,
+  FileText,
+  Handshake,
+  ImageIcon,
+  ListChecks,
+  LogOut,
+  Megaphone,
+  Radio,
+  ShieldCheck,
+  User,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,6 +33,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -27,6 +41,26 @@ import {
 } from "@/components/ui/sidebar";
 
 type NavItem = { href: Route; label: string };
+
+// Icons are resolved here, client-side, by href rather than accepted as a
+// prop: a layout.tsx passing `nav` is a Server Component, and Lucide icons
+// are functions — React server/client serialization rejects functions
+// crossing that boundary ("Only plain objects can be passed to Client
+// Components from Server Components").
+const NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
+  "/campaigns": Megaphone,
+  "/channel-types": Radio,
+  "/organizations": Building2,
+  "/resolution-queue": ListChecks,
+  "/verification": ShieldCheck,
+  "/assets": ImageIcon,
+  "/consent-texts": FileText,
+  "/partner/allocations": Handshake,
+};
+
+function iconFor(href: string): LucideIcon {
+  return NAV_ICONS[href] ?? Circle;
+}
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -76,7 +110,8 @@ export function AppSidebar({
     <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <ShapesIcon className="size-6 shrink-0" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- next/image blocks SVG optimization by default */}
+          <img src="/logo.svg" alt="" width={24} height={24} className="size-6 shrink-0" />
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold">{title}</span>
             <span className="text-xs text-muted-foreground">{subtitle}</span>
@@ -84,18 +119,26 @@ export function AppSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu>
-          {nav.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton
-                asChild
-                isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
-              >
-                <Link href={item.href}>{item.label}</Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        <SidebarGroup>
+          <SidebarMenu className="gap-1">
+            {nav.map((item) => {
+              const Icon = iconFor(item.href);
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
+                  >
+                    <Link href={item.href}>
+                      <Icon />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <DropdownMenu>

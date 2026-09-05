@@ -9,7 +9,7 @@ import {
   submitForInternalApproval,
 } from "@/lib/campaigns/state-machine";
 import { cloneCampaign } from "@/lib/campaigns/clone";
-import { createCampaign } from "@/lib/campaigns/crud";
+import { createCampaign, deleteCampaign } from "@/lib/campaigns/crud";
 
 export async function createCampaignAction(input: {
   clientOrganizationId: string;
@@ -31,6 +31,15 @@ export async function createCampaignAction(input: {
     });
     revalidatePath("/campaigns");
     return { id: campaign.id };
+  });
+}
+
+export async function deleteCampaignAction(campaignId: string): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await deleteCampaign(db, actor, campaignId);
+    revalidatePath("/campaigns");
+    return null;
   });
 }
 
