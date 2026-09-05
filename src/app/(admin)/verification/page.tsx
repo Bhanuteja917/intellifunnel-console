@@ -20,12 +20,14 @@ import { QueueRowActions } from "./queue-row-actions";
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
+const PAGE_SIZE = 50;
+
 export default async function VerificationQueuePage({
   searchParams,
 }: {
-  searchParams: Promise<{ campaignId?: string }>;
+  searchParams: Promise<{ campaignId?: string; cursor?: string }>;
 }) {
-  const { campaignId } = await searchParams;
+  const { campaignId, cursor } = await searchParams;
   const actor = await requireActor();
   assertPermission(actor, "lead:read");
 
@@ -40,7 +42,11 @@ export default async function VerificationQueuePage({
     ...(campaignId ? { campaignId } : {}),
   };
 
-  const leads = await db.lead.findMany({
+  // Fetch one row past the page size to know whether a next page exists,
+  // without a separate count query. `createdAt` alone isn't a unique sort
+  // key (ties on the same millisecond), so `id` breaks ties — required for
+  // cursor pagination to never skip or repeat a row across pages.
+  const leadsPlusOne = await db.lead.findMany({
     where: {
       verificationStatus: "needsReview",
       ...(Object.keys(campaignChannelFilter).length > 0 ? { campaignChannel: campaignChannelFilter } : {}),
@@ -50,9 +56,13 @@ export default async function VerificationQueuePage({
       contact: true,
       campaignChannel: { include: { campaign: true, channelTypeVersion: { include: { channelType: true } } } },
     },
-    orderBy: { createdAt: "asc" }, // oldest first — the queue's whole point is age-ordering
-    take: 50,
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }], // oldest first — the queue's whole point is age-ordering
+    take: PAGE_SIZE + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
+  const hasMore = leadsPlusOne.length > PAGE_SIZE;
+  const leads = hasMore ? leadsPlusOne.slice(0, PAGE_SIZE) : leadsPlusOne;
+  const nextCursor = hasMore ? leads[leads.length - 1]!.id : null;
 
   // Campaigns visible to the actor that currently have at least one
   // needsReview lead — the filter's option list, kept simple per the plan
@@ -170,6 +180,20 @@ export default async function VerificationQueuePage({
               ))}
             </TableBody>
           </Table>
+        )}
+
+        {nextCursor !== null && (
+          <Link
+            href={
+              (`/verification?${new URLSearchParams({
+                ...(campaignId ? { campaignId } : {}),
+                cursor: nextCursor,
+              }).toString()}`) as Route
+            }
+            className="self-center text-sm underline underline-offset-4"
+          >
+            Load more
+          </Link>
         )}
       </CardContent>
     </Card>
