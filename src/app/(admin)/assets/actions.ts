@@ -39,7 +39,7 @@ export async function uploadAssetVersionAction(
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const assetVersion = await uploadAssetVersion(db, actor, getStorageAdapter(), {
+    const assetVersion = await uploadAssetVersion(db, actor, await getStorageAdapter(), {
       assetId,
       file: {
         buffer,

@@ -37,7 +37,7 @@ export async function GET(
     });
     if (version === null) throw new NotFoundError("Asset version not found");
 
-    const storage = getStorageAdapter();
+    const storage = await getStorageAdapter();
     const downloadUrl = await storage.getDownloadUrl(version.storageKey, 300);
 
     if (downloadUrl.startsWith(LOCAL_ADAPTER_PREFIX)) {
