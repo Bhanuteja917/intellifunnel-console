@@ -42,6 +42,12 @@ describe("getCurrentActor", () => {
     await expect(getCurrentActor(testDb())).rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  it("converts a session-decode failure into ForbiddenError instead of propagating it raw", async () => {
+    getSession.mockRejectedValue(new Error("Invalid Base64 character: ."));
+    const { getCurrentActor } = await import("@/lib/auth/session");
+    await expect(getCurrentActor(testDb())).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
   it("throws when the session user has no application record", async () => {
     getSession.mockResolvedValue({ user: { id: "auth-unknown" } });
     const { getCurrentActor } = await import("@/lib/auth/session");
