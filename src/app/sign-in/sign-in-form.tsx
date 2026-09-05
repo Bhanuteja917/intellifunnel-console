@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { authClient } from "@/lib/auth/client";
+import { getPostSignInPortalAction } from "./actions";
 
 export function SignInForm() {
   const router = useRouter();
@@ -27,7 +28,16 @@ export function SignInForm() {
         return;
       }
 
-      router.push("/campaigns");
+      // The session cookie is set by the time signIn.email resolves, so this
+      // server round-trip sees the new session. A partner-portal user lands
+      // in the partner portal; everyone else (admin today, and client, which
+      // has no portal routes yet) keeps the existing default.
+      const portalResult = await getPostSignInPortalAction();
+      if (portalResult.ok && portalResult.data.portal === "partner") {
+        router.push("/partner");
+      } else {
+        router.push("/campaigns");
+      }
       router.refresh();
     });
   }

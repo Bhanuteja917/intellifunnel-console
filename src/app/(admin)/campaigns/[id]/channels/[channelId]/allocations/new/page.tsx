@@ -30,7 +30,7 @@ export default async function NewAllocationPage({
   if (channel === undefined) notFound();
 
   const partnerOrgs = await db.organization.findMany({
-    where: { isPartner: true, status: "active" },
+    where: { isPartner: true, status: "active", deletedAt: null },
     select: { id: true, name: true, defaultPayoutCurrency: true },
     orderBy: { name: "asc" },
   });

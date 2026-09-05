@@ -103,6 +103,30 @@ export function assertOrganizationAccess(actor: Actor, organizationId: string): 
   }
 }
 
+/**
+ * Guards a portal-specific route segment. Next.js's `error.js` convention
+ * never wraps the `layout.js` beside it in the same segment — only what's
+ * below it — so a throw from this check inside a `layout.tsx` is only ever
+ * caught by the *parent* segment's error boundary, not the portal's own.
+ * Worse, an uncaught throw here doesn't just go to the wrong boundary — it
+ * wins outright over a page-level call to this same function: `layout.tsx`
+ * and `page.tsx` run concurrently for one request, and empirically (checked
+ * against both `next dev` and a production build) the layout's own throw is
+ * the one that reaches the browser, silently discarding whatever the page
+ * independently threw. A layout that calls this must therefore catch it and
+ * fall through to rendering `{children}` rather than letting it propagate —
+ * see `src/app/partner/layout.tsx`. Call this again, uncaught, as the first
+ * line of every page inside that portal (before any data fetch) — see
+ * `src/app/partner/allocations/page.tsx` — so the throw originates inside a
+ * segment the portal's own `error.tsx` does wrap, and isn't racing a layout
+ * that also throws.
+ */
+export function assertPortal(actor: Actor, portal: Portal): void {
+  if (actor.portal !== portal) {
+    throw new ForbiddenError(`This portal is for ${portal} users`);
+  }
+}
+
 export async function loadActor(db: PrismaClient, userId: string): Promise<Actor> {
   const user = await db.user.findUnique({
     where: { id: userId },

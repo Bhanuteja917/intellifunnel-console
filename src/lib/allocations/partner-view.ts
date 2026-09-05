@@ -18,10 +18,13 @@ export type PartnerAllocationView = {
  * response. The `select` below never reaches `campaignChannel.campaign` at
  * all — client name, other partners' allocations, and campaign pricing are
  * structurally absent from the query result, not merely omitted from the
- * output type. Scoped unconditionally by `actor.organizationId` — no
+ * output type. Scoped unconditionally to the actor's own organisation — no
  * `isInternal` bypass, unlike every admin-side org-scoping query in this
- * codebase: an internal actor calling this gets nothing, since this
- * function's entire reason to exist is a partner's own restricted view.
+ * codebase. An org that is both internal and a partner would see its own
+ * allocations; this function has no special-case bypass for `isInternal`. In
+ * practice an internal actor's org is never also a partner org, so this
+ * returns empty for them, but that is a consequence of the data, not a
+ * guarantee this function enforces.
  */
 export async function getAllocationsForPartner(
   db: PrismaClient,

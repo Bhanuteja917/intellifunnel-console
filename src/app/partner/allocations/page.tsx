@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
+import { assertPortal } from "@/lib/auth/permissions";
 import { getAllocationsForPartner } from "@/lib/allocations/partner-view";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +8,12 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 
+// Every page under src/app/partner/ must call requireActor() + assertPortal()
+// as its first two lines, before any data fetch — see assertPortal's doc
+// comment for why the layout-level check alone is not enough.
 export default async function PartnerAllocationsPage() {
   const actor = await requireActor();
+  assertPortal(actor, "partner");
   const allocations = await getAllocationsForPartner(db, actor);
 
   return (

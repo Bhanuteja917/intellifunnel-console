@@ -26,7 +26,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-type NavItem = { href: string; label: string };
+type NavItem = { href: Route; label: string };
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -91,7 +91,7 @@ export function AppSidebar({
                 asChild
                 isActive={pathname === item.href || pathname.startsWith(`${item.href}/`)}
               >
-                <Link href={item.href as Route}>{item.label}</Link>
+                <Link href={item.href}>{item.label}</Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}

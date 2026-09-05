@@ -1,6 +1,7 @@
 import type { AllocationStatus, PartnerAllocation, PrismaClient } from "@prisma/client";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
+import { withAudit } from "@/lib/audit/audit";
 import { toMinorUnits } from "@/lib/money/currency";
 
 export type CreateAllocationInput = {
@@ -40,7 +41,12 @@ export async function createAllocation(
   if (channel === null) throw new NotFoundError("Campaign channel not found");
 
   const partnerOrganization = await db.organization.findUnique({ where: { id: input.partnerOrganizationId } });
-  if (partnerOrganization === null) throw new NotFoundError("Organisation not found");
+  // A soft-deleted org is treated as not found, matching assertClientOrganization
+  // (src/lib/campaigns/crud.ts) and assertRoleFitsOrganization
+  // (src/lib/invitations/invitations.ts).
+  if (partnerOrganization === null || partnerOrganization.deletedAt !== null) {
+    throw new NotFoundError("Organisation not found");
+  }
   if (!partnerOrganization.isPartner) {
     throw new ValidationError("Organisation is not a partner organisation");
   }
@@ -48,20 +54,44 @@ export async function createAllocation(
   assertQuantityAndWindow(input.allocatedQuantity, input.startDate, input.endDate);
   const payoutRateMinor = toMinorUnits(input.payoutRate, input.payoutCurrency);
 
-  return db.partnerAllocation.create({
-    data: {
-      campaignChannelId: input.campaignChannelId,
-      partnerOrganizationId: input.partnerOrganizationId,
-      allocatedQuantity: input.allocatedQuantity,
-      payoutRateMinor,
-      payoutCurrency: input.payoutCurrency,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      revealClientIdentity: input.revealClientIdentity,
-      createdById: actor.userId,
-      updatedById: actor.userId,
-    },
-  });
+  // PRD audit requirement: every change touching quota, money, status, or
+  // configuration is logged (NFR-A-1). payoutRateMinor is a BigInt, which
+  // does not serialise to JSON (see snapshot.ts's identical handling of
+  // clientUnitPriceMinor) — stringified before it goes into the audit payload.
+  return withAudit<PartnerAllocation>(
+    db,
+    actor,
+    (created) => ({
+      entityType: "PartnerAllocation",
+      entityId: created.id,
+      action: "create",
+      after: {
+        campaignChannelId: input.campaignChannelId,
+        partnerOrganizationId: input.partnerOrganizationId,
+        allocatedQuantity: input.allocatedQuantity,
+        payoutRateMinor: payoutRateMinor.toString(),
+        payoutCurrency: input.payoutCurrency,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        revealClientIdentity: input.revealClientIdentity,
+      },
+    }),
+    (tx) =>
+      tx.partnerAllocation.create({
+        data: {
+          campaignChannelId: input.campaignChannelId,
+          partnerOrganizationId: input.partnerOrganizationId,
+          allocatedQuantity: input.allocatedQuantity,
+          payoutRateMinor,
+          payoutCurrency: input.payoutCurrency,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          revealClientIdentity: input.revealClientIdentity,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        },
+      }),
+  );
 }
 
 export type UpdateAllocationInput = {
@@ -91,18 +121,50 @@ export async function updateAllocation(
   // reallocating to a different partner or channel is a new allocation, not
   // an edit. status is likewise untouched here; it's managed separately via
   // setAllocationStatus.
-  return db.partnerAllocation.update({
-    where: { id: input.allocationId },
-    data: {
-      allocatedQuantity: input.allocatedQuantity,
-      payoutRateMinor,
-      payoutCurrency: input.payoutCurrency,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      revealClientIdentity: input.revealClientIdentity,
-      updatedById: actor.userId,
+  //
+  // The id is already known, so entry is a fixed object rather than a
+  // function (matching updateChannelType's precedent), and `before` is the
+  // row already fetched above rather than re-read inside the transaction.
+  // payoutRateMinor is BigInt and does not serialise to JSON, so both the
+  // before and after snapshots stringify it.
+  return withAudit<PartnerAllocation>(
+    db,
+    actor,
+    {
+      entityType: "PartnerAllocation",
+      entityId: input.allocationId,
+      action: "update",
+      before: {
+        allocatedQuantity: existing.allocatedQuantity,
+        payoutRateMinor: existing.payoutRateMinor.toString(),
+        payoutCurrency: existing.payoutCurrency,
+        startDate: existing.startDate,
+        endDate: existing.endDate,
+        revealClientIdentity: existing.revealClientIdentity,
+      },
+      after: {
+        allocatedQuantity: input.allocatedQuantity,
+        payoutRateMinor: payoutRateMinor.toString(),
+        payoutCurrency: input.payoutCurrency,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        revealClientIdentity: input.revealClientIdentity,
+      },
     },
-  });
+    (tx) =>
+      tx.partnerAllocation.update({
+        where: { id: input.allocationId },
+        data: {
+          allocatedQuantity: input.allocatedQuantity,
+          payoutRateMinor,
+          payoutCurrency: input.payoutCurrency,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          revealClientIdentity: input.revealClientIdentity,
+          updatedById: actor.userId,
+        },
+      }),
+  );
 }
 
 export type SetAllocationStatusInput = {
@@ -122,9 +184,23 @@ export async function setAllocationStatus(
 
   // AllocationStatus transitions are unrestricted (draft/active/paused/ended,
   // any -> any) — the PRD doesn't specify a constrained flow here, matching
-  // setPlacementStatus's precedent.
-  return db.partnerAllocation.update({
-    where: { id: input.allocationId },
-    data: { status: input.status, updatedById: actor.userId },
-  });
+  // setPlacementStatus's precedent. setPlacementStatus itself has no audit
+  // precedent to follow, so this instead matches deactivateChannelType's
+  // status-only-change shape (before/after each holding just the one field).
+  return withAudit<PartnerAllocation>(
+    db,
+    actor,
+    {
+      entityType: "PartnerAllocation",
+      entityId: input.allocationId,
+      action: "update",
+      before: { status: existing.status },
+      after: { status: input.status },
+    },
+    (tx) =>
+      tx.partnerAllocation.update({
+        where: { id: input.allocationId },
+        data: { status: input.status, updatedById: actor.userId },
+      }),
+  );
 }

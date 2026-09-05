@@ -100,7 +100,14 @@ export default async function AllocationsPage({
               )}
               {allocations.map((allocation) => (
                 <TableRow key={allocation.id}>
-                  <TableCell>{allocation.partnerOrganization.name}</TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/campaigns/${campaign.id}/channels/${channel.id}/allocations/${allocation.id}` as Route}
+                      className="underline"
+                    >
+                      {allocation.partnerOrganization.name}
+                    </Link>
+                  </TableCell>
                   <TableCell>{allocation.allocatedQuantity}</TableCell>
                   <TableCell>
                     {allocation.payoutCurrency}{" "}
@@ -111,12 +118,7 @@ export default async function AllocationsPage({
                     {allocation.endDate.toISOString().slice(0, 10)}
                   </TableCell>
                   <TableCell>
-                    <Link
-                      href={`/campaigns/${campaign.id}/channels/${channel.id}/allocations/${allocation.id}` as Route}
-                      className="underline"
-                    >
-                      <Badge>{allocation.status}</Badge>
-                    </Link>
+                    <Badge>{allocation.status}</Badge>
                   </TableCell>
                   <TableCell>{allocation.revealClientIdentity ? "Yes" : "No"}</TableCell>
                 </TableRow>
