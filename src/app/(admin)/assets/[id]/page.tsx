@@ -33,8 +33,11 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
   const actor = await requireActor();
   assertPermission(actor, "asset:read");
 
-  const asset = await db.asset.findUnique({
-    where: { id },
+  const asset = await db.asset.findFirst({
+    where: {
+      id,
+      ...(actor.isInternal ? {} : { ownerOrganizationId: actor.organizationId }),
+    },
     include: { ownerOrganization: { select: { name: true } } },
   });
   if (asset === null) notFound();

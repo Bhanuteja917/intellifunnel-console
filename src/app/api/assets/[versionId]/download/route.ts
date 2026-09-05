@@ -29,7 +29,12 @@ export async function GET(
     const actor = await requireActor();
     assertPermission(actor, "asset:read");
 
-    const version = await db.assetVersion.findUnique({ where: { id: versionId } });
+    const version = await db.assetVersion.findFirst({
+      where: {
+        id: versionId,
+        asset: actor.isInternal ? {} : { ownerOrganizationId: actor.organizationId },
+      },
+    });
     if (version === null) throw new NotFoundError("Asset version not found");
 
     const storage = getStorageAdapter();
