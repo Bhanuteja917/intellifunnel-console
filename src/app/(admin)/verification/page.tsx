@@ -239,6 +239,8 @@ export default async function VerificationQueuePage({
             href={
               (`/verification?${new URLSearchParams({
                 ...(campaignId ? { campaignId } : {}),
+                ...(partnerOrganizationId ? { partnerOrganizationId } : {}),
+                ...(minAgeDays ? { minAgeDays } : {}),
                 cursor: nextCursor,
               }).toString()}`) as Route
             }
