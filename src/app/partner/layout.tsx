@@ -10,7 +10,10 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
-const PARTNER_NAV = [{ href: "/partner/allocations", label: "Allocations" }] as const;
+const PARTNER_NAV = [
+  { href: "/partner/allocations", label: "Allocations" },
+  { href: "/partner/scorecard", label: "Scorecard" },
+] as const;
 
 export default async function PartnerLayout({ children }: { children: React.ReactNode }) {
   const actor = await requireActor();
