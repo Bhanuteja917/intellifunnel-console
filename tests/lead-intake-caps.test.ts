@@ -186,4 +186,49 @@ describe("submitLeadFile — cap enforcement", () => {
     expect(updated.deliveredCount).toBe(0);
     expect(updated.reservedCount).toBe(0);
   });
+
+  it("releases the allocation claim when the allocation claim succeeds but the channel claim then fails", async () => {
+    // contractedQuantity=1 (tight channel cap) but allocatedQuantity=5 (loose
+    // allocation cap) — the only way to force the order that matters: the
+    // allocation claim must succeed before the channel claim is even
+    // attempted, so a channel-cap failure here forces intake.ts's
+    // compensating releaseAllocationSlot call, not a code path where the
+    // allocation was already the thing that failed.
+    const { db, actor, allocActor, campaignChannel, partnerOrg } = await setupChannel(1);
+    await createAllocation(db, allocActor, {
+      campaignChannelId: campaignChannel.id, partnerOrganizationId: partnerOrg.id,
+      allocatedQuantity: 5, payoutRate: "5.00", payoutCurrency: "USD",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-06-30"), revealClientIdentity: false,
+    });
+
+    // Fill the channel's one slot with an unrelated internal submission —
+    // the allocation is untouched by this (internal rows never claim it),
+    // so afterwards the channel is at cap while the allocation still has
+    // four of its five slots free.
+    const fill = await submitLeadFile(db, actor, {
+      campaignChannelId: campaignChannel.id, sourceType: "internal",
+      content: csvRow("filler@example.com"), mapping: { email: "email", companyDomain: "companyDomain" },
+    });
+    const filledLead = await db.lead.findFirstOrThrow({ where: { submissionId: fill.submissionId } });
+    expect(filledLead.verificationStatus).toBe("passed");
+
+    const result = await submitLeadFile(db, actor, {
+      campaignChannelId: campaignChannel.id, sourceType: "partner", partnerOrganizationId: partnerOrg.id,
+      content: csvRow("partner-row@example.com"), mapping: { email: "email", companyDomain: "companyDomain" },
+    });
+    const lead = await db.lead.findFirstOrThrow({ where: { submissionId: result.submissionId } });
+    expect(lead.verificationStatus).toBe("failed");
+    const reason = await db.rejectReason.findUniqueOrThrow({ where: { id: lead.rejectReasonId! } });
+    // CHANNEL_CAP_REACHED, not ALLOCATION_CAP_EXCEEDED — the allocation claim
+    // itself succeeded; it was the channel claim that failed afterwards.
+    expect(reason.code).toBe("CHANNEL_CAP_REACHED");
+
+    const finalAllocation = await db.partnerAllocation.findFirstOrThrow({
+      where: { campaignChannelId: campaignChannel.id, partnerOrganizationId: partnerOrg.id },
+    });
+    // Proves the compensating releaseAllocationSlot call actually ran: had it
+    // not, this row's successful allocation claim would have leaked a
+    // permanently-claimed slot even though the row itself was rejected.
+    expect(finalAllocation.reservedCount + finalAllocation.deliveredCount).toBe(0);
+  });
 });
