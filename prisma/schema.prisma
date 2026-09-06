@@ -677,6 +677,8 @@ model CampaignChannel {
   endDate              DateTime              @db.Date
   status               CampaignChannelStatus @default(draft)
   qualificationFormId  String?
+  reservedCount        Int                   @default(0)
+  deliveredCount       Int                   @default(0)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   createdById          String?
@@ -704,6 +706,8 @@ model PartnerAllocation {
   endDate               DateTime          @db.Date
   status                AllocationStatus  @default(draft)
   revealClientIdentity  Boolean           @default(false)
+  reservedCount         Int               @default(0)
+  deliveredCount        Int               @default(0)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   createdById           String?
