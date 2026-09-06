@@ -1,4 +1,6 @@
-import type { Prisma } from "@prisma/client";
+import type { DeliveryRun, Prisma, PrismaClient } from "@prisma/client";
+import { ValidationError } from "@/lib/errors";
+import { assertPermission, type Actor } from "@/lib/auth/permissions";
 
 type Tx = Prisma.TransactionClient;
 
@@ -21,5 +23,32 @@ export async function createWebhookRunOnAccept(tx: Tx, campaignChannelId: string
       method: "webhook",
       leads: { create: { leadId } },
     },
+  });
+}
+
+export async function listDeliveryRunsForChannel(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<DeliveryRun[]> {
+  assertPermission(actor, "delivery:read");
+  return db.deliveryRun.findMany({
+    where: { campaignChannelId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+const RETRYABLE_STATUSES = new Set(["failed", "exhausted"]);
+
+/** Resets a failed/exhausted run so the next worker tick picks it up as if fresh. */
+export async function retryDeliveryRun(db: PrismaClient, actor: Actor, runId: string): Promise<DeliveryRun> {
+  assertPermission(actor, "delivery:write");
+  const run = await db.deliveryRun.findUniqueOrThrow({ where: { id: runId } });
+  if (!RETRYABLE_STATUSES.has(run.status)) {
+    throw new ValidationError(`Cannot retry a run with status "${run.status}" — only failed or exhausted runs can be retried`);
+  }
+  return db.deliveryRun.update({
+    where: { id: runId },
+    data: { status: "pending", attemptCount: 0, nextRetryAt: null, lastError: null },
   });
 }
