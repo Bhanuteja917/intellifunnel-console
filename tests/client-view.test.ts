@@ -158,4 +158,25 @@ describe("getLeadsForClient", () => {
     // this just confirms the permission gate itself is present and wired up.
     await expect(getLeadsForClient(db, { ...clientActor, roles: [] }, {})).rejects.toThrow(ForbiddenError);
   });
+
+  it("never returns another organisation's clientVisible leads for an internal actor either", async () => {
+    // Regression test: org scoping in getLeadsForClient must be unconditional
+    // (clientOrganizationId: actor.organizationId, no isInternal bypass) — see
+    // partner-view.ts's documented convention and assertOrganizationAccess's
+    // doc comment naming AUTH-10 read models as the layer responsible for
+    // constraining what an internal actor sees. Using the shared
+    // campaignChannelOrgScopeClause helper here (which resolves to `{}` for an
+    // isInternal actor) would silently return every client organisation's
+    // clientVisible leads to internal staff — this test proves that gap is
+    // closed, not just that a CLIENT_ADMIN actor stays within their own org.
+    const { db, makeLead } = await seedClientOrgWithChannel();
+    await makeLead({ clientVisible: true });
+
+    const internalOrg = await createOrganization(db, { isClient: false, isInternal: true });
+    const internalUser = await createUser(db, internalOrg.id, "OPERATIONS");
+    const internalActor = await loadActor(db, internalUser.id);
+
+    const { leads } = await getLeadsForClient(db, internalActor, {});
+    expect(leads).toHaveLength(0);
+  });
 });

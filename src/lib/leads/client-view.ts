@@ -1,10 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import {
-  assertOrganizationAccess,
-  assertPermission,
-  campaignChannelOrgScopeClause,
-  type Actor,
-} from "@/lib/auth/permissions";
+import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 
 export type ClientLeadView = {
   id: string;
@@ -28,16 +23,16 @@ export type ClientLeadView = {
  * DeliveryRunLead), independent of clientVisible — see the E11 design spec's
  * scope decision 3.
  *
- * Org scoping is delegated to `campaignChannelOrgScopeClause`, the shared
- * helper other campaignChannel-scoped queries in this codebase already use.
- * Like every other caller of that helper (and unlike `partner-view.ts`,
- * which deliberately does not use it), this means an `isInternal` actor gets
- * `{}` here — no org filter at all. That bypass is only safe because nothing
- * that reaches this function is exposed to an internal actor in practice:
- * the client portal route that calls this (Task 12) gates on `assertPortal`
- * first, and internal staff hold no client-portal role. This function does
- * not itself re-verify that; it only re-checks (via
- * `assertOrganizationAccess` below) that the query's own scoping held.
+ * Org scoping is unconditional — `clientOrganizationId: actor.organizationId`
+ * always applies, with no `isInternal` bypass — matching the convention
+ * `partner-view.ts` documents for a client/partner-facing read model.
+ * `assertOrganizationAccess`'s own doc comment names this function (an
+ * AUTH-10 read model) as the layer responsible for constraining what an
+ * internal actor sees, since that helper itself returns immediately for
+ * `isInternal` actors. So this function must not rely on the shared
+ * `campaignChannelOrgScopeClause` helper (which resolves to `{}` — no filter
+ * at all — for an internal actor): doing so, however briefly, was flagged as
+ * a critical cross-organisation exposure and reverted.
  */
 export async function getLeadsForClient(
   db: PrismaClient,
@@ -50,7 +45,7 @@ export async function getLeadsForClient(
   const rows = await db.lead.findMany({
     where: {
       clientVisible: true,
-      campaignChannel: campaignChannelOrgScopeClause(actor),
+      campaignChannel: { campaign: { clientOrganizationId: actor.organizationId } },
     },
     include: {
       account: { select: { name: true } },
