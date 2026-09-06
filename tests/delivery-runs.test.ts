@@ -58,8 +58,27 @@ describe("delivery runs", () => {
   it("lists runs for a channel to a delivery:read actor, denies one without it", async () => {
     const { db, channelId, operatorActor, qualityActor } = await seedChannelWithRun("success");
     await expect(listDeliveryRunsForChannel(db, qualityActor, channelId)).rejects.toThrow(ForbiddenError);
-    const runs = await listDeliveryRunsForChannel(db, operatorActor, channelId);
+    const { runs, nextCursor } = await listDeliveryRunsForChannel(db, operatorActor, channelId);
     expect(runs).toHaveLength(1);
+    expect(nextCursor).toBeNull();
+  });
+
+  it("paginates with a cursor, matching the getLeadsForClient pattern", async () => {
+    const { db, channelId, operatorActor } = await seedChannelWithRun("success");
+    // seedChannelWithRun already created one run; add two more so there are three total.
+    await db.deliveryRun.create({ data: { campaignChannelId: channelId, method: "webhook", status: "pending" } });
+    await db.deliveryRun.create({ data: { campaignChannelId: channelId, method: "webhook", status: "pending" } });
+
+    const firstPage = await listDeliveryRunsForChannel(db, operatorActor, channelId, { limit: 2 });
+    expect(firstPage.runs).toHaveLength(2);
+    expect(firstPage.nextCursor).not.toBeNull();
+
+    const secondPage = await listDeliveryRunsForChannel(db, operatorActor, channelId, { limit: 2, cursor: firstPage.nextCursor! });
+    expect(secondPage.runs).toHaveLength(1);
+    expect(secondPage.nextCursor).toBeNull();
+
+    const firstIds = new Set(firstPage.runs.map((r) => r.id));
+    expect(firstIds.has(secondPage.runs[0]!.id)).toBe(false);
   });
 
   it("resets a failed run to pending with attemptCount 0 and no nextRetryAt", async () => {

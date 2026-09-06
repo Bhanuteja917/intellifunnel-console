@@ -33,7 +33,7 @@ export default async function ChannelDeliveryPage({
   const channel = campaign.channels.find((c) => c.id === channelId);
   if (channel === undefined) notFound();
 
-  const [config, runs] = await Promise.all([
+  const [config, { runs }] = await Promise.all([
     getDeliveryConfigForChannel(db, actor, channelId),
     listDeliveryRunsForChannel(db, actor, channelId),
   ]);

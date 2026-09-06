@@ -30,12 +30,22 @@ export async function listDeliveryRunsForChannel(
   db: PrismaClient,
   actor: Actor,
   campaignChannelId: string,
-): Promise<DeliveryRun[]> {
+  filter: { limit?: number; cursor?: string } = {},
+): Promise<{ runs: DeliveryRun[]; nextCursor: string | null }> {
   assertPermission(actor, "delivery:read");
-  return db.deliveryRun.findMany({
+
+  const limit = filter.limit ?? 100;
+  const rows = await db.deliveryRun.findMany({
     where: { campaignChannelId },
     orderBy: { createdAt: "desc" },
+    take: limit + 1,
+    ...(filter.cursor === undefined ? {} : { cursor: { id: filter.cursor }, skip: 1 }),
   });
+
+  const page = rows.slice(0, limit);
+  const nextCursor = rows.length > limit ? (page[page.length - 1]?.id ?? null) : null;
+
+  return { runs: page, nextCursor };
 }
 
 const RETRYABLE_STATUSES = new Set(["failed", "exhausted"]);
