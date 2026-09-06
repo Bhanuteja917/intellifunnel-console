@@ -3,10 +3,12 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedRejectReasons } from "../prisma/seed/reject-reasons";
+import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { createAllocation } from "@/lib/allocations/crud";
 import { submitLeadFile } from "@/lib/leads/intake";
+import { decideLeadVerification } from "@/lib/leads/verification";
 import { normalizeEmail } from "@/lib/normalise/email";
 import { hashSuppressionValue } from "@/lib/lists/suppression";
 
@@ -55,7 +57,7 @@ async function setupChannel(contractedQuantity = 100) {
   await db.leadFieldSpec.create({
     data: { campaignId: campaign.id, fieldKey: "companyDomain", label: "Company Domain", dataType: "string", isRequired: false, rejectIfMissing: false },
   });
-  return { db, actor, allocActor, campaignChannel, partnerOrg, campaign, clientOrg };
+  return { db, actor, allocActor, campaignChannel, partnerOrg, campaign, clientOrg, internalOrg };
 }
 
 function csvRow(email: string) {
@@ -75,6 +77,7 @@ describe("submitLeadFile — cap enforcement", () => {
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
     await seedRejectReasons(testDb());
+    await seedSettings(testDb());
   });
 
   it("rejects a row with ALLOCATION_CAP_EXCEEDED once the allocation is full", async () => {
@@ -230,5 +233,102 @@ describe("submitLeadFile — cap enforcement", () => {
     // not, this row's successful allocation claim would have leaked a
     // permanently-claimed slot even though the row itself was rejected.
     expect(finalAllocation.reservedCount + finalAllocation.deliveredCount).toBe(0);
+  });
+
+  it("binds a lead to the live allocation, never to an ended predecessor", async () => {
+    // The exact reallocation workflow createAllocation's own guard message
+    // prescribes ("end it before creating a new one") leaves two rows for the
+    // same partner+channel: one `ended`, one live. intake.ts used to resolve
+    // the allocation with an unfiltered findFirst while verification.ts
+    // filtered on `status: { not: "ended" }` — so the two halves of one
+    // lead's lifecycle could bind to *different* rows, driving the live row's
+    // reservedCount to -1, leaking a reservation on the ended row that
+    // nothing releases, and testing the wrong (old, smaller) cap at intake.
+    const { db, actor, allocActor, campaignChannel, partnerOrg, campaign, clientOrg, internalOrg } =
+      await setupChannel(100);
+
+    // Force the row to `needsReview` rather than auto-`passed`: an advisory
+    // TAL with an attached (entry-less) list makes every account "unmatched".
+    // `needsReview` is the only state decideLeadVerification can act on, and
+    // it is also the state that leaves a *reservation* behind at intake —
+    // exactly the counter this regression is about.
+    await db.campaign.update({ where: { id: campaign.id }, data: { advisoryTalMatch: true } });
+    const talList = await db.targetAccountList.create({
+      data: { ownerOrganizationId: clientOrg.id, name: "TAL", isReusable: false },
+    });
+    await db.campaignTargetAccountList.create({ data: { campaignId: campaign.id, listId: talList.id } });
+
+    const reviewer = await createUser(db, internalOrg.id, "QUALITY");
+    const reviewerActor = await loadActor(db, reviewer.id);
+
+    // Allocation A: tiny cap, then ended. Had intake bound to it, the single
+    // row below would have been rejected against A's cap of 1.
+    const allocationA = await createAllocation(db, allocActor, {
+      campaignChannelId: campaignChannel.id, partnerOrganizationId: partnerOrg.id,
+      allocatedQuantity: 1, payoutRate: "5.00", payoutCurrency: "USD",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-06-30"), revealClientIdentity: false,
+    });
+    await db.partnerAllocation.update({ where: { id: allocationA.id }, data: { status: "ended" } });
+
+    // Allocation B: the replacement, and now the only non-ended row.
+    const allocationB = await createAllocation(db, allocActor, {
+      campaignChannelId: campaignChannel.id, partnerOrganizationId: partnerOrg.id,
+      allocatedQuantity: 50, payoutRate: "5.00", payoutCurrency: "USD",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-06-30"), revealClientIdentity: false,
+    });
+
+    const result = await submitLeadFile(db, actor, {
+      campaignChannelId: campaignChannel.id, sourceType: "partner", partnerOrganizationId: partnerOrg.id,
+      content: csvRow("live-alloc@example.com"), mapping: { email: "email", companyDomain: "companyDomain" },
+    });
+    const lead = await db.lead.findFirstOrThrow({ where: { submissionId: result.submissionId } });
+    expect(lead.verificationStatus).toBe("needsReview");
+
+    const bAfterIntake = await db.partnerAllocation.findUniqueOrThrow({ where: { id: allocationB.id } });
+    expect(bAfterIntake.reservedCount).toBe(1);
+    expect(bAfterIntake.deliveredCount).toBe(0);
+    const aAfterIntake = await db.partnerAllocation.findUniqueOrThrow({ where: { id: allocationA.id } });
+    expect(aAfterIntake.reservedCount).toBe(0);
+    expect(aAfterIntake.deliveredCount).toBe(0);
+
+    await decideLeadVerification(db, reviewerActor, { leadId: lead.id, decision: "accept" });
+
+    const bAfterAccept = await db.partnerAllocation.findUniqueOrThrow({ where: { id: allocationB.id } });
+    expect(bAfterAccept.reservedCount).toBe(0);
+    expect(bAfterAccept.deliveredCount).toBe(1);
+
+    // The ended row must never have been touched by either half — under the
+    // old behaviour this row held the reservation and B went to -1.
+    const aAfterAccept = await db.partnerAllocation.findUniqueOrThrow({ where: { id: allocationA.id } });
+    expect(aAfterAccept.reservedCount).toBe(0);
+    expect(aAfterAccept.deliveredCount).toBe(0);
+  });
+
+  it("reports an ended-only allocation distinctly from no allocation at all", async () => {
+    const { db, actor, allocActor, campaignChannel, partnerOrg } = await setupChannel(100);
+
+    // No allocation whatsoever.
+    await expect(
+      submitLeadFile(db, actor, {
+        campaignChannelId: campaignChannel.id, sourceType: "partner", partnerOrganizationId: partnerOrg.id,
+        content: csvRow("none@example.com"), mapping: { email: "email", companyDomain: "companyDomain" },
+      }),
+    ).rejects.toThrow(/no allocation on the selected channel/);
+
+    const allocation = await createAllocation(db, allocActor, {
+      campaignChannelId: campaignChannel.id, partnerOrganizationId: partnerOrg.id,
+      allocatedQuantity: 5, payoutRate: "5.00", payoutCurrency: "USD",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-06-30"), revealClientIdentity: false,
+    });
+    await db.partnerAllocation.update({ where: { id: allocation.id }, data: { status: "ended" } });
+
+    // Ended-only: the generic message would send the operator looking for an
+    // allocation that plainly exists in the admin UI.
+    await expect(
+      submitLeadFile(db, actor, {
+        campaignChannelId: campaignChannel.id, sourceType: "partner", partnerOrganizationId: partnerOrg.id,
+        content: csvRow("ended@example.com"), mapping: { email: "email", companyDomain: "companyDomain" },
+      }),
+    ).rejects.toThrow(/has ended/);
   });
 });

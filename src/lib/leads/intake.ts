@@ -94,11 +94,39 @@ export async function submitLeadFile(
     if (input.partnerOrganizationId === undefined) {
       throw new ValidationError("partnerOrganizationId is required when sourceType is \"partner\"");
     }
+    // `status: { not: "ended" }` is required, not optional, and must match
+    // `decideLeadVerification`'s identical filter exactly: Task 2 guarantees
+    // at most one *non-ended* allocation per partner+channel, but an `ended`
+    // row from a prior reallocation can sit in the table alongside the live
+    // one. Without this filter the two sides of a lead's lifecycle can bind
+    // it to different rows — intake claiming on the ended row while verify
+    // converts/releases on the live one, driving the live row's
+    // `reservedCount` negative and leaking a reservation on the ended row
+    // that nothing ever releases (and testing the wrong row's cap).
     allocation = await db.partnerAllocation.findFirst({
-      where: { campaignChannelId: input.campaignChannelId, partnerOrganizationId: input.partnerOrganizationId },
+      where: {
+        campaignChannelId: input.campaignChannelId,
+        partnerOrganizationId: input.partnerOrganizationId,
+        status: { not: "ended" },
+      },
     });
     if (allocation === null) {
-      throw new ValidationError("This partner has no allocation on the selected channel");
+      // Distinguish "never allocated" from "allocation has ended" — with the
+      // filter above, an operator who ended an allocation without creating
+      // its replacement would otherwise be told the partner has no
+      // allocation at all, which is both inaccurate and points at the wrong
+      // fix. This extra read only runs on a path that is already throwing.
+      const endedAllocation = await db.partnerAllocation.findFirst({
+        where: {
+          campaignChannelId: input.campaignChannelId,
+          partnerOrganizationId: input.partnerOrganizationId,
+        },
+      });
+      throw new ValidationError(
+        endedAllocation === null
+          ? "This partner has no allocation on the selected channel"
+          : "This partner's allocation on the selected channel has ended — create a new allocation before submitting leads against it.",
+      );
     }
   } else if (input.partnerOrganizationId !== undefined) {
     throw new ValidationError("partnerOrganizationId can only be set when sourceType is \"partner\"");
