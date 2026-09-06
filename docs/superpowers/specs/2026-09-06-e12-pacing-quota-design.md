@@ -45,20 +45,9 @@ model CampaignChannel {
   reservedCount  Int @default(0)
   deliveredCount Int @default(0)
 }
-
-enum RejectReasonCategory {
-  dataQuality
-  icpMismatch
-  suppression
-  duplicate
-  consent
-  qualification
-  contactability
-  capacity   // new
-}
 ```
 
-Two new `RejectReason` seed rows: `ALLOCATION_CAP_REACHED`, `CHANNEL_CAP_REACHED`, both `category: capacity`, both `isPartnerReplaceable: false` — a quota-full condition isn't something the partner fixes and resubmits the same lead for; they wait for room (a rejection freeing a slot) or an admin raising the cap.
+No `RejectReasonCategory` change needed: `ALLOCATION_CAP_EXCEEDED` already exists in `prisma/seed/reject-reasons.ts` (`category: duplicate`, `isPartnerReplaceable: false`) — seeded but unused until now, since cap enforcement never existed before this plan. Only one new seed row is needed, `CHANNEL_CAP_REACHED`, matching that same `category: duplicate` / `isPartnerReplaceable: false` convention its sibling cap reasons (`ACCOUNT_CAP_REACHED`, `ALLOCATION_CAP_EXCEEDED`) already use — a quota-full condition isn't something the partner fixes and resubmits the same lead for; they wait for room (a rejection freeing a slot) or an admin raising the cap.
 
 `allocatedQuantity`/`contractedQuantity` remain the caps; `reservedCount + deliveredCount` is the amount currently spoken for. No new model — matches `LeadSubmission.rowsAccepted`/`rowsFailed`'s existing denormalized-counter convention.
 
@@ -89,13 +78,14 @@ Extends the existing per-row `db.$transaction` in `submitLeadFile` (the one that
 
 **Intake, per row, before the `Lead` write:**
 
-1. If partner-sourced: conditional claim — `UPDATE "PartnerAllocation" SET "reservedCount" = "reservedCount" + 1 WHERE id = $1 AND "reservedCount" + "deliveredCount" < "allocatedQuantity"` (via `updateMany` with the equivalent `where`, matching the conditional-update-as-guard pattern `decideLeadVerification` already uses for its `needsReview`-only check). Zero rows updated → this row's outcome becomes `failed`, reject reason `ALLOCATION_CAP_REACHED`; skip step 2.
-2. Same conditional claim against `CampaignChannel.reservedCount`/`contractedQuantity`, always (partner- and internal-sourced rows both consume channel capacity). Zero rows updated → compensate by decrementing the step-1 allocation claim back by 1 (still inside the same transaction — this is defense-in-depth, not the atomicity mechanism, since the whole per-row transaction rolls back together on any later failure anyway), outcome `failed`, reason `CHANNEL_CAP_REACHED`.
+1. If partner-sourced: conditional claim via `tx.$executeRaw` (Prisma's `updateMany` `where` cannot compare two columns' sum against a third column, so this needs raw SQL, unlike `decideLeadVerification`'s single-column `needsReview` guard) — `UPDATE "PartnerAllocation" SET "reservedCount" = "reservedCount" + 1 WHERE id = $1 AND "reservedCount" + "deliveredCount" < "allocatedQuantity"` (`deliveredCount` in place of `reservedCount` when this row's outcome is `"passed"`). `$executeRaw` returns the affected-row count directly. Zero rows updated → this row's outcome becomes `failed`, reject reason `ALLOCATION_CAP_EXCEEDED` (the existing seeded-but-unused reason); skip step 2.
+2. Same raw conditional claim against `CampaignChannel.reservedCount`/`deliveredCount`/`contractedQuantity`, always (partner- and internal-sourced rows both consume channel capacity). Zero rows updated → compensate by decrementing the step-1 allocation claim back by 1 (still inside the same transaction — this is defense-in-depth, not the atomicity mechanism, since the whole per-row transaction rolls back together on any later failure anyway), outcome `failed`, reason `CHANNEL_CAP_REACHED`.
 3. Outcome `"passed"` (intake auto-accept) claims directly into `deliveredCount` instead of `reservedCount` in both steps above. Outcome `"needsReview"` claims into `reservedCount`. Outcome `"failed"` (any other reason) claims nothing.
 
 **Verification decide** (`decideLeadVerification`, inside its existing `db.$transaction`):
 - Accept: `reservedCount - 1, deliveredCount + 1` on `CampaignChannel`, and on `PartnerAllocation` too if the lead is partner-sourced. Net cap usage is unchanged (already reserved), so no re-check against the cap is needed here.
 - Reject: `reservedCount - 1` only, on both rows as applicable. This frees the slot — satisfying PRD §227's "replacement tracking against the same allocation quota" with no separate replacement counter: a partner's resubmission simply competes for the now-open slot at the next intake pass.
+- Resolving *which* allocation to adjust: the initial `db.lead.findUniqueOrThrow` in `decideLeadVerification` (`verification.ts:89`) must additionally select `submission.partnerOrganizationId`. The matching `PartnerAllocation` is then `findFirst({ campaignChannelId: lead.campaignChannelId, partnerOrganizationId, status: { not: "ended" } })` — the `status: { not: "ended" }` filter is required, not optional, since an `ended` allocation from before a reallocation can still be sitting in the table alongside the live one, and only the live one holds counters that matter.
 
 Internal-sourced leads (`sourceType: "internal"`, no `partnerOrganizationId`) only ever touch `CampaignChannel` counters.
 
@@ -105,29 +95,41 @@ Pure function, no DB access — testable in isolation:
 
 ```ts
 // src/lib/allocations/pacing.ts
-export function expectedToDate(cap: number, startDate: Date, endDate: Date, asOf: Date): number {
-  const totalDays = daysBetweenInIst(startDate, endDate);
-  const elapsedDays = clamp(daysBetweenInIst(startDate, asOf), 0, totalDays);
+import { operatingDayStart } from "@/lib/time/operating-day";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Both endpoints inclusive: a 1-day window (startDate === endDate) has
+// totalDays === 1, and on that day elapsedDays === 1 (100% expected).
+export function expectedToDate(cap: number, startDate: Date, endDate: Date, asOf: Date, timeZone: string): number {
+  const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
+  const today = operatingDayStart(asOf, timeZone);
+  const rawElapsedDays = Math.round((today.getTime() - startDate.getTime()) / DAY_MS) + 1;
+  const elapsedDays = Math.min(Math.max(rawElapsedDays, 0), totalDays);
   return cap * (elapsedDays / totalDays);
 }
 
 export type PaceSignal = "behind" | "onPace" | "ahead";
-export function paceSignal(delivered: number, expected: number): PaceSignal { /* delivered <, ==, > expected */ }
+export function paceSignal(delivered: number, expected: number): PaceSignal {
+  if (delivered < expected) return "behind";
+  if (delivered > expected) return "ahead";
+  return "onPace";
+}
 ```
 
-Day-boundary math reuses `sla.ts`'s existing IST-aware day calculation rather than reintroducing timezone handling — PRD row 366 ("Operating timezone Asia/Kolkata... governs payout period boundaries, pacing days and the SLA clock") explicitly ties pacing days to the same clock the SLA math already uses.
+Day-boundary math reuses `operatingDayStart` (`src/lib/time/operating-day.ts`), the same helper the codebase already uses to compare `@db.Date` flight-window columns against "now" in the operating timezone — not `sla.ts`'s business-day/holiday skipping, which doesn't apply here: PRD row 366 ties pacing to the same *clock* as the SLA math (day boundaries in `operatingTimezone`), not the same *calendar* (pacing counts every calendar day, weekends and holidays included, since a flight window doesn't pause pacing expectations for a weekend). `timeZone` is the `operatingTimezone` platform setting, read once by the caller via `getSetting(db, "operatingTimezone")`.
 
 Per-partner rejection rate: computed on read, aggregating `Lead` rows joined to `RejectReason` grouped by `(campaignChannelId, partnerOrganizationId via submission)` — no stored counter, since it's a monitoring display value with no cap/enforcement dependency.
 
 ## UI
 
-**Admin** — `src/app/(admin)/campaigns/[id]/channels/[channelId]/page.tsx` gains a pacing panel: delivered / reserved / cap for the channel, expected-to-date, behind/on/ahead badge, and a per-partner rejection-rate table (partner org, rejected count, rejection rate) for allocations on that channel.
+**Admin** — no `channels/[channelId]/page.tsx` exists today (only its `placements/` and `allocations/` sub-pages do, reached via link buttons from `campaigns/[id]/page.tsx`'s Channels table). New sibling page `src/app/(admin)/campaigns/[id]/channels/[channelId]/pacing/page.tsx`, reached the same way (a "Pacing" column added to that table, alongside the existing "Placements"/"Allocations" columns at `campaigns/[id]/page.tsx:124-125,144-157`). Shows: delivered / reserved / cap for the channel, expected-to-date, behind/on/ahead badge, and a per-partner rejection-rate table (partner org, rejected count, rejection rate) for allocations on that channel.
 
 **Partner** — `getAllocationsForPartner` (`src/lib/allocations/partner-view.ts`) gains `deliveredCount`, `reservedCount`, and a computed pace badge in `PartnerAllocationView`; `/partner/allocations` renders them per-card. Still selects nothing from `campaignChannel.campaign` — stays inside the existing AUTH-10 read-model boundary.
 
 ## Testing
 
-- vitest: concurrent-submission race (two simultaneous `submitLeadFile` calls against an allocation one slot from full — assert exactly one succeeds, the other gets `ALLOCATION_CAP_REACHED`).
+- vitest: concurrent-submission race (two simultaneous `submitLeadFile` calls against an allocation one slot from full — assert exactly one succeeds, the other gets `ALLOCATION_CAP_EXCEEDED`).
 - vitest: `createAllocation` rejects a second non-`ended` row for the same partner+channel; the partial unique index is exercised directly (two concurrent raw inserts) to confirm the DB-level guarantee, not just the app-level check.
 - vitest: verification reject frees the reserved slot (submit at cap → reject the pending lead → next submission for the same allocation now succeeds).
 - vitest: `expectedToDate`/`paceSignal` pure-function cases (start of window, mid-window, past `endDate`, zero-day window).
