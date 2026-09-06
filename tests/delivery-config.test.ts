@@ -77,11 +77,23 @@ describe("delivery config", () => {
     expect(config.status).toBe("active");
   });
 
-  it("rejects a webhook config missing url or secret", async () => {
+  it("rejects a webhook config missing webhookUrl", async () => {
     const { db, channelId, operatorActor } = await seedChannelAndOperator();
     await expect(
       upsertDeliveryConfig(db, operatorActor, {
         campaignChannelId: channelId, method: "webhook",
+        webhookSecret: "shh",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a webhook config missing webhookSecret", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await expect(
+      upsertDeliveryConfig(db, operatorActor, {
+        campaignChannelId: channelId, method: "webhook",
+        webhookUrl: "https://example.com/hook",
         fieldMapping: [{ source: "contact.email", target: "Email" }],
       }),
     ).rejects.toThrow(ValidationError);

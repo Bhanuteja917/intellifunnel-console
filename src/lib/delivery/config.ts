@@ -52,7 +52,14 @@ export async function upsertDeliveryConfig(
   return withAudit(
     db,
     actor,
-    (result: DeliveryConfig) => ({ entityType: "DeliveryConfig", entityId: result.id, action: "upsert", after: data }),
+    (result: DeliveryConfig) => {
+      // Redact webhookSecret from audit log to prevent plaintext leakage
+      const auditData = { ...data };
+      if (auditData.webhookSecret !== null) {
+        auditData.webhookSecret = "[redacted]" as never;
+      }
+      return { entityType: "DeliveryConfig", entityId: result.id, action: "upsert", after: auditData };
+    },
     (tx) =>
       tx.deliveryConfig.upsert({
         where: { campaignChannelId: input.campaignChannelId },
