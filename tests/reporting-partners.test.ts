@@ -100,6 +100,27 @@ describe("getPartnerScorecardReport", () => {
     ]);
   });
 
+  it("excludes non-active allocations from the channel breakdown, like /partner/allocations does", async () => {
+    const { db, partnerActor, partner, channel } = await setup();
+    await db.partnerAllocation.create({
+      data: {
+        campaignChannelId: channel.id, partnerOrganizationId: partner.id, allocatedQuantity: 99, deliveredCount: 0,
+        payoutRateMinor: 500n, payoutCurrency: "USD",
+        // `ended` rather than `paused`/`draft` only because the partial unique
+        // index PartnerAllocation_channel_partner_active_key forbids a second
+        // non-ended allocation for the same partner+channel pair.
+        startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "ended",
+      },
+    });
+
+    const report = await getPartnerScorecardReport(db, partnerActor, {
+      partnerOrganizationId: partner.id, dateRange: defaultDateRange(),
+    });
+
+    expect(report.channelBreakdown).toHaveLength(1);
+    expect(report.channelBreakdown[0]?.allocatedQuantity).toBe(5);
+  });
+
   it("denies a partner actor requesting another partner's scorecard", async () => {
     const { db, otherPartnerActor, partner } = await setup();
     await expect(
