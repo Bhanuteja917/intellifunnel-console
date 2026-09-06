@@ -51,6 +51,15 @@ export async function createAllocation(
     throw new ValidationError("Organisation is not a partner organisation");
   }
 
+  const existingActive = await db.partnerAllocation.findFirst({
+    where: { campaignChannelId: input.campaignChannelId, partnerOrganizationId: input.partnerOrganizationId, status: { not: "ended" } },
+  });
+  if (existingActive !== null) {
+    throw new ValidationError(
+      "This partner already has an active allocation on this channel — end it before creating a new one.",
+    );
+  }
+
   assertQuantityAndWindow(input.allocatedQuantity, input.startDate, input.endDate);
   const payoutRateMinor = toMinorUnits(input.payoutRate, input.payoutCurrency);
 
