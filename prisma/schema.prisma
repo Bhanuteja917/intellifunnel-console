@@ -691,6 +691,8 @@ model CampaignChannel {
   leads              Lead[]
   assets             AssetPlacement[]
   allocations        PartnerAllocation[]
+  deliveryConfig     DeliveryConfig?
+  deliveryRuns       DeliveryRun[]
 
   @@index([campaignId])
 }
@@ -1030,6 +1032,7 @@ model Lead {
   rejectReason        RejectReason?        @relation(fields: [rejectReasonId], references: [id])
   statusHistory       LeadStatusHistory[]
   verificationRecords VerificationRecord[]
+  deliveryRunLeads    DeliveryRunLead[]
 
   @@index([campaignChannelId, verificationStatus])
   @@index([accountId])
@@ -1049,6 +1052,74 @@ model LeadStatusHistory {
   lead Lead @relation(fields: [leadId], references: [id])
 
   @@index([leadId, dimension])
+}
+
+enum DeliveryMethod {
+  webhook
+  csv
+}
+
+enum DeliveryConfigStatus {
+  active
+  paused
+}
+
+enum DeliveryRunStatus {
+  pending
+  success
+  failed
+  exhausted
+}
+
+model DeliveryConfig {
+  id                String               @id @default(cuid())
+  campaignChannelId String               @unique
+  method            DeliveryMethod
+  status            DeliveryConfigStatus @default(active)
+  webhookUrl        String?
+  webhookSecret     String?
+  csvScheduleCron   String?
+  fieldMappingJson  Json
+  lastCsvCursorAt   DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+}
+
+model DeliveryRun {
+  id                 String            @id @default(cuid())
+  campaignChannelId  String
+  method             DeliveryMethod
+  status             DeliveryRunStatus @default(pending)
+  attemptCount       Int               @default(0)
+  maxAttempts        Int               @default(5)
+  nextRetryAt        DateTime?
+  lastError          String?
+  fileUrl            String?
+  requestPayloadJson Json?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  campaignChannel CampaignChannel   @relation(fields: [campaignChannelId], references: [id])
+  leads           DeliveryRunLead[]
+
+  @@index([campaignChannelId])
+  @@index([status, nextRetryAt])
+}
+
+model DeliveryRunLead {
+  deliveryRunId String
+  leadId        String
+
+  deliveryRun DeliveryRun @relation(fields: [deliveryRunId], references: [id])
+  lead        Lead        @relation(fields: [leadId], references: [id])
+
+  @@id([deliveryRunId, leadId])
 }
 
 enum VerificationMethod {
