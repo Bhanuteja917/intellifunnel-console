@@ -51,6 +51,19 @@ describe("permission matrix", () => {
     expect(hasPermission(actor, "campaign:write")).toBe(true);
   });
 
+  it("gives Operations both delivery permissions, Campaign Manager only delivery:read", () => {
+    const ops = actorOf(["OPERATIONS"]);
+    expect(hasPermission(ops, "delivery:read")).toBe(true);
+    expect(hasPermission(ops, "delivery:write")).toBe(true);
+
+    const manager = actorOf(["CAMPAIGN_MANAGER"]);
+    expect(hasPermission(manager, "delivery:read")).toBe(true);
+    expect(hasPermission(manager, "delivery:write")).toBe(false);
+
+    const quality = actorOf(["QUALITY"]);
+    expect(hasPermission(quality, "delivery:read")).toBe(false);
+  });
+
   it("assertPermission throws ForbiddenError when denied", () => {
     expect(() => assertPermission(actorOf(["CLIENT_VIEWER"]), "campaign:write")).toThrow(ForbiddenError);
   });
