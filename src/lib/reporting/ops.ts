@@ -17,9 +17,17 @@ export async function getOpsDashboardReport(
 ): Promise<OpsDashboardReport> {
   if (!actor.isInternal) throw new ForbiddenError("Ops dashboard is internal-only");
 
+  // This query is cross-org and platform-wide, so it must never pull whole
+  // `Lead` rows: `fieldValuesJson` is the submitted form's raw PII payload and
+  // has no business being loaded into an admin dashboard process just to
+  // produce counts. Select only the four fields the loop below reads.
   const leads = await db.lead.findMany({
     where: { createdAt: { gte: params.dateRange.from, lte: params.dateRange.to } },
-    include: { rejectReason: true },
+    select: {
+      lifecycleStatus: true,
+      slaBreached: true,
+      rejectReason: { select: { id: true, code: true, label: true } },
+    },
   });
 
   const leadsByLifecycleStatus: Record<string, number> = {};

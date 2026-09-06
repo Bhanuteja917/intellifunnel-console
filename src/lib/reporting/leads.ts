@@ -21,7 +21,13 @@ export async function getLeadBreakdownReport(
         ...campaignChannelOrgScopeClause(actor),
       },
     },
-    include: { rejectReason: true },
+    // Counts only — never pull whole `Lead` rows (`fieldValuesJson` is the
+    // submitted form's raw PII payload). Select exactly what the loop reads.
+    select: {
+      verificationStatus: true,
+      lifecycleStatus: true,
+      rejectReason: { select: { id: true, code: true, label: true } },
+    },
   });
 
   const byVerificationStatus: Record<string, number> = {};
