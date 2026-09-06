@@ -1,4 +1,4 @@
-import type { Account, Contact, Prisma, PrismaClient } from "@prisma/client";
+import type { Account, Contact, PartnerAllocation, Prisma, PrismaClient } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import { applyMapping, parseDelimited } from "@/lib/lists/csv";
@@ -7,6 +7,7 @@ import { checkDoNotContact, checkSuppression, matchesIcp, matchesTal, resolveLea
 import { createAccount, resolveAccount } from "@/lib/identity/account-resolution";
 import { upsertContact } from "@/lib/identity/contact";
 import { normalizeCompanyName } from "@/lib/normalise/name";
+import { claimChannelSlot, claimAllocationSlot, releaseAllocationSlot } from "@/lib/allocations/counters";
 
 export type SubmitLeadFileInput = {
   campaignChannelId: string;
@@ -88,11 +89,12 @@ export async function submitLeadFile(
   // queue can filter by partner. A "partner" submission must name a partner
   // that's actually allocated to this channel; an "internal" submission
   // must not claim one at all.
+  let allocation: PartnerAllocation | null = null;
   if (input.sourceType === "partner") {
     if (input.partnerOrganizationId === undefined) {
       throw new ValidationError("partnerOrganizationId is required when sourceType is \"partner\"");
     }
-    const allocation = await db.partnerAllocation.findFirst({
+    allocation = await db.partnerAllocation.findFirst({
       where: { campaignChannelId: input.campaignChannelId, partnerOrganizationId: input.partnerOrganizationId },
     });
     if (allocation === null) {
@@ -101,6 +103,13 @@ export async function submitLeadFile(
   } else if (input.partnerOrganizationId !== undefined) {
     throw new ValidationError("partnerOrganizationId can only be set when sourceType is \"partner\"");
   }
+
+  // Cap enforcement (this task): the partner+channel pair is fixed for the
+  // whole submission (Task 2's uniqueness guarantee), and so is the pair of
+  // reject reasons a capacity claim can fail with — both are looked up once
+  // here rather than per row.
+  const allocationCapReason = await db.rejectReason.findUniqueOrThrow({ where: { code: "ALLOCATION_CAP_EXCEEDED" } });
+  const channelCapReason = await db.rejectReason.findUniqueOrThrow({ where: { code: "CHANNEL_CAP_REACHED" } });
 
   const campaign = campaignChannel.campaign;
 
@@ -385,6 +394,46 @@ export async function submitLeadFile(
       const now = new Date();
 
       await db.$transaction(async (tx) => {
+        // --- Cap enforcement: only for a row that isn't already failed for an
+        // unrelated reason (a row that was going to be rejected anyway must
+        // not also be charged against capacity it was never going to use). ---
+        let finalVerificationStatus = verificationStatus;
+        let finalRejectReasonId = rejectReasonId;
+        let finalAcceptedAt: Date | null = autoAccepted ? now : null;
+        let finalClientVisible = autoAccepted;
+        let finalLifecycleStatus: "new" | "accepted" = autoAccepted ? "accepted" : "new";
+
+        if (verificationStatus !== "failed") {
+          const wantsDelivered = verificationStatus === "passed";
+
+          if (input.partnerOrganizationId !== undefined) {
+            const allocationClaimed = await claimAllocationSlot(tx, allocation!.id, wantsDelivered);
+            if (!allocationClaimed) {
+              finalVerificationStatus = "failed";
+              finalRejectReasonId = allocationCapReason.id;
+              finalAcceptedAt = null;
+              finalClientVisible = false;
+              finalLifecycleStatus = "new";
+            }
+          }
+
+          if (finalVerificationStatus !== "failed") {
+            const channelClaimed = await claimChannelSlot(tx, input.campaignChannelId, wantsDelivered);
+            if (!channelClaimed) {
+              if (input.partnerOrganizationId !== undefined) {
+                // The allocation claim above succeeded but the channel is
+                // full — undo it so this row consumes neither.
+                await releaseAllocationSlot(tx, allocation!.id, wantsDelivered);
+              }
+              finalVerificationStatus = "failed";
+              finalRejectReasonId = channelCapReason.id;
+              finalAcceptedAt = null;
+              finalClientVisible = false;
+              finalLifecycleStatus = "new";
+            }
+          }
+        }
+
         const lead = await tx.lead.create({
           data: {
             campaignChannelId: input.campaignChannelId,
@@ -397,19 +446,19 @@ export async function submitLeadFile(
             // out of scope for this epic.
             accountId: account.id,
             sourceType: input.sourceType,
-            verificationStatus,
-            lifecycleStatus: autoAccepted ? "accepted" : "new", // "needsReview"/"failed" stay at "new" — E9 decides those
-            clientVisible: autoAccepted,
-            ...(autoAccepted
+            verificationStatus: finalVerificationStatus,
+            lifecycleStatus: finalLifecycleStatus, // "needsReview"/"failed" stay at "new" — E9 decides those
+            clientVisible: finalClientVisible,
+            ...(finalLifecycleStatus === "accepted"
               ? {
-                  acceptedAt: now,
+                  acceptedAt: finalAcceptedAt,
                   // Verification completed instantly via automation — no manual-review clock ever ran, so there is nothing to measure.
                   verificationElapsedMinutes: 0,
                   verificationElapsedBusinessMinutes: 0,
                   slaBreached: false,
                 }
               : {}),
-            rejectReasonId,
+            rejectReasonId: finalRejectReasonId,
             fieldValuesJson: values as Prisma.InputJsonValue,
           },
         });
@@ -418,10 +467,10 @@ export async function submitLeadFile(
             leadId: lead.id,
             dimension: "verification",
             fromValue: null,
-            toValue: verificationStatus,
+            toValue: finalVerificationStatus,
           },
         });
-        if (autoAccepted) {
+        if (finalLifecycleStatus === "accepted") {
           await tx.leadStatusHistory.create({
             data: {
               leadId: lead.id,
