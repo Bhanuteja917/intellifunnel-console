@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ export function DateRangePicker({ defaultFrom, defaultTo }: { defaultFrom: strin
     const params = new URLSearchParams(searchParams.toString());
     params.set("from", from);
     params.set("to", to);
-    router.push(`${pathname}?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}` as Route);
   }
 
   return (
