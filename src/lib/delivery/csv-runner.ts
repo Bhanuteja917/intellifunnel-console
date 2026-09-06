@@ -71,10 +71,31 @@ export async function generateDueCsvRuns(
       });
       generated++;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn("delivery.csv.failed", {
         campaignChannelId: config.campaignChannelId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
+      // Make the failure admin-visible in the run log (E11 design spec scope decision 6), same as a
+      // webhook failure would be — without this, a permanently-failing CSV config shows nothing at
+      // all in the run log no matter how many times generation fails. A fresh, unrelated create, so it
+      // shouldn't itself throw, but it's wrapped defensively anyway so it can never abort the batch.
+      try {
+        await db.deliveryRun.create({
+          data: {
+            campaignChannelId: config.campaignChannelId,
+            method: "csv",
+            status: "failed",
+            lastError: errorMessage.slice(0, 500),
+            startedAt: now,
+          },
+        });
+      } catch (createError) {
+        logger.warn("delivery.csv.failed_run_record_failed", {
+          campaignChannelId: config.campaignChannelId,
+          error: createError instanceof Error ? createError.message : String(createError),
+        });
+      }
     }
   }
   return generated;

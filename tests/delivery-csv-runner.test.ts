@@ -146,13 +146,17 @@ describe("generateDueCsvRuns", () => {
 
     const generated = await generateDueCsvRuns(db, now, storage);
 
-    // Only the second (healthy) config's run should count.
+    // Only the second (healthy) config's run should count as generated (success).
     expect(generated).toBe(1);
     expect(storage.puts).toHaveLength(1);
     expect(storage.puts[0]!.key).toContain(channelIdB);
 
-    const runA = await db.deliveryRun.findFirst({ where: { campaignChannelId: channelIdA } });
-    expect(runA).toBeNull();
+    // The failing config's failure is still admin-visible: a failed DeliveryRun row is created for it,
+    // even though generateDueCsvRuns's own success counter doesn't include it. See Fix 7.
+    const runA = await db.deliveryRun.findFirstOrThrow({ where: { campaignChannelId: channelIdA } });
+    expect(runA.status).toBe("failed");
+    expect(runA.lastError).not.toBeNull();
+    expect(runA.lastError).toContain("simulated storage failure");
     const configA = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelIdA } });
     expect(configA.lastCsvCursorAt).toBeNull();
 
@@ -160,5 +164,29 @@ describe("generateDueCsvRuns", () => {
     expect(runB.status).toBe("success");
     const configB = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelIdB } });
     expect(configB.lastCsvCursorAt?.getTime()).toBe(acceptedAtB.getTime());
+  });
+
+  it("creates a failed DeliveryRun with a non-null lastError when storage.put throws, so the failure is visible in the admin run log", async () => {
+    const acceptedAt = new Date("2026-01-04T12:00:00.000Z");
+    const { db, channelId } = await seedChannelWithAcceptedLeads([acceptedAt]);
+    const now = new Date("2026-01-05T00:30:00.000Z"); // 6:00am IST — matches "0 6 * * *"
+
+    const storage = fakeStorage();
+    storage.put = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+
+    const generated = await generateDueCsvRuns(db, now, storage);
+
+    expect(generated).toBe(0);
+    const run = await db.deliveryRun.findFirstOrThrow({ where: { campaignChannelId: channelId } });
+    expect(run.method).toBe("csv");
+    expect(run.status).toBe("failed");
+    expect(run.lastError).not.toBeNull();
+    expect(run.lastError).toContain("disk full");
+    expect(run.completedAt).toBeNull();
+
+    const config = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelId } });
+    expect(config.lastCsvCursorAt).toBeNull();
   });
 });
