@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logging/logger";
 import { activateDueCampaigns, completeFinishedCampaigns } from "@/lib/campaigns/state-machine";
+import { fireDueWebhookRuns } from "@/lib/delivery/webhook-runner";
+import { generateDueCsvRuns } from "@/lib/delivery/csv-runner";
+import { getStorageAdapter } from "@/lib/storage";
 
 const INTERVAL_MS = Number.parseInt(process.env.WORKER_INTERVAL_MS ?? "60000", 10);
 
@@ -23,13 +26,12 @@ async function tick(): Promise<void> {
   const now = new Date();
   const correlationId = crypto.randomUUID();
   try {
-    // Individual campaign failures are contained inside these two functions,
-    // so one unhealthy campaign cannot hold up the rest of the batch. This
-    // catch is for a failure of the batch itself — the query, the settings
-    // read, a dropped connection.
     const activated = await activateDueCampaigns(db, now);
     const completed = await completeFinishedCampaigns(db, now);
-    logger.info("worker.tick", { correlationId, activated, completed });
+    const webhooksFired = await fireDueWebhookRuns(db, now);
+    const storage = await getStorageAdapter();
+    const csvRunsGenerated = await generateDueCsvRuns(db, now, storage);
+    logger.info("worker.tick", { correlationId, activated, completed, webhooksFired, csvRunsGenerated });
   } catch (error) {
     logger.error("worker.tick.failed", {
       correlationId,
