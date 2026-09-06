@@ -37,6 +37,23 @@ function validate(input: DeliveryConfigInput, existing: DeliveryConfig | null): 
     if (!input.csvScheduleCron || input.csvScheduleCron.trim() === "") {
       throw new ValidationError("csvScheduleCron is required for a csv delivery config");
     }
+    validateCronShape(input.csvScheduleCron);
+  }
+}
+
+// Only "*" and comma-separated lists of digits per field — no ranges ("-"), steps ("/"), or
+// named values (letters). A field that doesn't match this never matches anything in
+// cron.ts's fieldMatches (it Number()s each token, yielding NaN), so a malformed cron would
+// otherwise be silently accepted here and then silently never fire, forever.
+const CRON_FIELD_PATTERN = /^(\*|\d+(,\d+)*)$/;
+
+function validateCronShape(cron: string): void {
+  const fields = cron.trim().split(/\s+/);
+  const isWellFormed = fields.length === 5 && fields.every((field) => CRON_FIELD_PATTERN.test(field));
+  if (!isWellFormed) {
+    throw new ValidationError(
+      `Invalid cron expression "${cron}" — only "*" and comma-separated lists of numbers are supported per field (5 fields required, e.g. "0 6 * * *")`,
+    );
   }
 }
 

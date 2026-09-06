@@ -171,4 +171,84 @@ describe("delivery config", () => {
     const paused = await setDeliveryConfigStatus(db, operatorActor, channelId, "paused");
     expect(paused.status).toBe("paused");
   });
+
+  it("rejects a csv cron expression with a step (e.g. */15 * * * *)", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await expect(
+      upsertDeliveryConfig(db, operatorActor, {
+        campaignChannelId: channelId, method: "csv", csvScheduleCron: "*/15 * * * *",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a cron expression with the wrong field count", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await expect(
+      upsertDeliveryConfig(db, operatorActor, {
+        campaignChannelId: channelId, method: "csv", csvScheduleCron: "0 6 * *",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("still accepts a well-formed cron expression (single hour or a comma-list of hours)", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await expect(
+      upsertDeliveryConfig(db, operatorActor, {
+        campaignChannelId: channelId, method: "csv", csvScheduleCron: "0 6 * * *",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).resolves.not.toThrow();
+
+    const { channelId: channelId2, operatorActor: operatorActor2 } = await seedChannelAndOperator();
+    await expect(
+      upsertDeliveryConfig(db, operatorActor2, {
+        campaignChannelId: channelId2, method: "csv", csvScheduleCron: "0 6,18 * * *",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).resolves.not.toThrow();
+  });
+
+  it("redacts webhookSecret in the AuditLog when creating a new webhook config", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    const config = await upsertDeliveryConfig(db, operatorActor, {
+      campaignChannelId: channelId, method: "webhook",
+      webhookUrl: "https://example.com/hook", webhookSecret: "top-secret-value",
+      fieldMapping: [{ source: "contact.email", target: "Email" }],
+    });
+
+    const entry = await db.auditLog.findFirst({
+      where: { entityType: "DeliveryConfig", entityId: config.id },
+      orderBy: { occurredAt: "desc" },
+    });
+    expect(entry).not.toBeNull();
+    const afterJson = entry!.afterJson as Record<string, unknown>;
+    expect(afterJson.webhookSecret).toBe("[redacted]");
+    expect(JSON.stringify(afterJson)).not.toContain("top-secret-value");
+  });
+
+  it("redacts webhookSecret in the AuditLog when updating a config's url while leaving webhookSecret blank (preserve-existing-secret path)", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await upsertDeliveryConfig(db, operatorActor, {
+      campaignChannelId: channelId, method: "webhook",
+      webhookUrl: "https://example.com/hook", webhookSecret: "original-secret-value",
+      fieldMapping: [{ source: "contact.email", target: "Email" }],
+    });
+
+    const updated = await upsertDeliveryConfig(db, operatorActor, {
+      campaignChannelId: channelId, method: "webhook",
+      webhookUrl: "https://example.com/hook-v2",
+      fieldMapping: [{ source: "contact.email", target: "Email" }],
+    });
+
+    const entry = await db.auditLog.findFirst({
+      where: { entityType: "DeliveryConfig", entityId: updated.id },
+      orderBy: { occurredAt: "desc" },
+    });
+    expect(entry).not.toBeNull();
+    const afterJson = entry!.afterJson as Record<string, unknown>;
+    expect(afterJson.webhookSecret).toBe("[redacted]");
+    expect(JSON.stringify(afterJson)).not.toContain("original-secret-value");
+  });
 });
