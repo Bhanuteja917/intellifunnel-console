@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
+import { ForbiddenError } from "@/lib/errors";
 import { AppSidebar } from "@/components/app-sidebar";
 import { HeaderBreadcrumb } from "@/components/header-breadcrumb";
 import {
@@ -34,7 +35,8 @@ export default async function PartnerLayout({ children }: { children: React.Reac
   // which *is* inside a segment `partner/error.tsx` wraps.
   try {
     assertPortal(actor, "partner");
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ForbiddenError)) throw error;
     return <>{children}</>;
   }
   const user = await db.user.findUniqueOrThrow({
