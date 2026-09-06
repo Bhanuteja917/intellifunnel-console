@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
+import { assertPermission } from "@/lib/auth/permissions";
 import { getCampaignForActor } from "@/lib/campaigns/crud";
 import { getSetting } from "@/lib/settings/settings";
 import { expectedToDate, paceSignal } from "@/lib/allocations/pacing";
@@ -21,6 +22,7 @@ export default async function ChannelPacingPage({
 }) {
   const { id, channelId } = await params;
   const actor = await requireActor();
+  assertPermission(actor, "allocation:read");
 
   let campaign;
   try {
