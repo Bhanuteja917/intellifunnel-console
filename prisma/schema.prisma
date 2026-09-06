@@ -784,7 +784,8 @@ model ImportBatch {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  errors ImportError[]
+  errors           ImportError[]
+  engagementEvents EngagementEvent[]
 
   @@index([organizationId, type, createdAt])
 }
@@ -1247,6 +1248,23 @@ model AssetPlacement {
   asset              Asset               @relation(fields: [assetId], references: [id])
   assetVersion       AssetVersion        @relation(fields: [assetVersionId], references: [id])
   consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
+  engagementEvents   EngagementEvent[]
 
   @@index([campaignChannelId])
+}
+
+model EngagementEvent {
+  id               String   @id @default(cuid())
+  assetPlacementId String
+  date             DateTime @db.Date
+  impressions      Int      @default(0)
+  conversions      Int      @default(0)
+  importBatchId    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  assetPlacement AssetPlacement @relation(fields: [assetPlacementId], references: [id])
+  importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id])
+
+  @@unique([assetPlacementId, date])
 }

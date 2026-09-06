@@ -42,7 +42,9 @@ export type Permission =
   | "allocation:read"
   | "allocation:write"
   | "delivery:read"
-  | "delivery:write";
+  | "delivery:write"
+  | "report:read"
+  | "report:write";
 
 const CLIENT_READ: Permission[] = ["campaign:read", "account:read", "list:read", "organization:read"];
 
@@ -53,20 +55,20 @@ const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
     "campaign:read", "campaign:write", "campaign:submitInternal",
     "campaign:approveInternal", "campaign:clone",
     "list:read", "list:write", "audit:read",
-    "asset:read", "asset:write", "delivery:read",
+    "asset:read", "asset:write", "delivery:read", "report:read",
   ],
   OPERATIONS: [
     "organization:read", "account:read", "account:write", "channelType:read",
     "campaign:read", "list:read", "list:write",
     "asset:read", "asset:write", "allocation:read", "allocation:write",
-    "delivery:read", "delivery:write",
+    "delivery:read", "delivery:write", "report:read", "report:write",
   ],
   QUALITY: ["organization:read", "account:read", "campaign:read", "channelType:read", "lead:read", "lead:write"],
   ACCOUNT_MANAGER: [
     "organization:read", "organization:write", "user:invite",
-    "account:read", "campaign:read", "list:read", "channelType:read",
+    "account:read", "campaign:read", "list:read", "channelType:read", "report:read",
   ],
-  FINANCE: ["organization:read", "campaign:read", "exchangeRate:write", "audit:read"],
+  FINANCE: ["organization:read", "campaign:read", "exchangeRate:write", "audit:read", "report:read"],
   CLIENT_ADMIN: [...CLIENT_READ, "campaign:approveClient", "user:invite", "list:write"],
   CLIENT_VIEWER: [...CLIENT_READ],
   PARTNER_ADMIN: ["organization:read", "campaign:read", "user:invite", "allocation:read"],
