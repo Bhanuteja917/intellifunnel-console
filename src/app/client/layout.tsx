@@ -10,7 +10,10 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
-const CLIENT_NAV = [{ href: "/client/leads", label: "Leads" }] as const;
+const CLIENT_NAV = [
+  { href: "/client/leads", label: "Leads" },
+  { href: "/client/reports", label: "Reports" },
+] as const;
 
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const actor = await requireActor();
