@@ -10,6 +10,11 @@ export type PartnerAllocationView = {
   funnelStageCode: string;
   allocatedQuantity: number;
   deliveredCount: number;
+  // Capacity is enforced on `reservedCount + deliveredCount < cap`, so a
+  // partner who can only see `deliveredCount` cannot tell how much of their
+  // cap is actually left — they'd read 3/10 as seven slots free and then be
+  // rejected with ALLOCATION_CAP_EXCEEDED with no visible explanation.
+  reservedCount: number;
   pace: PaceSignal;
   payoutRateMinor: bigint;
   payoutCurrency: string;
@@ -39,7 +44,8 @@ export async function getAllocationsForPartner(
   const rows = await db.partnerAllocation.findMany({
     where: { partnerOrganizationId: actor.organizationId, status: "active" },
     select: {
-      id: true, allocatedQuantity: true, deliveredCount: true, payoutRateMinor: true, payoutCurrency: true,
+      id: true, allocatedQuantity: true, deliveredCount: true, reservedCount: true,
+      payoutRateMinor: true, payoutCurrency: true,
       startDate: true, endDate: true,
       campaignChannel: { select: { channelTypeVersion: { select: { definitionJson: true } } } },
     },
@@ -51,6 +57,7 @@ export async function getAllocationsForPartner(
     return {
       id: r.id, channelTypeName: def.name, funnelStageCode: def.funnelStageCode,
       allocatedQuantity: r.allocatedQuantity, deliveredCount: r.deliveredCount,
+      reservedCount: r.reservedCount,
       pace: paceSignal(r.deliveredCount, expected),
       payoutRateMinor: r.payoutRateMinor,
       payoutCurrency: r.payoutCurrency, startDate: r.startDate, endDate: r.endDate,

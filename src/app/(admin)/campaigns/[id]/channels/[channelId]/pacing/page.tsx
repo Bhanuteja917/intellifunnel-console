@@ -48,9 +48,26 @@ export default async function ChannelPacingPage({
 
   // Per-partner rejection rate: computed on read, not a stored counter —
   // a monitoring display value with no cap/enforcement dependency.
+  //
+  // The numerator counts `rejectReasonId IS NOT NULL`, not
+  // `lifecycleStatus = 'rejected'`: only `decideLeadVerification` ever moves
+  // a lead to `lifecycleStatus: 'rejected'`. Every row rejected *at intake*
+  // (suppression, ICP/TAL mismatch, duplicate, and this epic's own
+  // CHANNEL_CAP_REACHED / ALLOCATION_CAP_EXCEEDED) stays at
+  // `lifecycleStatus: 'new'` with `verificationStatus: 'failed'`, so it
+  // counted in the denominator but never the numerator — a partner whose
+  // file was 90% suppressed junk read as a 0% rejection rate.
+  // `Lead.rejectReasonId` is set on both paths (and cleared again on accept),
+  // so it is the one column that captures every rejection regardless of
+  // which side rejected it. It is paired with `verificationStatus = 'failed'`
+  // because `rejectReasonId` alone would also match a *pending* row: an
+  // advisory ICP/TAL mismatch leaves the lead at `needsReview` while still
+  // recording the advisory reason code, and a lead nobody has decided yet
+  // must not count as rejected. `verificationStatus = 'failed'` is set by
+  // exactly the two rejecting paths and nothing else.
   const rejectionRows = await db.$queryRaw<{ partnerOrganizationId: string | null; rejected: bigint; total: bigint }[]>`
     SELECT ls."partnerOrganizationId",
-           COUNT(*) FILTER (WHERE l."lifecycleStatus" = 'rejected') AS rejected,
+           COUNT(*) FILTER (WHERE l."rejectReasonId" IS NOT NULL AND l."verificationStatus" = 'failed') AS rejected,
            COUNT(*) AS total
     FROM "Lead" l
     JOIN "LeadSubmission" ls ON ls.id = l."submissionId"
@@ -92,6 +109,10 @@ export default async function ChannelPacingPage({
               <TableRow>
                 <TableHead>Partner</TableHead>
                 <TableHead>Delivered / cap</TableHead>
+                {/* Matches the channel-level card above, which already shows
+                    reserved — capacity is enforced on reserved + delivered. */}
+                <TableHead>Reserved</TableHead>
+                <TableHead>Remaining</TableHead>
                 <TableHead>Pace</TableHead>
                 <TableHead>Rejection rate</TableHead>
               </TableRow>
@@ -99,7 +120,7 @@ export default async function ChannelPacingPage({
             <TableBody>
               {allocations.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     No allocations on this channel.
                   </TableCell>
                 </TableRow>
@@ -115,6 +136,8 @@ export default async function ChannelPacingPage({
                   <TableRow key={a.id}>
                     <TableCell>{a.partnerOrganization.name}</TableCell>
                     <TableCell>{a.deliveredCount} / {a.allocatedQuantity}</TableCell>
+                    <TableCell>{a.reservedCount}</TableCell>
+                    <TableCell>{Math.max(a.allocatedQuantity - a.deliveredCount - a.reservedCount, 0)}</TableCell>
                     <TableCell><Badge variant={badgeVariant(pace)}>{pace}</Badge></TableCell>
                     <TableCell>{rate}</TableCell>
                   </TableRow>

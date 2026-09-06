@@ -26,7 +26,15 @@ export default async function PartnerAllocationsPage() {
             <TableRow>
               <TableHead>Channel type</TableHead>
               <TableHead>Funnel stage</TableHead>
+              {/*
+                Capacity is enforced on reserved + delivered against the cap,
+                so "delivered / cap" alone overstates what is still
+                submittable — the reserved figure and the derived remaining
+                figure are what actually predict the next rejection.
+              */}
               <TableHead>Delivered / cap</TableHead>
+              <TableHead>Reserved</TableHead>
+              <TableHead>Remaining</TableHead>
               <TableHead>Pace</TableHead>
               <TableHead>Payout rate</TableHead>
               <TableHead>Window</TableHead>
@@ -35,7 +43,7 @@ export default async function PartnerAllocationsPage() {
           <TableBody>
             {allocations.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   No active allocations.
                 </TableCell>
               </TableRow>
@@ -45,6 +53,8 @@ export default async function PartnerAllocationsPage() {
                 <TableCell>{a.channelTypeName}</TableCell>
                 <TableCell>{a.funnelStageCode}</TableCell>
                 <TableCell>{a.deliveredCount} / {a.allocatedQuantity}</TableCell>
+                <TableCell>{a.reservedCount}</TableCell>
+                <TableCell>{Math.max(a.allocatedQuantity - a.deliveredCount - a.reservedCount, 0)}</TableCell>
                 <TableCell>
                   <Badge variant={a.pace === "behind" ? "destructive" : a.pace === "ahead" ? "default" : "secondary"}>
                     {a.pace}

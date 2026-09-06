@@ -15,7 +15,7 @@ describe("getAllocationsForPartner — pacing", () => {
     await seedSettings(testDb());
   });
 
-  it("includes deliveredCount and a pace signal for the partner's own active allocation", async () => {
+  it("includes deliveredCount, reservedCount and a pace signal for the partner's own active allocation", async () => {
     const db = testDb();
     const clientOrg = await createOrganization(db, { isClient: true, isInternal: false });
     const partnerOrg = await createOrganization(db, { isPartner: true, isInternal: false, isClient: false });
@@ -58,6 +58,9 @@ describe("getAllocationsForPartner — pacing", () => {
 
     const [view] = await getAllocationsForPartner(db, actor);
     expect(view!.deliveredCount).toBe(3);
+    // reservedCount is what makes the remaining-capacity picture honest:
+    // capacity is enforced on reserved + delivered against the cap.
+    expect(view!.reservedCount).toBe(1);
     expect(["behind", "onPace", "ahead"]).toContain(view!.pace);
   });
 });
