@@ -37,7 +37,9 @@ export default async function ClientReportsPage({
     select: { id: true, name: true, code: true },
     orderBy: { createdAt: "desc" },
   });
-  const selectedCampaignId = campaignId ?? campaigns[0]?.id;
+  const selectedCampaignId = (campaignId !== undefined && campaignId !== "")
+    ? campaignId
+    : campaigns[0]?.id;
 
   const report = selectedCampaignId !== undefined
     ? {
