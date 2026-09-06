@@ -5,7 +5,7 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { ValidationError } from "@/lib/errors";
-import { createAllocation } from "@/lib/allocations/crud";
+import { createAllocation, setAllocationStatus } from "@/lib/allocations/crud";
 
 async function setupChannel() {
   const db = testDb();
@@ -78,5 +78,49 @@ describe("createAllocation — one active per partner+channel", () => {
     await db.partnerAllocation.update({ where: { id: first.id }, data: { status: "ended" } });
     const second = await createAllocation(db, actor, allocationInput(campaignChannel.id, partnerOrg.id));
     expect(second.id).not.toBe(first.id);
+  });
+});
+
+describe("setAllocationStatus — one active per partner+channel", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedRoles(testDb());
+    await seedFunnelStages(testDb());
+  });
+
+  it("refuses to un-end an allocation when a replacement is already live", async () => {
+    const { db, actor, campaignChannel, partnerOrg } = await setupChannel();
+    const first = await createAllocation(db, actor, allocationInput(campaignChannel.id, partnerOrg.id));
+    await setAllocationStatus(db, actor, { allocationId: first.id, status: "ended" });
+    const second = await createAllocation(db, actor, allocationInput(campaignChannel.id, partnerOrg.id));
+    expect(second.status).not.toBe("ended");
+
+    // Without the guard this reaches Task 1's partial unique index and comes
+    // back as a raw P2002, not a message the admin status dropdown can show.
+    await expect(
+      setAllocationStatus(db, actor, { allocationId: first.id, status: "active" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    const unchanged = await db.partnerAllocation.findUniqueOrThrow({ where: { id: first.id } });
+    expect(unchanged.status).toBe("ended");
+  });
+
+  it("still allows ending an allocation, and re-activating it once nothing else is live", async () => {
+    const { db, actor, campaignChannel, partnerOrg } = await setupChannel();
+    const only = await createAllocation(db, actor, allocationInput(campaignChannel.id, partnerOrg.id));
+    // Ending is always safe — the guard only runs for transitions *into* a
+    // non-ended status.
+    await setAllocationStatus(db, actor, { allocationId: only.id, status: "ended" });
+    const revived = await setAllocationStatus(db, actor, { allocationId: only.id, status: "active" });
+    expect(revived.status).toBe("active");
+  });
+
+  it("allows a status change that leaves the row itself as the only non-ended allocation", async () => {
+    // Regression guard on the `id: { not: … }` self-exclusion: without it,
+    // an active -> paused change would find *itself* and reject.
+    const { db, actor, campaignChannel, partnerOrg } = await setupChannel();
+    const only = await createAllocation(db, actor, allocationInput(campaignChannel.id, partnerOrg.id));
+    const paused = await setAllocationStatus(db, actor, { allocationId: only.id, status: "paused" });
+    expect(paused.status).toBe("paused");
   });
 });

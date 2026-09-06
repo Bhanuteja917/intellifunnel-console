@@ -191,9 +191,32 @@ export async function setAllocationStatus(
   const existing = await db.partnerAllocation.findUnique({ where: { id: input.allocationId } });
   if (existing === null) throw new NotFoundError("Allocation not found");
 
-  // AllocationStatus transitions are unrestricted (draft/active/paused/ended,
-  // any -> any) — the PRD doesn't specify a constrained flow here, matching
-  // setPlacementStatus's precedent. setPlacementStatus itself has no audit
+  // AllocationStatus transitions are otherwise unrestricted (draft/active/
+  // paused/ended, any -> any) — the PRD doesn't specify a constrained flow
+  // here, matching setPlacementStatus's precedent. The one exception is the
+  // "one non-ended allocation per partner+channel" invariant Task 1's
+  // partial unique index enforces: un-ending a row while a replacement
+  // already exists would otherwise surface as a raw Postgres unique
+  // violation from the admin status dropdown instead of a message the
+  // operator can act on. Only transitions *into* a non-ended status need the
+  // check — ending a row can never create a second non-ended one.
+  if (input.status !== "ended") {
+    const existingActive = await db.partnerAllocation.findFirst({
+      where: {
+        campaignChannelId: existing.campaignChannelId,
+        partnerOrganizationId: existing.partnerOrganizationId,
+        status: { not: "ended" },
+        id: { not: input.allocationId },
+      },
+    });
+    if (existingActive !== null) {
+      throw new ValidationError(
+        "This partner already has an active allocation on this channel — end it before reactivating this one.",
+      );
+    }
+  }
+
+  // setPlacementStatus itself has no audit
   // precedent to follow, so this instead matches deactivateChannelType's
   // status-only-change shape (before/after each holding just the one field).
   return withAudit<PartnerAllocation>(
