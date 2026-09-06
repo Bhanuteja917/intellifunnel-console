@@ -123,6 +123,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                 <TableHead>Window</TableHead>
                 <TableHead>Placements</TableHead>
                 <TableHead>Allocations</TableHead>
+                <TableHead>Pacing</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -152,6 +153,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                     <Button asChild variant="outline" size="sm">
                       <Link href={`/campaigns/${campaign.id}/channels/${channel.id}/allocations` as Route}>
                         Allocations
+                      </Link>
+                    </Button>
+                  </TableCell>
+                  <TableCell>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/campaigns/${campaign.id}/channels/${channel.id}/pacing` as Route}>
+                        Pacing
                       </Link>
                     </Button>
                   </TableCell>
