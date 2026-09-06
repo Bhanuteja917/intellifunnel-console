@@ -80,6 +80,29 @@ describe("importEngagementEvents", () => {
     expect(await db.importError.count({ where: { batchId: result.batchId } })).toBe(2);
   });
 
+  it("records a distinct error for an unknown assetPlacementId and still commits the good rows", async () => {
+    const { db, ops, placement } = await setupPlacement();
+    const content = [
+      "assetPlacementId,date,impressions,conversions",
+      `${placement.id},2026-08-01,100,10`,
+      "clnonexistentplacement00,2026-08-01,50,5",
+      `${placement.id},2026-08-02,20,2`,
+    ].join("\n");
+
+    const result = await importEngagementEvents(db, ops, { fileContent: content });
+
+    expect(result.rowsAccepted).toBe(2);
+    expect(result.rowsFailed).toBe(1);
+    const error = result.errors.find((e) => e.rowNumber === 2);
+    expect(error?.field).toBe("assetPlacementId");
+    expect(error?.message).toMatch(/unknown assetPlacementId/i);
+    // The bad row must not roll back the good rows in the same upload.
+    expect(await db.engagementEvent.count()).toBe(2);
+    expect(await db.importError.count({ where: { batchId: result.batchId } })).toBe(1);
+    const batch = await db.importBatch.findUniqueOrThrow({ where: { id: result.batchId } });
+    expect(batch.status).toBe("completed");
+  });
+
   it("upserts on re-upload instead of duplicating a row for the same placement and date", async () => {
     const { db, ops, placement } = await setupPlacement();
     const first = ["formSlug,date,impressions,conversions", `${placement.formSlug},2026-08-01,100,10`].join("\n");

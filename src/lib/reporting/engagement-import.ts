@@ -33,6 +33,39 @@ export async function importEngagementEvents(
   const errors: RowError[] = [];
   const validRows: ValidRow[] = [];
 
+  // Both placement references are resolved up front, in two batched queries,
+  // for two reasons. (1) Correctness: an `assetPlacementId` taken on trust
+  // reaches `engagementEvent.upsert` inside the `$transaction` below and
+  // throws a raw Prisma FK violation, which rolls back every *good* row in
+  // the same upload and leaves the `ImportBatch` stuck at "processing" —
+  // breaking this module's partial-success contract (one bad row never blocks
+  // the rest of the file) and escaping `toActionResult` as an unhandled 500.
+  // Every id must therefore be checked against the DB, exactly as `formSlug`
+  // already was. (2) Doing that check per row would be an N+1, so both
+  // lookups are one `findMany` each and the row loop only consults a Set/Map.
+  const requestedIds = new Set<string>();
+  const requestedSlugs = new Set<string>();
+  for (const row of parsed.rows) {
+    const rawPlacementId = row.assetPlacementId?.trim();
+    const rawFormSlug = row.formSlug?.trim();
+    if (rawPlacementId !== undefined && rawPlacementId !== "") requestedIds.add(rawPlacementId);
+    else if (rawFormSlug !== undefined && rawFormSlug !== "") requestedSlugs.add(rawFormSlug);
+  }
+
+  const knownPlacements = requestedIds.size > 0 || requestedSlugs.size > 0
+    ? await db.assetPlacement.findMany({
+        where: {
+          OR: [
+            ...(requestedIds.size > 0 ? [{ id: { in: [...requestedIds] } }] : []),
+            ...(requestedSlugs.size > 0 ? [{ formSlug: { in: [...requestedSlugs] } }] : []),
+          ],
+        },
+        select: { id: true, formSlug: true },
+      })
+    : [];
+  const validPlacementIds = new Set(knownPlacements.map((p) => p.id));
+  const placementIdBySlug = new Map(knownPlacements.map((p) => [p.formSlug, p.id]));
+
   for (const [index, row] of parsed.rows.entries()) {
     const rowNumber = index + 1;
     const rawPlacementId = row.assetPlacementId?.trim();
@@ -40,14 +73,21 @@ export async function importEngagementEvents(
 
     let assetPlacementId: string;
     if (rawPlacementId !== undefined && rawPlacementId !== "") {
+      if (!validPlacementIds.has(rawPlacementId)) {
+        errors.push({
+          rowNumber, field: "assetPlacementId", rawValue: rawPlacementId,
+          message: "Unknown assetPlacementId",
+        });
+        continue;
+      }
       assetPlacementId = rawPlacementId;
     } else if (rawFormSlug !== undefined && rawFormSlug !== "") {
-      const placement = await db.assetPlacement.findUnique({ where: { formSlug: rawFormSlug } });
-      if (placement === null) {
+      const resolved = placementIdBySlug.get(rawFormSlug);
+      if (resolved === undefined) {
         errors.push({ rowNumber, field: "formSlug", rawValue: rawFormSlug, message: "Unknown formSlug" });
         continue;
       }
-      assetPlacementId = placement.id;
+      assetPlacementId = resolved;
     } else {
       errors.push({ rowNumber, field: null, rawValue: null, message: "Row needs assetPlacementId or formSlug" });
       continue;
