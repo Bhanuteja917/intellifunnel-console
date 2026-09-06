@@ -13,7 +13,14 @@ export type DeliveryConfigInput = {
   fieldMapping: FieldMappingEntry[];
 };
 
-function validate(input: DeliveryConfigInput): void {
+/**
+ * `webhookSecret` is required on first creation of a webhook config, but must
+ * be omittable on later edits — the form labels it "leave blank to keep
+ * current" and sends `undefined` when the admin isn't rotating it. So the
+ * requirement is: a secret must exist somewhere, either freshly supplied or
+ * already on the row from a prior save.
+ */
+function validate(input: DeliveryConfigInput, existing: DeliveryConfig | null): void {
   if (input.fieldMapping.length === 0) {
     throw new ValidationError("At least one field mapping is required");
   }
@@ -21,7 +28,9 @@ function validate(input: DeliveryConfigInput): void {
     if (!input.webhookUrl || input.webhookUrl.trim() === "") {
       throw new ValidationError("webhookUrl is required for a webhook delivery config");
     }
-    if (!input.webhookSecret || input.webhookSecret.trim() === "") {
+    const providedSecret = input.webhookSecret !== undefined && input.webhookSecret.trim() !== "";
+    const hasExistingSecret = existing !== null && existing.webhookSecret !== null;
+    if (!providedSecret && !hasExistingSecret) {
       throw new ValidationError("webhookSecret is required for a webhook delivery config");
     }
   } else {
@@ -31,6 +40,13 @@ function validate(input: DeliveryConfigInput): void {
   }
 }
 
+/** New secret if the caller supplied one (rotation), else whatever secret was already on the row (or null, for a fresh csv-only row). */
+function resolveWebhookSecret(input: DeliveryConfigInput, existing: DeliveryConfig | null): string | null {
+  const trimmed = input.webhookSecret?.trim();
+  if (trimmed !== undefined && trimmed !== "") return trimmed;
+  return existing?.webhookSecret ?? null;
+}
+
 /** Admin-authored config, one per CampaignChannel (unique constraint) — create-or-update in one call. */
 export async function upsertDeliveryConfig(
   db: PrismaClient,
@@ -38,12 +54,13 @@ export async function upsertDeliveryConfig(
   input: DeliveryConfigInput,
 ): Promise<DeliveryConfig> {
   assertPermission(actor, "delivery:write");
-  validate(input);
+  const existing = await db.deliveryConfig.findUnique({ where: { campaignChannelId: input.campaignChannelId } });
+  validate(input, existing);
 
   const data = {
     method: input.method,
     webhookUrl: input.method === "webhook" ? input.webhookUrl : null,
-    webhookSecret: input.method === "webhook" ? input.webhookSecret : null,
+    webhookSecret: input.method === "webhook" ? resolveWebhookSecret(input, existing) : null,
     csvScheduleCron: input.method === "csv" ? input.csvScheduleCron : null,
     fieldMappingJson: input.fieldMapping as unknown as Prisma.InputJsonValue,
     updatedById: actor.userId,

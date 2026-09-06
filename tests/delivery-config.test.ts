@@ -136,6 +136,30 @@ describe("delivery config", () => {
     expect(count).toBe(1);
   });
 
+  it("updates a webhook config without re-supplying webhookSecret, preserving the original secret", async () => {
+    const { db, channelId, operatorActor } = await seedChannelAndOperator();
+    await upsertDeliveryConfig(db, operatorActor, {
+      campaignChannelId: channelId, method: "webhook",
+      webhookUrl: "https://example.com/hook", webhookSecret: "original-secret",
+      fieldMapping: [{ source: "contact.email", target: "Email" }],
+    });
+
+    // Second save omits webhookSecret (the form sends undefined when the
+    // admin leaves the "leave blank to keep current" field blank) and only
+    // changes webhookUrl — this must succeed, not throw.
+    await expect(
+      upsertDeliveryConfig(db, operatorActor, {
+        campaignChannelId: channelId, method: "webhook",
+        webhookUrl: "https://example.com/hook-v2",
+        fieldMapping: [{ source: "contact.email", target: "Email" }],
+      }),
+    ).resolves.not.toThrow();
+
+    const row = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelId } });
+    expect(row.webhookUrl).toBe("https://example.com/hook-v2");
+    expect(row.webhookSecret).toBe("original-secret");
+  });
+
   it("getDeliveryConfigForChannel returns null when none exists, pauses via setDeliveryConfigStatus", async () => {
     const { db, channelId, operatorActor } = await seedChannelAndOperator();
     expect(await getDeliveryConfigForChannel(db, operatorActor, channelId)).toBeNull();
