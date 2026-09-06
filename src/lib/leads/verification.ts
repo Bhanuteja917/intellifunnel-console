@@ -16,6 +16,7 @@ import {
   releaseChannelSlot,
   releaseAllocationSlot,
 } from "@/lib/allocations/counters";
+import { createWebhookRunOnAccept } from "@/lib/delivery/runs";
 
 export type TeleVerificationInput = {
   callSystem: string;
@@ -235,6 +236,7 @@ export async function decideLeadVerification(
     if (effectiveDecision === "accept") {
       await convertChannelReservedToDelivered(tx, lead.campaignChannelId);
       if (allocation !== null) await convertAllocationReservedToDelivered(tx, allocation.id);
+      await createWebhookRunOnAccept(tx, lead.campaignChannelId, input.leadId);
     } else {
       await releaseChannelSlot(tx, lead.campaignChannelId, false);
       if (allocation !== null) await releaseAllocationSlot(tx, allocation.id, false);
