@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal, campaignOrgScopeClause } from "@/lib/auth/permissions";
-import { defaultDateRange } from "@/lib/reporting/shared";
+import { defaultDateRange, parseDateRangeParams } from "@/lib/reporting/shared";
 import { getCampaignPerformanceReport } from "@/lib/reporting/campaigns";
 import { getLeadBreakdownReport } from "@/lib/reporting/leads";
 import { getChannelPerformanceReport } from "@/lib/reporting/channels";
@@ -9,12 +9,6 @@ import { getAssetPerformanceReport } from "@/lib/reporting/engagement";
 import { DateRangePicker } from "@/components/reporting/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-
-function parseDateParam(value: string | undefined, fallback: Date): Date {
-  if (value === undefined) return fallback;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? fallback : new Date(ms);
-}
 
 // Every page under src/app/client/ must call requireActor() + assertPortal()
 // as its first two lines, before any data fetch — see assertPortal's doc
@@ -29,8 +23,7 @@ export default async function ClientReportsPage({
   assertPortal(actor, "client");
   const { from, to, campaignId } = await searchParams;
 
-  const fallback = defaultDateRange();
-  const dateRange = { from: parseDateParam(from, fallback.from), to: parseDateParam(to, fallback.to) };
+  const dateRange = parseDateRangeParams({ from, to }, defaultDateRange());
 
   const campaigns = await db.campaign.findMany({
     where: campaignOrgScopeClause(actor),
@@ -87,8 +80,12 @@ export default async function ClientReportsPage({
           <Card>
             <CardHeader><CardTitle>Channel performance</CardTitle></CardHeader>
             <CardContent>
+              {/* contractedQuantity/deliveredCount are lifetime running
+                  counters maintained by src/lib/allocations/counters.ts — they
+                  are NOT scoped to the date-range picker above, unlike every
+                  other number on this page, so the headers say so. */}
               <Table>
-                <TableHeader><TableRow><TableHead>Channel</TableHead><TableHead>Contracted</TableHead><TableHead>Delivered</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Channel</TableHead><TableHead>Contracted (total)</TableHead><TableHead>Delivered (to date)</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {report.channels.map((c) => (
                     <TableRow key={c.campaignChannelId}>

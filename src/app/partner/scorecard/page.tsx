@@ -1,17 +1,11 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
-import { defaultDateRange } from "@/lib/reporting/shared";
+import { defaultDateRange, parseDateRangeParams } from "@/lib/reporting/shared";
 import { getPartnerScorecardReport } from "@/lib/reporting/partners";
 import { DateRangePicker } from "@/components/reporting/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-
-function parseDateParam(value: string | undefined, fallback: Date): Date {
-  if (value === undefined) return fallback;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? fallback : new Date(ms);
-}
 
 // Every page under src/app/partner/ must call requireActor() + assertPortal()
 // as its first two lines, before any data fetch — see assertPortal's doc
@@ -26,8 +20,7 @@ export default async function PartnerScorecardPage({
   assertPortal(actor, "partner");
   const { from, to } = await searchParams;
 
-  const fallback = defaultDateRange();
-  const dateRange = { from: parseDateParam(from, fallback.from), to: parseDateParam(to, fallback.to) };
+  const dateRange = parseDateRangeParams({ from, to }, defaultDateRange());
 
   const report = await getPartnerScorecardReport(db, actor, {
     partnerOrganizationId: actor.organizationId, dateRange,
@@ -68,10 +61,14 @@ export default async function PartnerScorecardPage({
       <Card>
         <CardHeader><CardTitle>By channel</CardTitle></CardHeader>
         <CardContent>
+          {/* allocatedQuantity/deliveredCount are lifetime running counters
+              maintained by src/lib/allocations/counters.ts — they are NOT
+              scoped to the date-range picker above, unlike the lead columns
+              beside them, so the header says so. */}
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Channel</TableHead><TableHead>Delivered / cap</TableHead>
+                <TableHead>Channel</TableHead><TableHead>Delivered / cap (to date)</TableHead>
                 <TableHead>Leads submitted</TableHead><TableHead>Accepted</TableHead><TableHead>Rejected</TableHead>
               </TableRow>
             </TableHeader>

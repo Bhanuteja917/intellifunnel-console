@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission } from "@/lib/auth/permissions";
-import { defaultDateRange } from "@/lib/reporting/shared";
+import { defaultDateRange, parseDateRangeParams } from "@/lib/reporting/shared";
 import { getOpsDashboardReport } from "@/lib/reporting/ops";
 import { getCampaignPerformanceReport } from "@/lib/reporting/campaigns";
 import { getLeadBreakdownReport } from "@/lib/reporting/leads";
@@ -12,12 +12,6 @@ import { EngagementUploadForm } from "./engagement-upload-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-function parseDateParam(value: string | undefined, fallback: Date): Date {
-  if (value === undefined) return fallback;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? fallback : new Date(ms);
-}
-
 export default async function AdminReportsPage({
   searchParams,
 }: {
@@ -27,8 +21,7 @@ export default async function AdminReportsPage({
   assertPermission(actor, "report:read");
   const { from, to, campaignId } = await searchParams;
 
-  const fallback = defaultDateRange();
-  const dateRange = { from: parseDateParam(from, fallback.from), to: parseDateParam(to, fallback.to) };
+  const dateRange = parseDateRangeParams({ from, to }, defaultDateRange());
 
   const ops = await getOpsDashboardReport(db, actor, { dateRange });
   const campaigns = await db.campaign.findMany({
@@ -111,8 +104,12 @@ export default async function AdminReportsPage({
                 <div><div className="text-sm text-muted-foreground">SLA breach rate</div><div className="text-xl font-semibold">{(drilldown.performance.slaBreachRate * 100).toFixed(1)}%</div></div>
               </div>
 
+              {/* contractedQuantity/deliveredCount are lifetime running
+                  counters maintained by src/lib/allocations/counters.ts — they
+                  are NOT scoped to the date-range picker above, unlike every
+                  other number on this page, so the headers say so. */}
               <Table>
-                <TableHeader><TableRow><TableHead>Channel</TableHead><TableHead>Contracted</TableHead><TableHead>Delivered</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Channel</TableHead><TableHead>Contracted (total)</TableHead><TableHead>Delivered (to date)</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {drilldown.channels.map((c) => (
                     <TableRow key={c.campaignChannelId}>
@@ -120,6 +117,16 @@ export default async function AdminReportsPage({
                       <TableCell>{c.contractedQuantity}</TableCell>
                       <TableCell>{c.deliveredCount}</TableCell>
                     </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <div className="text-sm font-medium">Lead breakdown</div>
+              <Table>
+                <TableHeader><TableRow><TableHead>Verification status</TableHead><TableHead>Count</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {Object.entries(drilldown.leads.byVerificationStatus).map(([status, count]) => (
+                    <TableRow key={status}><TableCell>{status}</TableCell><TableCell>{count}</TableCell></TableRow>
                   ))}
                 </TableBody>
               </Table>
