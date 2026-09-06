@@ -50,9 +50,25 @@ export async function fireDueWebhookRuns(
   for (const run of dueRuns) {
     const config = await db.deliveryConfig.findUnique({ where: { campaignChannelId: run.campaignChannelId } });
     const runLead = run.leads[0];
-    if (config === null || config.method !== "webhook" || config.status !== "active" || config.webhookUrl === null || config.webhookSecret === null || runLead === undefined) {
-      // Config removed, paused, or reconfigured to csv after this run was created — nothing sane left to retry against.
-      await db.deliveryRun.update({ where: { id: run.id }, data: { status: "exhausted", lastError: "Delivery config missing, paused, or no longer webhook" } });
+
+    if (config === null || config.method !== "webhook" || runLead === undefined) {
+      // Config deleted or reconfigured away from webhook after this run was created — nothing sane left
+      // to retry against, ever. Terminal.
+      await db.deliveryRun.update({ where: { id: run.id }, data: { status: "exhausted", lastError: "Delivery config missing or no longer webhook" } });
+      continue;
+    }
+
+    if (config.status !== "active") {
+      // Paused: this is usually temporary (e.g. the client's endpoint is down for maintenance) — leave
+      // the run exactly as-is so it's retried on a later tick once the config is resumed, rather than
+      // being killed off like a genuinely unrecoverable config.
+      continue;
+    }
+
+    if (config.webhookUrl === null || config.webhookSecret === null) {
+      // Active webhook config missing its own required fields — shouldn't happen given config.ts's
+      // validate(), but if it does there's nothing sane left to retry against. Terminal.
+      await db.deliveryRun.update({ where: { id: run.id }, data: { status: "exhausted", lastError: "Delivery config missing webhookUrl or webhookSecret" } });
       continue;
     }
 

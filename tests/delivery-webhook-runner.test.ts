@@ -144,4 +144,34 @@ describe("fireDueWebhookRuns", () => {
     expect(updated.status).toBe("failed");
     expect(updated.lastError).toContain("ECONNREFUSED");
   });
+
+  it("marks a run exhausted immediately when its config was deleted or reconfigured away from webhook", async () => {
+    const { db, run } = await seedPendingWebhookRun();
+    // Simulate the config being reconfigured to csv after the run was created.
+    await db.deliveryConfig.update({ where: { campaignChannelId: run.campaignChannelId }, data: { method: "csv", webhookUrl: null, webhookSecret: null, csvScheduleCron: "0 6 * * *" } });
+    const fetchImpl = vi.fn();
+
+    const fired = await fireDueWebhookRuns(db, new Date(), fetchImpl as unknown as typeof fetch);
+
+    expect(fired).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const updated = await db.deliveryRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(updated.status).toBe("exhausted");
+    expect(updated.lastError).toContain("no longer webhook");
+  });
+
+  it("leaves a pending run untouched when its config is merely paused — held for a later tick, not exhausted", async () => {
+    const { db, run } = await seedPendingWebhookRun();
+    await db.deliveryConfig.update({ where: { campaignChannelId: run.campaignChannelId }, data: { status: "paused" } });
+    const fetchImpl = vi.fn();
+
+    const fired = await fireDueWebhookRuns(db, new Date(), fetchImpl as unknown as typeof fetch);
+
+    expect(fired).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const unchanged = await db.deliveryRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(unchanged.status).toBe("pending");
+    expect(unchanged.attemptCount).toBe(0);
+    expect(unchanged.lastError).toBeNull();
+  });
 });
