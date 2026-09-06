@@ -14,7 +14,7 @@ export type ChannelTypeInput = {
   requiresTeleVerification: boolean;
   allowedMetricFields: string[];
   defaultQualificationFormId?: string;
-  verificationSlaBusinessDays?: number;
+  verificationSlaBusinessDays?: number | null;
 };
 
 export async function createChannelType(

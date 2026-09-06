@@ -366,23 +366,16 @@ export async function addCampaignChannel(
 export async function deleteCampaign(db: PrismaClient, actor: Actor, campaignId: string): Promise<void> {
   assertPermission(actor, "campaign:write");
 
-  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
-  if (campaign === null || campaign.deletedAt !== null) throw new NotFoundError("Campaign not found");
-  assertOrganizationAccess(actor, campaign.clientOrganizationId);
-  if (campaign.status !== "draft") {
-    throw new ValidationError("Only draft campaigns can be deleted — cancel it instead");
-  }
+  const campaign = await assertDraftAndAccessible(db, actor, campaignId);
 
   await withAudit<Campaign>(
     db,
     actor,
     { entityType: "Campaign", entityId: campaignId, action: "delete", before: { status: campaign.status } },
     async (tx) => {
-      const current = await tx.campaign.findUnique({ where: { id: campaignId } });
-      if (current === null || current.deletedAt !== null) throw new NotFoundError("Campaign not found");
-      if (current.status !== "draft") {
-        throw new ValidationError("Only draft campaigns can be deleted — cancel it instead");
-      }
+      // Re-verify inside the transaction: a client approval can commit
+      // between the outer check and this write (FR-CS-2).
+      await assertDraftAndAccessible(tx, actor, campaignId);
       return tx.campaign.update({ where: { id: campaignId }, data: { deletedAt: new Date(), updatedById: actor.userId } });
     },
   );

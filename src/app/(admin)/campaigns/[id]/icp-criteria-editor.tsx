@@ -74,9 +74,16 @@ type Props = {
 };
 
 function toRow(criterion: Props["initialCriteria"][number]): Row {
+  // A criterion saved before this dimension/operator restriction existed (or
+  // saved by editing an unrelated field on this row, which bypasses the
+  // dimension-change handler) can carry an operator no longer valid for its
+  // dimension — e.g. jobFunction/"between" (TESTING.md item 6). Normalize on
+  // load so it doesn't silently round-trip back to the server unchanged.
+  const allowedOperators = DIMENSION_OPERATORS[criterion.dimension];
+  const operator = allowedOperators.includes(criterion.operator) ? criterion.operator : allowedOperators[0]!;
   return {
     dimension: criterion.dimension,
-    operator: criterion.operator,
+    operator,
     valuesText: criterion.values.map((v) => String(v)).join(", "),
     isMandatory: criterion.isMandatory,
   };

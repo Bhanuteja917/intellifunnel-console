@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -14,18 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ChannelTypeFormFields, METRIC_MODES, PRICING_UNITS } from "./channel-type-form-fields";
 import { updateChannelTypeAction } from "./actions";
-
-const METRIC_MODES = ["event", "aggregate"] as const;
-const PRICING_UNITS = ["CPL", "CPM", "CPA", "flat"] as const;
 
 type ChannelType = {
   id: string;
@@ -75,8 +64,11 @@ export function EditChannelTypeDialog({ channelType, funnelStages }: Props) {
         pricingUnit,
         requiresTeleVerification,
         allowedMetricFields: metricFields,
+        // Empty input means "clear the SLA" here (the field already had a
+        // value), not "leave unchanged" — must send `null`, not `undefined`,
+        // or Prisma's update ignores the field and the old value survives.
         verificationSlaBusinessDays:
-          verificationSlaBusinessDays.trim() === "" ? undefined : Number(verificationSlaBusinessDays),
+          verificationSlaBusinessDays.trim() === "" ? null : Number(verificationSlaBusinessDays),
       });
       if (result.ok) {
         toast.success("Channel type updated");
@@ -97,94 +89,33 @@ export function EditChannelTypeDialog({ channelType, funnelStages }: Props) {
           <DialogTitle>Edit channel type</DialogTitle>
         </DialogHeader>
         <FieldGroup>
-          <div className="grid grid-cols-2 gap-4">
-            <Field>
-              <FieldLabel>Code</FieldLabel>
-              <Input value={channelType.code} disabled />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="ct-edit-name">Name *</FieldLabel>
-              <Input id="ct-edit-name" value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-          </div>
           <Field>
-            <FieldLabel htmlFor="ct-edit-stage">Funnel stage *</FieldLabel>
-            <Select value={funnelStageId} onValueChange={setFunnelStageId}>
-              <SelectTrigger id="ct-edit-stage" className="w-full"><SelectValue placeholder="Funnel stage" /></SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {funnelStages.map((stage) => <SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>)}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field>
-              <FieldLabel htmlFor="ct-edit-metric-mode">Metric mode *</FieldLabel>
-              <Select value={metricMode} onValueChange={(v) => setMetricMode(v as (typeof METRIC_MODES)[number])}>
-                <SelectTrigger id="ct-edit-metric-mode" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {METRIC_MODES.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="ct-edit-pricing-unit">Pricing unit *</FieldLabel>
-              <Select value={pricingUnit} onValueChange={(v) => setPricingUnit(v as (typeof PRICING_UNITS)[number])}>
-                <SelectTrigger id="ct-edit-pricing-unit" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {PRICING_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-          {metricMode === "aggregate" && (
-            <Field>
-              <FieldLabel htmlFor="ct-edit-metric-fields">Allowed metric fields (comma-separated) *</FieldLabel>
-              <Input
-                id="ct-edit-metric-fields"
-                value={allowedMetricFields}
-                onChange={(e) => setAllowedMetricFields(e.target.value)}
-                placeholder="e.g. impressions, clicks, spend"
-              />
-            </Field>
-          )}
-          <Field>
-            <FieldLabel htmlFor="ct-edit-sla">Verification SLA (business days, optional)</FieldLabel>
-            <Input
-              id="ct-edit-sla"
-              type="number"
-              min="0"
-              step="1"
-              value={verificationSlaBusinessDays}
-              onChange={(e) => setVerificationSlaBusinessDays(e.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel>Options</FieldLabel>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={producesLeads} onCheckedChange={(checked) => setProducesLeads(checked === true)} />
-                Produces leads
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={requiresAsset} onCheckedChange={(checked) => setRequiresAsset(checked === true)} />
-                Requires asset
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={requiresTeleVerification}
-                  onCheckedChange={(checked) => setRequiresTeleVerification(checked === true)}
-                />
-                Requires tele-verification
-              </label>
-            </div>
+            <FieldLabel>Code</FieldLabel>
+            <Input value={channelType.code} disabled />
           </Field>
         </FieldGroup>
+        <ChannelTypeFormFields
+          idPrefix="ct-edit"
+          name={name}
+          onNameChange={setName}
+          funnelStageId={funnelStageId}
+          onFunnelStageIdChange={setFunnelStageId}
+          funnelStages={funnelStages}
+          metricMode={metricMode}
+          onMetricModeChange={setMetricMode}
+          pricingUnit={pricingUnit}
+          onPricingUnitChange={setPricingUnit}
+          allowedMetricFields={allowedMetricFields}
+          onAllowedMetricFieldsChange={setAllowedMetricFields}
+          verificationSlaBusinessDays={verificationSlaBusinessDays}
+          onVerificationSlaBusinessDaysChange={setVerificationSlaBusinessDays}
+          producesLeads={producesLeads}
+          onProducesLeadsChange={setProducesLeads}
+          requiresAsset={requiresAsset}
+          onRequiresAssetChange={setRequiresAsset}
+          requiresTeleVerification={requiresTeleVerification}
+          onRequiresTeleVerificationChange={setRequiresTeleVerification}
+        />
         <DialogFooter>
           <Button disabled={pending || !canSubmit} onClick={submit}>
             Save
