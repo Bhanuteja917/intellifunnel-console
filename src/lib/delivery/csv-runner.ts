@@ -5,6 +5,7 @@ import { isCsvRunDue } from "@/lib/delivery/cron";
 import { applyFieldMapping, type FieldMappingEntry } from "@/lib/delivery/field-mapping";
 import { toDeliverableRecord } from "@/lib/delivery/webhook";
 import type { StorageAdapter } from "@/lib/storage/types";
+import { logger } from "@/lib/logging/logger";
 
 /**
  * Generates one CSV DeliveryRun per active csv DeliveryConfig whose cron
@@ -24,50 +25,57 @@ export async function generateDueCsvRuns(
 
   let generated = 0;
   for (const config of configs) {
-    if (config.csvScheduleCron === null) continue;
+    try {
+      if (config.csvScheduleCron === null) continue;
 
-    const lastRun = await db.deliveryRun.findFirst({
-      where: { campaignChannelId: config.campaignChannelId, method: "csv", status: "success" },
-      orderBy: { completedAt: "desc" },
-    });
-    if (!isCsvRunDue(config.csvScheduleCron, lastRun?.completedAt ?? null, now, timeZone)) continue;
+      const lastRun = await db.deliveryRun.findFirst({
+        where: { campaignChannelId: config.campaignChannelId, method: "csv", status: "success" },
+        orderBy: { completedAt: "desc" },
+      });
+      if (!isCsvRunDue(config.csvScheduleCron, lastRun?.completedAt ?? null, now, timeZone)) continue;
 
-    const cursor = config.lastCsvCursorAt;
-    const leads = await db.lead.findMany({
-      where: {
-        campaignChannelId: config.campaignChannelId,
-        clientVisible: true,
-        acceptedAt: cursor === null ? { not: null } : { gt: cursor },
-      },
-      include: { contact: true, account: true },
-      orderBy: { acceptedAt: "asc" },
-    });
-    if (leads.length === 0) continue;
-
-    const mapping = config.fieldMappingJson as unknown as FieldMappingEntry[];
-    const rows = leads.map((lead) => applyFieldMapping(mapping, toDeliverableRecord(lead)));
-    const csvBody = Papa.unparse(rows);
-    const key = `delivery/${config.campaignChannelId}/${now.toISOString()}.csv`;
-    await storage.put(key, Buffer.from(csvBody, "utf-8"), "text/csv");
-
-    const latestAcceptedAt = leads[leads.length - 1]!.acceptedAt!;
-    await db.$transaction(async (tx) => {
-      const run = await tx.deliveryRun.create({
-        data: {
+      const cursor = config.lastCsvCursorAt;
+      const leads = await db.lead.findMany({
+        where: {
           campaignChannelId: config.campaignChannelId,
-          method: "csv",
-          status: "success",
-          fileUrl: key,
-          startedAt: now,
-          completedAt: now,
+          clientVisible: true,
+          acceptedAt: cursor === null ? { not: null } : { gt: cursor },
         },
+        include: { contact: true, account: true },
+        orderBy: { acceptedAt: "asc" },
       });
-      await tx.deliveryRunLead.createMany({
-        data: leads.map((lead) => ({ deliveryRunId: run.id, leadId: lead.id })),
+      if (leads.length === 0) continue;
+
+      const mapping = config.fieldMappingJson as unknown as FieldMappingEntry[];
+      const rows = leads.map((lead) => applyFieldMapping(mapping, toDeliverableRecord(lead)));
+      const csvBody = Papa.unparse(rows);
+      const key = `delivery/${config.campaignChannelId}/${now.toISOString()}.csv`;
+      await storage.put(key, Buffer.from(csvBody, "utf-8"), "text/csv");
+
+      const latestAcceptedAt = leads[leads.length - 1]!.acceptedAt!;
+      await db.$transaction(async (tx) => {
+        const run = await tx.deliveryRun.create({
+          data: {
+            campaignChannelId: config.campaignChannelId,
+            method: "csv",
+            status: "success",
+            fileUrl: key,
+            startedAt: now,
+            completedAt: now,
+          },
+        });
+        await tx.deliveryRunLead.createMany({
+          data: leads.map((lead) => ({ deliveryRunId: run.id, leadId: lead.id })),
+        });
+        await tx.deliveryConfig.update({ where: { id: config.id }, data: { lastCsvCursorAt: latestAcceptedAt } });
       });
-      await tx.deliveryConfig.update({ where: { id: config.id }, data: { lastCsvCursorAt: latestAcceptedAt } });
-    });
-    generated++;
+      generated++;
+    } catch (error) {
+      logger.warn("delivery.csv.failed", {
+        campaignChannelId: config.campaignChannelId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   return generated;
 }

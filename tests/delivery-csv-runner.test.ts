@@ -127,4 +127,38 @@ describe("generateDueCsvRuns", () => {
     expect(generated).toBe(0);
     expect(storage.puts).toHaveLength(0);
   });
+
+  it("isolates a per-config failure so one bad config doesn't block the rest of the batch", async () => {
+    const acceptedAtA = new Date("2026-01-04T12:00:00.000Z");
+    const { db, channelId: channelIdA } = await seedChannelWithAcceptedLeads([acceptedAtA]);
+    const acceptedAtB = new Date("2026-01-04T13:00:00.000Z");
+    const { channelId: channelIdB } = await seedChannelWithAcceptedLeads([acceptedAtB]);
+    const now = new Date("2026-01-05T00:30:00.000Z"); // 6:00am IST — matches "0 6 * * *"
+
+    const storage = fakeStorage();
+    // Fail storage.put only for the first config's channel; the second must still succeed.
+    storage.put = vi.fn(async (key: string, content: Buffer) => {
+      if (key.startsWith(`delivery/${channelIdA}/`)) {
+        throw new Error("simulated storage failure");
+      }
+      storage.puts.push({ key, content });
+    });
+
+    const generated = await generateDueCsvRuns(db, now, storage);
+
+    // Only the second (healthy) config's run should count.
+    expect(generated).toBe(1);
+    expect(storage.puts).toHaveLength(1);
+    expect(storage.puts[0]!.key).toContain(channelIdB);
+
+    const runA = await db.deliveryRun.findFirst({ where: { campaignChannelId: channelIdA } });
+    expect(runA).toBeNull();
+    const configA = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelIdA } });
+    expect(configA.lastCsvCursorAt).toBeNull();
+
+    const runB = await db.deliveryRun.findFirstOrThrow({ where: { campaignChannelId: channelIdB } });
+    expect(runB.status).toBe("success");
+    const configB = await db.deliveryConfig.findUniqueOrThrow({ where: { campaignChannelId: channelIdB } });
+    expect(configB.lastCsvCursorAt?.getTime()).toBe(acceptedAtB.getTime());
+  });
 });
