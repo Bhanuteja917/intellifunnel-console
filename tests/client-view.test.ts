@@ -84,8 +84,18 @@ describe("getLeadsForClient", () => {
     expect(leads[0]!.fieldValues).toEqual({ companySize: "51-200" });
   });
 
-  it("reports deliveryStatus pending when no DeliveryRun exists, and the run's status once one does", async () => {
+  it("reports deliveryStatus pending when an active DeliveryConfig exists but no DeliveryRun yet, and the run's status once one does", async () => {
     const { db, clientActor, makeLead, channel } = await seedClientOrgWithChannel();
+    // Without an active DeliveryConfig on the channel, "no run yet" would (correctly, per the fix
+    // below) report notConfigured instead of pending — so this test needs one to keep testing the
+    // "pending" derivation specifically.
+    await db.deliveryConfig.create({
+      data: {
+        campaignChannelId: channel.id, method: "webhook",
+        webhookUrl: "https://example.com/hook", webhookSecret: "shh",
+        fieldMappingJson: [{ source: "contact.email", target: "Email" }],
+      },
+    });
     const noRunYet = await makeLead({ clientVisible: true });
     const delivered = await makeLead({ clientVisible: true });
     await db.deliveryRun.create({
@@ -96,6 +106,50 @@ describe("getLeadsForClient", () => {
     const byId = new Map(leads.map((l) => [l.id, l]));
     expect(byId.get(noRunYet.id)!.deliveryStatus).toBe("pending");
     expect(byId.get(delivered.id)!.deliveryStatus).toBe("success");
+  });
+
+  it("reports deliveryStatus notConfigured for a lead on a channel with no DeliveryConfig at all, distinct from pending on a channel with an active config", async () => {
+    const { db, clientActor, makeLead, channel } = await seedClientOrgWithChannel();
+    // This channel has no DeliveryConfig — no run will ever be created for this lead, so "pending"
+    // would be misleading forever.
+    const unconfiguredLead = await makeLead({ clientVisible: true });
+
+    const { leads } = await getLeadsForClient(db, clientActor, {});
+    const byId = new Map(leads.map((l) => [l.id, l]));
+    expect(byId.get(unconfiguredLead.id)!.deliveryStatus).toBe("notConfigured");
+
+    // Confirm the distinction: adding an active config to the SAME channel flips a subsequent
+    // no-run lead to pending instead.
+    await db.deliveryConfig.create({
+      data: {
+        campaignChannelId: channel.id, method: "webhook",
+        webhookUrl: "https://example.com/hook", webhookSecret: "shh",
+        fieldMappingJson: [{ source: "contact.email", target: "Email" }],
+      },
+    });
+    const configuredLead = await makeLead({ clientVisible: true });
+    const { leads: leadsAfter } = await getLeadsForClient(db, clientActor, {});
+    const byIdAfter = new Map(leadsAfter.map((l) => [l.id, l]));
+    expect(byIdAfter.get(configuredLead.id)!.deliveryStatus).toBe("pending");
+    // The pre-existing lead is unaffected by the run itself, but its channel's config is now active,
+    // so it too should read as pending (no run yet).
+    expect(byIdAfter.get(unconfiguredLead.id)!.deliveryStatus).toBe("pending");
+  });
+
+  it("reports deliveryStatus notConfigured when the channel's DeliveryConfig exists but is paused", async () => {
+    const { db, clientActor, makeLead, channel } = await seedClientOrgWithChannel();
+    await db.deliveryConfig.create({
+      data: {
+        campaignChannelId: channel.id, method: "webhook", status: "paused",
+        webhookUrl: "https://example.com/hook", webhookSecret: "shh",
+        fieldMappingJson: [{ source: "contact.email", target: "Email" }],
+      },
+    });
+    const lead = await makeLead({ clientVisible: true });
+
+    const { leads } = await getLeadsForClient(db, clientActor, {});
+    const byId = new Map(leads.map((l) => [l.id, l]));
+    expect(byId.get(lead.id)!.deliveryStatus).toBe("notConfigured");
   });
 
   it("never returns another organisation's clientVisible leads", async () => {

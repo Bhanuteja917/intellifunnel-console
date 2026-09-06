@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { Route } from "next";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
@@ -8,20 +10,33 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 
-const DELIVERY_BADGE: Record<"pending" | "success" | "failed", "secondary" | "default" | "destructive"> = {
+const DELIVERY_BADGE: Record<"pending" | "success" | "failed" | "notConfigured", "secondary" | "default" | "destructive"> = {
   pending: "secondary",
   success: "default",
   failed: "destructive",
+  notConfigured: "secondary",
+};
+
+const DELIVERY_LABEL: Record<"pending" | "success" | "failed" | "notConfigured", string> = {
+  pending: "pending",
+  success: "success",
+  failed: "failed",
+  notConfigured: "not configured",
 };
 
 // Every page under src/app/client/ must call requireActor() + assertPortal()
 // as its first two lines, before any data fetch — see assertPortal's doc
 // comment in src/lib/auth/permissions.ts for why the layout-level check
 // alone is not enough.
-export default async function ClientLeadsPage() {
+export default async function ClientLeadsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cursor?: string }>;
+}) {
+  const { cursor } = await searchParams;
   const actor = await requireActor();
   assertPortal(actor, "client");
-  const { leads } = await getLeadsForClient(db, actor, {});
+  const { leads, nextCursor } = await getLeadsForClient(db, actor, { cursor });
 
   return (
     <Card>
@@ -57,12 +72,21 @@ export default async function ClientLeadsPage() {
                 <TableCell>{lead.channelTypeName}</TableCell>
                 <TableCell>{lead.acceptedAt.toISOString().slice(0, 10)}</TableCell>
                 <TableCell>
-                  <Badge variant={DELIVERY_BADGE[lead.deliveryStatus]}>{lead.deliveryStatus}</Badge>
+                  <Badge variant={DELIVERY_BADGE[lead.deliveryStatus]}>{DELIVERY_LABEL[lead.deliveryStatus]}</Badge>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+
+        {nextCursor !== null && (
+          <Link
+            href={(`/client/leads?${new URLSearchParams({ cursor: nextCursor }).toString()}`) as Route}
+            className="mt-4 block w-fit text-sm underline underline-offset-4"
+          >
+            Load more
+          </Link>
+        )}
       </CardContent>
     </Card>
   );

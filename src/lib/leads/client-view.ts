@@ -10,7 +10,7 @@ export type ClientLeadView = {
   channelTypeName: string;
   fieldValues: Record<string, string>;
   acceptedAt: Date;
-  deliveryStatus: "pending" | "success" | "failed";
+  deliveryStatus: "pending" | "success" | "failed" | "notConfigured";
 };
 
 /**
@@ -21,7 +21,12 @@ export type ClientLeadView = {
  * query, not merely omitted from the output type. `deliveryStatus` is a
  * derived projection of the lead's most recent DeliveryRun (via
  * DeliveryRunLead), independent of clientVisible — see the E11 design spec's
- * scope decision 3.
+ * scope decision 3. When no DeliveryRun exists yet, `deliveryStatus` falls
+ * back to `"pending"` only if the channel actually has an active
+ * DeliveryConfig — one will eventually run and pick this lead up. If the
+ * channel has no DeliveryConfig at all (or a paused one), no run will EVER be
+ * created for this lead, so `"pending"` would be misleading forever; it
+ * reports `"notConfigured"` instead.
  *
  * Org scoping is unconditional — `clientOrganizationId: actor.organizationId`
  * always applies, with no `isInternal` bypass — matching the convention
@@ -54,6 +59,7 @@ export async function getLeadsForClient(
         select: {
           channelTypeVersion: { select: { definitionJson: true } },
           campaign: { select: { name: true, clientOrganizationId: true } },
+          deliveryConfig: { select: { status: true } },
         },
       },
       deliveryRunLeads: {
@@ -77,14 +83,17 @@ export async function getLeadsForClient(
       // silently leak another organisation's lead past this function.
       assertOrganizationAccess(actor, row.campaignChannel.campaign.clientOrganizationId);
       const latestRun = row.deliveryRunLeads[0]?.deliveryRun;
+      const configIsActive = row.campaignChannel.deliveryConfig?.status === "active";
       const deliveryStatus: ClientLeadView["deliveryStatus"] =
-        latestRun === undefined
-          ? "pending"
-          : latestRun.status === "success"
+        latestRun !== undefined
+          ? latestRun.status === "success"
             ? "success"
             : latestRun.status === "failed" || latestRun.status === "exhausted"
               ? "failed"
-              : "pending";
+              : "pending"
+          : configIsActive
+            ? "pending"
+            : "notConfigured";
       const def = row.campaignChannel.channelTypeVersion.definitionJson as { name?: string };
       return {
         id: row.id,
