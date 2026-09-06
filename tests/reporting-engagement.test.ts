@@ -62,7 +62,7 @@ describe("getAssetPerformanceReport", () => {
     await db.engagementEvent.create({ data: { assetPlacementId: placement.id, date: new Date("2026-08-01"), impressions: 100, conversions: 10 } });
     await db.engagementEvent.create({ data: { assetPlacementId: placement.id, date: new Date("2026-08-02"), impressions: 100, conversions: 20 } });
 
-    const [report] = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange() });
+    const [report] = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange(new Date("2026-08-15T00:00:00.000Z")) });
     expect(report).toMatchObject({ assetPlacementId: placement.id, impressions: 200, conversions: 30 });
     expect(report!.conversionRate).toBeCloseTo(0.15);
   });
@@ -74,7 +74,7 @@ describe("getAssetPerformanceReport", () => {
     const actor = await loadActor(db, clientUser.id);
     await setupPlacement(db, client.id);
 
-    const [report] = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange() });
+    const [report] = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange(new Date("2026-08-15T00:00:00.000Z")) });
     expect(report).toMatchObject({ impressions: 0, conversions: 0, conversionRate: 0 });
   });
 
@@ -86,7 +86,7 @@ describe("getAssetPerformanceReport", () => {
     const actor = await loadActor(db, clientUser.id);
     await setupPlacement(db, otherClient.id);
 
-    const report = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange() });
+    const report = await getAssetPerformanceReport(db, actor, { dateRange: defaultDateRange(new Date("2026-08-15T00:00:00.000Z")) });
     expect(report).toEqual([]);
   });
 });
