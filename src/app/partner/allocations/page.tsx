@@ -3,6 +3,7 @@ import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
 import { getAllocationsForPartner } from "@/lib/allocations/partner-view";
 import { fromMinorUnits } from "@/lib/money/currency";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -25,7 +26,8 @@ export default async function PartnerAllocationsPage() {
             <TableRow>
               <TableHead>Channel type</TableHead>
               <TableHead>Funnel stage</TableHead>
-              <TableHead>Quantity</TableHead>
+              <TableHead>Delivered / cap</TableHead>
+              <TableHead>Pace</TableHead>
               <TableHead>Payout rate</TableHead>
               <TableHead>Window</TableHead>
             </TableRow>
@@ -33,7 +35,7 @@ export default async function PartnerAllocationsPage() {
           <TableBody>
             {allocations.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No active allocations.
                 </TableCell>
               </TableRow>
@@ -42,7 +44,12 @@ export default async function PartnerAllocationsPage() {
               <TableRow key={a.id}>
                 <TableCell>{a.channelTypeName}</TableCell>
                 <TableCell>{a.funnelStageCode}</TableCell>
-                <TableCell>{a.allocatedQuantity}</TableCell>
+                <TableCell>{a.deliveredCount} / {a.allocatedQuantity}</TableCell>
+                <TableCell>
+                  <Badge variant={a.pace === "behind" ? "destructive" : a.pace === "ahead" ? "default" : "secondary"}>
+                    {a.pace}
+                  </Badge>
+                </TableCell>
                 <TableCell>
                   {a.payoutCurrency} {fromMinorUnits(a.payoutRateMinor, a.payoutCurrency)}
                 </TableCell>

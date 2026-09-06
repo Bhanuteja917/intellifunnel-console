@@ -1,12 +1,16 @@
 import type { PrismaClient } from "@prisma/client";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
+import { getSetting } from "@/lib/settings/settings";
+import { expectedToDate, paceSignal, type PaceSignal } from "@/lib/allocations/pacing";
 
 export type PartnerAllocationView = {
   id: string;
   channelTypeName: string;
   funnelStageCode: string;
   allocatedQuantity: number;
+  deliveredCount: number;
+  pace: PaceSignal;
   payoutRateMinor: bigint;
   payoutCurrency: string;
   startDate: Date;
@@ -31,19 +35,24 @@ export async function getAllocationsForPartner(
   actor: Actor,
 ): Promise<PartnerAllocationView[]> {
   assertPermission(actor, "allocation:read");
+  const timeZone = await getSetting(db, "operatingTimezone");
   const rows = await db.partnerAllocation.findMany({
     where: { partnerOrganizationId: actor.organizationId, status: "active" },
     select: {
-      id: true, allocatedQuantity: true, payoutRateMinor: true, payoutCurrency: true,
+      id: true, allocatedQuantity: true, deliveredCount: true, payoutRateMinor: true, payoutCurrency: true,
       startDate: true, endDate: true,
       campaignChannel: { select: { channelTypeVersion: { select: { definitionJson: true } } } },
     },
   });
+  const now = new Date();
   return rows.map((r) => {
     const def = r.campaignChannel.channelTypeVersion.definitionJson as ChannelTypeDefinition;
+    const expected = expectedToDate(r.allocatedQuantity, r.startDate, r.endDate, now, timeZone);
     return {
       id: r.id, channelTypeName: def.name, funnelStageCode: def.funnelStageCode,
-      allocatedQuantity: r.allocatedQuantity, payoutRateMinor: r.payoutRateMinor,
+      allocatedQuantity: r.allocatedQuantity, deliveredCount: r.deliveredCount,
+      pace: paceSignal(r.deliveredCount, expected),
+      payoutRateMinor: r.payoutRateMinor,
       payoutCurrency: r.payoutCurrency, startDate: r.startDate, endDate: r.endDate,
     };
   });
