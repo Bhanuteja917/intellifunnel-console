@@ -37,7 +37,7 @@ export default async function AdminReportsPage({
     take: 100,
   });
 
-  const drilldown = campaignId !== undefined
+  const drilldown = campaignId !== undefined && campaignId !== ""
     ? {
         performance: await getCampaignPerformanceReport(db, actor, { campaignId, dateRange }),
         leads: await getLeadBreakdownReport(db, actor, { campaignId, dateRange }),
