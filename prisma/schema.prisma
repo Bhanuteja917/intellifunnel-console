@@ -1120,6 +1120,7 @@ model DeliveryRunLead {
   lead        Lead        @relation(fields: [leadId], references: [id])
 
   @@id([deliveryRunId, leadId])
+  @@index([leadId])
 }
 
 enum VerificationMethod {
