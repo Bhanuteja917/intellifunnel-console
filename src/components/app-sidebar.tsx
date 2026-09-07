@@ -11,6 +11,7 @@ import {
   Handshake,
   ImageIcon,
   ListChecks,
+  Lock,
   LogOut,
   Megaphone,
   Radio,
@@ -56,6 +57,7 @@ const NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
   "/assets": ImageIcon,
   "/consent-texts": FileText,
   "/partner/allocations": Handshake,
+  "/compliance": Lock,
 };
 
 function iconFor(href: string): LucideIcon {
