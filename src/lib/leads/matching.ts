@@ -16,6 +16,7 @@ export async function checkDoNotContact(
   db: PrismaClient,
   clientOrganizationId: string,
   candidate: { email?: string; domain?: string; phone?: string },
+  now: Date = new Date(),
 ): Promise<boolean> {
   const conditions: { type: DoNotContactType; valueHash: string }[] = [];
   if (candidate.email !== undefined) {
@@ -33,8 +34,16 @@ export async function checkDoNotContact(
   }
   if (conditions.length === 0) return false;
 
+  // `DoNotContact.expiresAt` is optional; an entry past its expiry must stop
+  // blocking. The value-match `OR` and the expiry `OR` are kept in separate
+  // clauses (the latter under `AND`) so they intersect rather than merge into
+  // one big disjunction.
   const hit = await db.doNotContact.findFirst({
-    where: { clientOrganizationId, OR: conditions },
+    where: {
+      clientOrganizationId,
+      OR: conditions,
+      AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+    },
     select: { id: true },
   });
   return hit !== null;

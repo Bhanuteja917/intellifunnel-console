@@ -334,8 +334,15 @@ export async function submitLeadFile(
       let outcome: Outcome = "passed";
       let rejectReasonCode: string | null = null;
 
+      // The phone candidate is this row's OWN value, not `contact.phone`:
+      // `upsertContact` never blanks an existing field with an undefined one,
+      // so `contact.phone` can be a stale value carried over from an earlier
+      // submission when this row's phone column is blank — checking that
+      // against the DNC list would block a row on a number it never carried.
       const doNotContacted = await checkDoNotContact(db, campaign.clientOrganizationId, {
-        email, domain: account.primaryDomain ?? undefined,
+        email,
+        domain: account.primaryDomain ?? undefined,
+        phone: canonicalField(values, "phone"),
       });
       if (doNotContacted) {
         outcome = "failed";
