@@ -1,6 +1,9 @@
 import { addMonths } from "date-fns";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { getSetting } from "@/lib/settings/settings";
+import { assertPermission, type Actor } from "@/lib/auth/permissions";
+import { withAudit } from "@/lib/audit/audit";
+import { NotFoundError } from "@/lib/errors";
 
 export type LeadRetentionInput = {
   acceptedAt: Date | null;
@@ -95,4 +98,29 @@ export async function anonymizeExpiredContacts(db: PrismaClient, now: Date): Pro
     anonymizedCount += 1;
   }
   return anonymizedCount;
+}
+
+export async function eraseContactNow(db: PrismaClient, actor: Actor, contactId: string): Promise<void> {
+  assertPermission(actor, "compliance:write");
+
+  await withAudit(
+    db,
+    actor,
+    (before: { firstName: string | null; email: string } | null) => ({
+      entityType: "Contact",
+      entityId: contactId,
+      action: "anonymize",
+      before,
+      after: { anonymisedAt: new Date().toISOString() },
+    }),
+    async (tx) => {
+      const existing = await tx.contact.findUnique({ where: { id: contactId }, select: { firstName: true, email: true } });
+      if (existing === null) throw new NotFoundError(`Contact not found: ${contactId}`);
+      await tx.contact.update({
+        where: { id: contactId },
+        data: buildContactPiiPatch(contactId, new Date()) as unknown as Prisma.ContactUpdateInput,
+      });
+      return existing;
+    },
+  );
 }
