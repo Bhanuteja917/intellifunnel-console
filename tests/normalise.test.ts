@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
 import { normalizeCompanyName } from "@/lib/normalise/name";
+import { normalizePhone } from "@/lib/normalise/phone";
 import { ValidationError } from "@/lib/errors";
 
 describe("normalizeDomain", () => {
@@ -53,4 +54,26 @@ describe("normalizeCompanyName", () => {
   ])("normalises %s to %s", (input, expected) => {
     expect(normalizeCompanyName(input)).toBe(expected);
   });
+});
+
+describe("normalizePhone", () => {
+  it.each([
+    ["(555) 123-4567", "+15551234567"],
+    ["555-123-4567", "+15551234567"],
+    ["555.123.4567", "+15551234567"],
+    ["5551234567", "+15551234567"],
+    ["+1 (555) 123-4567", "+15551234567"],
+    ["+44 20 7946 0958", "+442079460958"],
+    ["+33 1 42 68 53 00", "+33142685300"],
+    ["  +1 (555) 123-4567  ", "+15551234567"],
+  ])("normalises %s to %s", (input, expected) => {
+    expect(normalizePhone(input)).toBe(expected);
+  });
+
+  it.each(["", "123", "12345", "123456", "123456789012345678", "not a phone"])(
+    "returns null for %s",
+    (input) => {
+      expect(normalizePhone(input)).toBeNull();
+    },
+  );
 });
