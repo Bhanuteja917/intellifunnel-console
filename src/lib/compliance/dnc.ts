@@ -1,7 +1,7 @@
-import type { DoNotContact, DoNotContactType, PrismaClient } from "@prisma/client";
+import { Prisma, type DoNotContact, type DoNotContactType, type PrismaClient } from "@prisma/client";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { hashSuppressionValue } from "@/lib/lists/suppression";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { normalizeEmail } from "@/lib/normalise/email";
@@ -45,19 +45,30 @@ export async function createDoNotContactEntry(
       action: "create",
       after: { clientOrganizationId: created.clientOrganizationId, type: created.type, value: created.value },
     }),
-    async (tx) =>
-      tx.doNotContact.create({
-        data: {
-          clientOrganizationId: input.clientOrganizationId,
-          type: input.type,
-          value,
-          valueHash: hashSuppressionValue(value),
-          reason: input.reason,
-          expiresAt: input.expiresAt,
-          createdById: actor.userId,
-          updatedById: actor.userId,
-        },
-      }),
+    async (tx) => {
+      try {
+        return await tx.doNotContact.create({
+          data: {
+            clientOrganizationId: input.clientOrganizationId,
+            type: input.type,
+            value,
+            valueHash: hashSuppressionValue(value),
+            reason: input.reason,
+            expiresAt: input.expiresAt,
+            createdById: actor.userId,
+            updatedById: actor.userId,
+          },
+        });
+      } catch (error) {
+        // (clientOrganizationId, type, value) is @@unique — surface the
+        // constraint violation as a friendly error the admin dialog can show
+        // as a toast, rather than letting a raw Prisma error reach the UI.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new ConflictError("A do-not-contact entry for this value already exists");
+        }
+        throw error;
+      }
+    },
   );
 }
 

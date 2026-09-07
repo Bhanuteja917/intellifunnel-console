@@ -3,7 +3,7 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { ForbiddenError } from "@/lib/errors";
+import { ConflictError, ForbiddenError } from "@/lib/errors";
 import { createDoNotContactEntry, deleteDoNotContactEntry, listDoNotContactEntries } from "@/lib/compliance/dnc";
 import { checkDoNotContact } from "@/lib/leads/matching";
 
@@ -48,6 +48,19 @@ describe("DNC list CRUD", () => {
     await deleteDoNotContactEntry(db, ops, entry.id);
 
     expect(await checkDoNotContact(db, client.id, { email: "gone@x.com" })).toBe(false);
+  });
+
+  it("rejects a duplicate entry with a ConflictError, not a raw Prisma error", async () => {
+    const db = testDb();
+    const internal = await createOrganization(db, { isInternal: true, isClient: false });
+    const ops = await loadActor(db, (await createUser(db, internal.id, "OPERATIONS")).id);
+    const client = await createOrganization(db, { isClient: true });
+
+    await createDoNotContactEntry(db, ops, { clientOrganizationId: client.id, type: "email", rawValue: "dupe@acme.com" });
+    // Differently cased, but it normalises to the same stored value — the
+    // @@unique([clientOrganizationId, type, value]) constraint catches it.
+    await expect(createDoNotContactEntry(db, ops, { clientOrganizationId: client.id, type: "email", rawValue: "Dupe@Acme.com" }))
+      .rejects.toThrow(ConflictError);
   });
 
   it("rejects a non-Operations actor for both writes", async () => {

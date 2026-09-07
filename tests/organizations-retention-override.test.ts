@@ -35,6 +35,18 @@ describe("setOrganizationRetentionOverride", () => {
     await expect(setOrganizationRetentionOverride(db, ops, client.id, -3)).rejects.toThrow(ValidationError);
   });
 
+  it("rejects a non-integer months value", async () => {
+    const db = testDb();
+    const internal = await createOrganization(db, { isInternal: true, isClient: false });
+    const ops = await loadActor(db, (await createUser(db, internal.id, "OPERATIONS")).id);
+    const client = await createOrganization(db, { isClient: true });
+
+    // personalDataRetentionMonths is an Int column — 12.5 would otherwise slip
+    // past validation and fail as a raw Prisma error.
+    await expect(setOrganizationRetentionOverride(db, ops, client.id, 12.5)).rejects.toThrow(ValidationError);
+    await expect(setOrganizationRetentionOverride(db, ops, client.id, Number.NaN)).rejects.toThrow(ValidationError);
+  });
+
   it("rejects a non-Operations actor", async () => {
     const db = testDb();
     const internal = await createOrganization(db, { isInternal: true, isClient: false });

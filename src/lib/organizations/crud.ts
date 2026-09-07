@@ -61,8 +61,10 @@ export async function setOrganizationRetentionOverride(
   months: number | null,
 ): Promise<Organization> {
   assertPermission(actor, "compliance:write");
-  if (months !== null && months <= 0) {
-    throw new ValidationError("Retention months must be a positive number, or null to clear the override");
+  // `personalDataRetentionMonths` is an Int column — a non-integer would pass
+  // a bare `<= 0` check and only fail deeper down as a raw Prisma error.
+  if (months !== null && (!Number.isInteger(months) || months <= 0)) {
+    throw new ValidationError("Retention months must be a positive whole number, or null to clear the override");
   }
 
   return withAudit<Organization>(

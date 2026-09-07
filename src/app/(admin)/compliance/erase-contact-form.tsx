@@ -58,7 +58,7 @@ export function EraseContactForm({ initialEmail, contact }: { initialEmail: stri
         </div>
       )}
       {!showJustErased && initialEmail !== "" && contact === null && <p className="text-sm text-muted-foreground">No contact found for that email.</p>}
-      {contact !== null && (
+      {!showJustErased && contact !== null && (
         <div className="flex items-center gap-4 text-sm">
           <span>{contact.firstName ?? "(no name)"} — {contact.email}</span>
           {contact.anonymisedAt !== null ? (
