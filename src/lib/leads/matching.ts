@@ -1,6 +1,9 @@
-import type { IcpDimension, IcpOperator, Prisma, PrismaClient } from "@prisma/client";
-import { isSuppressed } from "@/lib/lists/suppression";
+import type { DoNotContactType, IcpDimension, IcpOperator, Prisma, PrismaClient } from "@prisma/client";
+import { hashSuppressionValue, isSuppressed } from "@/lib/lists/suppression";
 import { resolveAccountCap } from "@/lib/lists/target-accounts";
+import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
+import { normalizeDomain } from "@/lib/normalise/domain";
+import { normalizePhone } from "@/lib/normalise/phone";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -9,9 +12,32 @@ export type IcpMatchResult = {
   failedDimensions: string[]; // IcpDimension values that failed, mandatory or not, for the caller's/report's benefit
 };
 
-/** FR-IN-4 step 3: deliberately a no-op. See this plan's Global Constraints. */
-export function checkDoNotContact(): boolean {
-  return false;
+export async function checkDoNotContact(
+  db: PrismaClient,
+  clientOrganizationId: string,
+  candidate: { email?: string; domain?: string; phone?: string },
+): Promise<boolean> {
+  const conditions: { type: DoNotContactType; valueHash: string }[] = [];
+  if (candidate.email !== undefined) {
+    conditions.push({ type: "email", valueHash: hashSuppressionValue(normalizeEmail(candidate.email)) });
+    const domain = emailDomain(candidate.email);
+    if (domain !== null) conditions.push({ type: "domain", valueHash: hashSuppressionValue(domain) });
+  }
+  if (candidate.domain !== undefined) {
+    const domain = normalizeDomain(candidate.domain);
+    if (domain !== null) conditions.push({ type: "domain", valueHash: hashSuppressionValue(domain) });
+  }
+  if (candidate.phone !== undefined) {
+    const phone = normalizePhone(candidate.phone);
+    if (phone !== null) conditions.push({ type: "phone", valueHash: hashSuppressionValue(phone) });
+  }
+  if (conditions.length === 0) return false;
+
+  const hit = await db.doNotContact.findFirst({
+    where: { clientOrganizationId, OR: conditions },
+    select: { id: true },
+  });
+  return hit !== null;
 }
 
 /**
