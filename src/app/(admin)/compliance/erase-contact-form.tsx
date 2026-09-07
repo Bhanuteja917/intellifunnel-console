@@ -39,8 +39,11 @@ export function EraseContactForm({ initialEmail, contact }: { initialEmail: stri
 
   // Only trust the local confirmation while the search box still shows the
   // email that was just erased; a fresh search for a different email should
-  // fall through to the normal contact/not-found rendering below.
-  const showJustErased = justErased !== null && initialEmail === justErased.email;
+  // fall through to the normal contact/not-found rendering below. Compare
+  // case-insensitively — the lookup that found this contact in the first
+  // place matched case-insensitively via emailNormalized, so a search casing
+  // that differs from the contact's stored `email` casing must still match.
+  const showJustErased = justErased !== null && initialEmail.toLowerCase() === justErased.email.toLowerCase();
 
   return (
     <div className="flex flex-col gap-4">
