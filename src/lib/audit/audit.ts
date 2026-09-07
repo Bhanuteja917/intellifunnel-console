@@ -15,15 +15,22 @@ type Tx = Prisma.TransactionClient;
 const toJson = (value: unknown): Prisma.InputJsonValue | undefined =>
   value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue);
 
+/**
+ * `actor` is nullable for automated, worker-driven mutations that have no
+ * human behind them (the retention batch job, scheduled campaign
+ * transitions). `AuditLog.actorUserId`/`actorOrganizationId` are nullable
+ * columns with no FK, so a null actor still writes a complete audit row —
+ * an unattributed audit entry is always better than no audit entry.
+ */
 export async function writeAudit(
   client: PrismaClient | Tx,
-  actor: Actor,
+  actor: Actor | null,
   entry: AuditEntry,
 ): Promise<void> {
   await client.auditLog.create({
     data: {
-      actorUserId: actor.userId,
-      actorOrganizationId: actor.organizationId,
+      actorUserId: actor?.userId ?? null,
+      actorOrganizationId: actor?.organizationId ?? null,
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
@@ -41,7 +48,7 @@ export async function writeAudit(
  */
 export async function withAudit<T>(
   db: PrismaClient,
-  actor: Actor,
+  actor: Actor | null,
   entry: AuditEntry | ((result: T) => AuditEntry),
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
