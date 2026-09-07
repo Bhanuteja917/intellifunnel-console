@@ -97,11 +97,14 @@ Call site in `intake.ts` changes from the no-op call to a real, awaited one, at 
 ```ts
 const doNotContact = await checkDoNotContact(db, campaign.clientOrganizationId, { email, domain: companyDomain });
 if (doNotContact) {
-  // reject row: RejectReasonCategory "consent", same path as a suppression hit
+  outcome = "failed";
+  rejectReasonCode = "DO_NOT_CONTACT";
 }
 ```
 
-No phone field is collected by intake's current `LeadFieldSpec` set in practice, but the check supports it for when one is.
+`DO_NOT_CONTACT` (`category: "suppression"`, `isPartnerReplaceable: true`) is already seeded in `prisma/seed/reject-reasons.ts:27` — seeded but unused until now, the exact same "seeded ahead of its enforcement" precedent `ALLOCATION_CAP_EXCEEDED` set before E12. No new reject reason to add. No phone field is collected by intake's current `LeadFieldSpec` set in practice, but the check supports it for when one is.
+
+Two other reject reasons are also already seeded but stay unused after this plan: `CONSENT_MISSING`/`CONSENT_INVALID` (`category: "consent"`). Activating those would mean rejecting a row for missing/invalid consent evidence — not done here, since this plan makes consent metadata optional (no live form guarantees its presence yet, see Context above). Left as a follow-up for whenever the public form endpoint exists and consent evidence becomes mandatory.
 
 ## Consent capture at intake
 
@@ -111,20 +114,23 @@ No phone field is collected by intake's current `LeadFieldSpec` set in practice,
 export type SubmitLeadFileInput = {
   // ...unchanged fields...
   consentMapping?: {
-    timestamp?: string; // CSV header name
+    formSlug?: string;   // CSV header name — resolves to AssetPlacement.consentTextVersionId
+    timestamp?: string;  // CSV header name
     ip?: string;
     sourceUrl?: string;
   };
 };
 ```
 
+A campaign channel can have multiple `AssetPlacement`s (one per asset, `formSlug` unique per placement), so there is no single "the channel's placement" to default to — a row needs its own `formSlug` to resolve a specific one. This mirrors `engagement-import.ts`'s existing formSlug→placement resolution exactly: before the row loop, collect every distinct `rawRow[consentMapping.formSlug]` value across the file into a `Set`, resolve them in one batched `db.assetPlacement.findMany({ where: { formSlug: { in: [...slugs] } }, select: { id: true, formSlug: true, consentTextVersionId: true } })`, and build a `Map<formSlug, consentTextVersionId>` the row loop consults — avoiding an N+1, same reasoning as that module's own comment on why it batches.
+
 For each row that becomes a `Lead`, a `LeadConsent` is created in the same transaction:
 
-- `consentTextVersionId`: read from the row's `AssetPlacement.consentTextVersionId` if the channel has one configured placement with a set consent text; otherwise `null`.
+- `consentTextVersionId`: looked up via the row's `consentMapping.formSlug` value against the batched map above; `null` if no `formSlug` supplied, or the slug doesn't match any known placement (unlike `engagement-import.ts`, an unknown slug here is not a row error — consent capture is best-effort metadata, not a required linkage).
 - `acceptedAt`: `rawRow[consentMapping.timestamp]` parsed as a date if supplied and valid, otherwise `submission.submittedAt`.
 - `ipAddress` / `sourceUrl`: `rawRow[consentMapping.ip]` / `rawRow[consentMapping.sourceUrl]` if supplied, otherwise `null`.
 
-No row is ever rejected for missing consent metadata — the fields are optional by design given no live form exists to guarantee their presence.
+No row is ever rejected for missing or unresolvable consent metadata — every field is best-effort, given no live form exists yet to guarantee their presence or correctness.
 
 ## Retention and anonymization
 
@@ -169,7 +175,7 @@ One new page, `src/app/(admin)/compliance/page.tsx`, gated by `compliance:read`/
 New vitest coverage (`tests/*.test.ts`, matching this codebase's existing convention):
 
 - `checkDoNotContact`: match on email, match on derived domain, match on phone, no match, no-op with no candidate fields.
-- Intake integration: a DNC-hit row is rejected with a `"consent"`-category reason and never creates a `Lead`; a non-hit row is unaffected by the new check.
+- Intake integration: a DNC-hit row still creates a `Lead` with `verificationStatus: "failed"` and reason `DO_NOT_CONTACT` (same as any other business-rule reject, e.g. a suppression hit — only structural failures like a missing email skip `Lead` creation entirely) and claims no allocation/channel capacity; a non-hit row is unaffected by the new check.
 - `LeadConsent` creation: with a full `consentMapping` supplied, with none supplied (falls back to `submittedAt`, nulls for ip/url), with and without a configured `ConsentTextVersion` on the placement.
 - Retention deadline math: platform default vs. per-client override, a contact whose only lead is still open (never selected), a contact with two leads under two different clients with different retention months (deadline is the max of the two).
 - `anonymizeExpiredContacts`: scrubs an eligible contact's PII fields exactly, leaves `Account`/`Lead`/`LeadStatusHistory`/`VerificationRecord`/`LeadConsent` byte-for-byte unchanged, is a no-op on a second run (idempotency).
