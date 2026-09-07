@@ -15,6 +15,12 @@ export type SubmitLeadFileInput = {
   partnerOrganizationId?: string;
   content: string;
   mapping: Record<string, string>; // CSV header -> LeadFieldSpec.fieldKey
+  consentMapping?: {
+    formSlug?: string;
+    timestamp?: string;
+    ip?: string;
+    sourceUrl?: string;
+  };
 };
 
 export type SubmitLeadFileResult = {
@@ -181,6 +187,25 @@ export async function submitLeadFile(
       status: "processing",
     },
   });
+
+  // Batched formSlug -> ConsentTextVersion resolution (this task): scoped to
+  // this submission's own campaignChannelId so a formSlug typo that happens
+  // to collide with a placement on a *different* channel never attaches that
+  // channel's consent text to this submission's leads.
+  const placementConsentTextByFormSlug = new Map<string, string | null>();
+  if (input.consentMapping?.formSlug !== undefined) {
+    const slugColumn = input.consentMapping.formSlug;
+    const requestedSlugs = new Set(
+      parsed.rows.map((row) => row[slugColumn]?.trim()).filter((s): s is string => s !== undefined && s !== ""),
+    );
+    if (requestedSlugs.size > 0) {
+      const placements = await db.assetPlacement.findMany({
+        where: { formSlug: { in: [...requestedSlugs] }, campaignChannelId: input.campaignChannelId },
+        select: { formSlug: true, consentTextVersionId: true },
+      });
+      for (const p of placements) placementConsentTextByFormSlug.set(p.formSlug, p.consentTextVersionId);
+    }
+  }
 
   const submissionErrors: SubmissionErrorRow[] = [];
   let rowsAccepted = 0;
@@ -427,6 +452,22 @@ export async function submitLeadFile(
       const autoAccepted = verificationStatus === "passed";
       const now = new Date();
 
+      // Consent capture (this task, best-effort — never blocks or fails a
+      // row): resolve this row's consentTextVersionId via the batched
+      // formSlug map above, and pull timestamp/ip/sourceUrl from the row if
+      // consentMapping named columns for them.
+      const consentSlug = input.consentMapping?.formSlug !== undefined ? rawRow[input.consentMapping.formSlug]?.trim() : undefined;
+      const consentTextVersionId = consentSlug !== undefined && consentSlug !== ""
+        ? placementConsentTextByFormSlug.get(consentSlug) ?? null
+        : null;
+      const rawConsentTimestamp = input.consentMapping?.timestamp !== undefined ? rawRow[input.consentMapping.timestamp] : undefined;
+      const parsedConsentTimestamp = rawConsentTimestamp !== undefined ? new Date(rawConsentTimestamp) : null;
+      const consentAcceptedAt = parsedConsentTimestamp !== null && !Number.isNaN(parsedConsentTimestamp.getTime())
+        ? parsedConsentTimestamp
+        : submission.submittedAt;
+      const consentIp = input.consentMapping?.ip !== undefined ? rawRow[input.consentMapping.ip]?.trim() || null : null;
+      const consentSourceUrl = input.consentMapping?.sourceUrl !== undefined ? rawRow[input.consentMapping.sourceUrl]?.trim() || null : null;
+
       await db.$transaction(async (tx) => {
         // --- Cap enforcement: only for a row that isn't already failed for an
         // unrelated reason (a row that was going to be rejected anyway must
@@ -494,6 +535,18 @@ export async function submitLeadFile(
               : {}),
             rejectReasonId: finalRejectReasonId,
             fieldValuesJson: values as Prisma.InputJsonValue,
+          },
+        });
+        // Best-effort consent capture: for EVERY lead created here regardless
+        // of outcome (accepted, needsReview, DNC/suppressed/cap-rejected,
+        // etc.) — consent capture never blocks or fails a row.
+        await tx.leadConsent.create({
+          data: {
+            leadId: lead.id,
+            consentTextVersionId,
+            acceptedAt: consentAcceptedAt,
+            ipAddress: consentIp,
+            sourceUrl: consentSourceUrl,
           },
         });
         await tx.leadStatusHistory.create({
