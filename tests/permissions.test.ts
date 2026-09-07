@@ -64,6 +64,12 @@ describe("permission matrix", () => {
     expect(hasPermission(quality, "delivery:read")).toBe(false);
   });
 
+  it("gives only Operations the compliance permissions", () => {
+    expect(hasPermission(actorOf(["OPERATIONS"]), "compliance:write")).toBe(true);
+    expect(hasPermission(actorOf(["CAMPAIGN_MANAGER"]), "compliance:write")).toBe(false);
+    expect(hasPermission(actorOf(["FINANCE"]), "compliance:read")).toBe(false);
+  });
+
   it("assertPermission throws ForbiddenError when denied", () => {
     expect(() => assertPermission(actorOf(["CLIENT_VIEWER"]), "campaign:write")).toThrow(ForbiddenError);
   });

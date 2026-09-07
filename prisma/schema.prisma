@@ -78,6 +78,7 @@ model Organization {
   defaultBillingCurrency String?            @db.Char(3)
   defaultPayoutCurrency  String?            @db.Char(3)
   payoutTrigger          PayoutTrigger      @default(monthlyArrears)
+  personalDataRetentionMonths Int? // null = inherit SETTING_DEFAULTS.personalDataRetentionMonths
   notes                  String?
   deletedAt              DateTime?
   createdAt              DateTime           @default(now())
@@ -1034,6 +1035,7 @@ model Lead {
   statusHistory       LeadStatusHistory[]
   verificationRecords VerificationRecord[]
   deliveryRunLeads    DeliveryRunLead[]
+  consent             LeadConsent?
 
   @@index([campaignChannelId, verificationStatus])
   @@index([accountId])
@@ -1053,6 +1055,19 @@ model LeadStatusHistory {
   lead Lead @relation(fields: [leadId], references: [id])
 
   @@index([leadId, dimension])
+}
+
+model LeadConsent {
+  id                   String   @id @default(cuid())
+  leadId               String   @unique
+  consentTextVersionId String?
+  acceptedAt           DateTime
+  ipAddress            String?
+  sourceUrl            String?
+  createdAt            DateTime @default(now())
+
+  lead               Lead                @relation(fields: [leadId], references: [id])
+  consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
 }
 
 enum DeliveryMethod {
@@ -1225,7 +1240,8 @@ model ConsentTextVersion {
   createdAt     DateTime @default(now())
   createdById   String?
 
-  placements AssetPlacement[]
+  placements   AssetPlacement[]
+  leadConsents LeadConsent[]
 
   @@unique([name, version])
 }
