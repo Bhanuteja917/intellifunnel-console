@@ -8,10 +8,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AddDncEntryDialog } from "./add-dnc-entry-dialog";
 import { RetentionOverrideRow } from "./retention-override-row";
 import { RemoveDncEntryButton } from "./remove-dnc-entry-button";
+import { EraseContactForm } from "./erase-contact-form";
 
-export default async function CompliancePage() {
+export default async function CompliancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ contactEmail?: string }>;
+}) {
   const actor = await requireActor();
   assertPermission(actor, "compliance:read");
+
+  const { contactEmail } = await searchParams;
+  const normalizedSearch = contactEmail?.trim() ?? "";
+  const contact = normalizedSearch === ""
+    ? null
+    : await db.contact.findFirst({
+        where: { emailNormalized: normalizedSearch.toLowerCase() },
+        select: { id: true, email: true, firstName: true, anonymisedAt: true },
+      });
 
   const clientOrganizations = await db.organization.findMany({
     where: { deletedAt: null, isClient: true, status: "active" },
@@ -88,6 +102,15 @@ export default async function CompliancePage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Contact erasure</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EraseContactForm initialEmail={normalizedSearch} contact={contact} />
         </CardContent>
       </Card>
     </div>
