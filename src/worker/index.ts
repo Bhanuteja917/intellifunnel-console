@@ -3,6 +3,7 @@ import { logger } from "@/lib/logging/logger";
 import { activateDueCampaigns, completeFinishedCampaigns } from "@/lib/campaigns/state-machine";
 import { fireDueWebhookRuns } from "@/lib/delivery/webhook-runner";
 import { generateDueCsvRuns } from "@/lib/delivery/csv-runner";
+import { anonymizeExpiredContacts } from "@/lib/compliance/retention";
 import { getStorageAdapter } from "@/lib/storage";
 
 const INTERVAL_MS = Number.parseInt(process.env.WORKER_INTERVAL_MS ?? "60000", 10);
@@ -31,7 +32,8 @@ async function tick(): Promise<void> {
     const webhooksFired = await fireDueWebhookRuns(db, now);
     const storage = await getStorageAdapter();
     const csvRunsGenerated = await generateDueCsvRuns(db, now, storage);
-    logger.info("worker.tick", { correlationId, activated, completed, webhooksFired, csvRunsGenerated });
+    const contactsAnonymized = await anonymizeExpiredContacts(db, now);
+    logger.info("worker.tick", { correlationId, activated, completed, webhooksFired, csvRunsGenerated, contactsAnonymized });
   } catch (error) {
     logger.error("worker.tick.failed", {
       correlationId,
