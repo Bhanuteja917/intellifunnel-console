@@ -309,7 +309,13 @@ export async function submitLeadFile(
       let outcome: Outcome = "passed";
       let rejectReasonCode: string | null = null;
 
-      checkDoNotContact(); // always false, deliberate no-op (see Task 3's brief / Global Constraints)
+      const doNotContacted = await checkDoNotContact(db, campaign.clientOrganizationId, {
+        email, domain: account.primaryDomain ?? undefined,
+      });
+      if (doNotContacted) {
+        outcome = "failed";
+        rejectReasonCode = "DO_NOT_CONTACT";
+      }
 
       const suppressed = await checkSuppression(db, campaign.id, {
         email,
