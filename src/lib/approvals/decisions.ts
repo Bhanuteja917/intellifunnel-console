@@ -1,0 +1,128 @@
+import type {
+  ApprovalDecision,
+  ChannelTermsApproval,
+  PlacementApproval,
+  Prisma,
+  PrismaClient,
+} from "@prisma/client";
+import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
+import { writeAudit } from "@/lib/audit/audit";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { buildChannelTermsSnapshot, buildPlacementSnapshot } from "@/lib/approvals/status";
+
+/** A rejection the agency cannot act on is useless; an approval needs no note. */
+function normaliseComments(decision: ApprovalDecision, comments: string | undefined): string | null {
+  const trimmed = (comments ?? "").trim();
+  if (decision === "rejected" && trimmed === "") {
+    throw new ValidationError("A change request needs a comment explaining what to change");
+  }
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * The client's decision on a channel's commercial terms. Append-only: a client
+ * changing their mind writes another row, and the latest row wins.
+ */
+export async function decideChannelTerms(
+  db: PrismaClient,
+  actor: Actor,
+  input: { campaignChannelId: string; decision: ApprovalDecision; comments?: string },
+): Promise<ChannelTermsApproval> {
+  assertPermission(actor, "campaign:approveClient");
+
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: input.campaignChannelId },
+    include: { campaign: { select: { clientOrganizationId: true, deletedAt: true } } },
+  });
+  if (channel === null || channel.campaign.deletedAt !== null) {
+    throw new NotFoundError("Channel not found");
+  }
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+
+  const comments = normaliseComments(input.decision, input.comments);
+
+  return db.$transaction(async (tx) => {
+    // Re-read inside the transaction so the snapshot and the decision cannot
+    // diverge: an edit committing in the gap would otherwise leave the client
+    // recorded as having approved terms they never saw (FR-CS-1's reasoning).
+    const fresh = await tx.campaignChannel.findUniqueOrThrow({
+      where: { id: input.campaignChannelId },
+    });
+
+    const approval = await tx.channelTermsApproval.create({
+      data: {
+        campaignChannelId: fresh.id,
+        decision: input.decision,
+        decidedByUserId: actor.userId,
+        comments,
+        termsSnapshotJson: buildChannelTermsSnapshot(fresh) as unknown as Prisma.InputJsonValue,
+        createdById: actor.userId,
+        updatedById: actor.userId,
+      },
+    });
+
+    await writeAudit(tx, actor, {
+      entityType: "ChannelTermsApproval",
+      entityId: approval.id,
+      action: input.decision,
+      after: { campaignChannelId: fresh.id, decision: input.decision, comments },
+    });
+
+    return approval;
+  });
+}
+
+/**
+ * The client's sign-off on a placement's live landing page URL. Until this
+ * says `approved`, `setPlacementStatus` refuses to move the placement to
+ * `active`.
+ */
+export async function decidePlacement(
+  db: PrismaClient,
+  actor: Actor,
+  input: { assetPlacementId: string; decision: ApprovalDecision; comments?: string },
+): Promise<PlacementApproval> {
+  assertPermission(actor, "campaign:approveClient");
+
+  const placement = await db.assetPlacement.findUnique({
+    where: { id: input.assetPlacementId },
+    include: {
+      campaignChannel: {
+        select: { campaign: { select: { clientOrganizationId: true, deletedAt: true } } },
+      },
+    },
+  });
+  if (placement === null || placement.campaignChannel.campaign.deletedAt !== null) {
+    throw new NotFoundError("Placement not found");
+  }
+  assertOrganizationAccess(actor, placement.campaignChannel.campaign.clientOrganizationId);
+
+  const comments = normaliseComments(input.decision, input.comments);
+
+  return db.$transaction(async (tx) => {
+    const fresh = await tx.assetPlacement.findUniqueOrThrow({
+      where: { id: input.assetPlacementId },
+    });
+
+    const approval = await tx.placementApproval.create({
+      data: {
+        assetPlacementId: fresh.id,
+        decision: input.decision,
+        decidedByUserId: actor.userId,
+        comments,
+        placementSnapshotJson: buildPlacementSnapshot(fresh) as unknown as Prisma.InputJsonValue,
+        createdById: actor.userId,
+        updatedById: actor.userId,
+      },
+    });
+
+    await writeAudit(tx, actor, {
+      entityType: "PlacementApproval",
+      entityId: approval.id,
+      action: input.decision,
+      after: { assetPlacementId: fresh.id, decision: input.decision, comments },
+    });
+
+    return approval;
+  });
+}
