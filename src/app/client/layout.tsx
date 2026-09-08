@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
+import { countPendingClientApprovals } from "@/lib/approvals/client-view";
 import { ForbiddenError } from "@/lib/errors";
 import { AppSidebar } from "@/components/app-sidebar";
 import { HeaderBreadcrumb } from "@/components/header-breadcrumb";
@@ -9,11 +10,6 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-
-const CLIENT_NAV = [
-  { href: "/client/leads", label: "Leads" },
-  { href: "/client/reports", label: "Reports" },
-] as const;
 
 export default async function ClientLayout({ children }: { children: React.ReactNode }) {
   const actor = await requireActor();
@@ -31,9 +27,20 @@ export default async function ClientLayout({ children }: { children: React.React
     select: { name: true, email: true },
   });
 
+  // Counted here so the badge is visible from every page in the portal, not
+  // only the approvals inbox itself.
+  const pendingApprovals = await countPendingClientApprovals(db, actor);
+
+  const nav = [
+    { href: "/client/campaigns" as const, label: "Campaigns" },
+    { href: "/client/approvals" as const, label: "Approvals", badge: pendingApprovals },
+    { href: "/client/leads" as const, label: "Leads" },
+    { href: "/client/reports" as const, label: "Reports" },
+  ];
+
   return (
     <SidebarProvider>
-      <AppSidebar user={user} nav={CLIENT_NAV} title="IntelliFunnelLabs" subtitle="Client Portal" />
+      <AppSidebar user={user} nav={nav} title="IntelliFunnelLabs" subtitle="Client Portal" />
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger />
