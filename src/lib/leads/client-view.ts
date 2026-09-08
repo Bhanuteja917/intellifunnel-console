@@ -42,7 +42,7 @@ export type ClientLeadView = {
 export async function getLeadsForClient(
   db: PrismaClient,
   actor: Actor,
-  filter: { limit?: number; cursor?: string },
+  filter: { limit?: number; cursor?: string; campaignId?: string },
 ): Promise<{ leads: ClientLeadView[]; nextCursor: string | null }> {
   assertPermission(actor, "campaign:read");
 
@@ -50,7 +50,14 @@ export async function getLeadsForClient(
   const rows = await db.lead.findMany({
     where: {
       clientVisible: true,
-      campaignChannel: { campaign: { clientOrganizationId: actor.organizationId } },
+      campaignChannel: {
+        campaign: {
+          // The unconditional org scope stays exactly where it is; the
+          // optional campaign filter is a sibling key, never spread over it.
+          clientOrganizationId: actor.organizationId,
+          ...(filter.campaignId === undefined ? {} : { id: filter.campaignId }),
+        },
+      },
     },
     include: {
       account: { select: { name: true } },
