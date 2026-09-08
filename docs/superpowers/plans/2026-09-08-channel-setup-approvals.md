@@ -10,6 +10,20 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-08-channel-setup-approvals-design.md`
 
+**Execution status (2026-09-08):** all 12 tasks implemented on branch
+`feat/channel-setup-approvals`. `pnpm test` passes (73 files, 468 tests),
+`pnpm typecheck` is clean, and every touched file lints clean. The five
+unticked steps are the in-browser walkthroughs inside each UI task's Verify
+step — their automated half (typecheck + lint) passed, but the manual pass
+through the running app is still outstanding. Tasks 8 and 9 share `page.tsx`
+and landed in one commit.
+
+Two pre-existing problems found while verifying, neither caused by nor fixed by
+this work: `pnpm lint` fails on `src/app/(admin)/verification/page.tsx:37`
+(`Date.now` called during render), and `pnpm build` fails prerendering
+`/assets` because `(admin)/layout.tsx` calls `requireActor()` on a route
+nothing forces to render dynamically.
+
 ## Global Constraints
 
 - **Read the Next.js docs first.** Per `AGENTS.md`, this is not the Next.js in your training data. Before writing any route, page, layout or server-action code, read the relevant guide under `node_modules/next/dist/docs/`.
@@ -73,7 +87,7 @@
 - Consumes: nothing.
 - Produces: `ApprovalStatus`, `ChannelTermsSnapshot`, `PlacementSnapshot`, `buildChannelTermsSnapshot(channel)`, `buildPlacementSnapshot(placement)`, `getChannelTermsApprovalStatus(db, channel)`, `getPlacementApprovalStatus(db, placement)`, and the test fixture `createChannelFixture(db, options)`.
 
-- [ ] **Step 1: Add the two models to `prisma/schema.prisma`**
+- [x] **Step 1: Add the two models to `prisma/schema.prisma`**
 
 Append after the existing `CampaignApproval` model:
 
@@ -127,12 +141,12 @@ and inside `model AssetPlacement`, beside `engagementEvents`:
   approvals          PlacementApproval[]
 ```
 
-- [ ] **Step 2: Generate the migration**
+- [x] **Step 2: Generate the migration**
 
 Run: `pnpm db:migrate --name add_channel_terms_and_placement_approvals`
 Expected: a new folder under `prisma/migrations/` containing `CREATE TABLE "ChannelTermsApproval"` and `CREATE TABLE "PlacementApproval"`, and the Prisma client regenerated.
 
-- [ ] **Step 3: Write the shared test fixture**
+- [x] **Step 3: Write the shared test fixture**
 
 Create `tests/helpers/channel-factory.ts`:
 
@@ -244,7 +258,7 @@ export async function createChannelFixture(
 }
 ```
 
-- [ ] **Step 4: Write the failing test**
+- [x] **Step 4: Write the failing test**
 
 Create `tests/approval-status.test.ts`:
 
@@ -413,12 +427,12 @@ describe("placement approval status", () => {
 });
 ```
 
-- [ ] **Step 5: Run the test to verify it fails**
+- [x] **Step 5: Run the test to verify it fails**
 
 Run: `pnpm test tests/approval-status.test.ts`
 Expected: FAIL — cannot resolve `@/lib/approvals/status`.
 
-- [ ] **Step 6: Implement `src/lib/approvals/status.ts`**
+- [x] **Step 6: Implement `src/lib/approvals/status.ts`**
 
 ```ts
 import type { AssetPlacement, CampaignChannel, Prisma, PrismaClient } from "@prisma/client";
@@ -545,12 +559,12 @@ export async function getPlacementApprovalStatus(
 }
 ```
 
-- [ ] **Step 7: Run the test to verify it passes**
+- [x] **Step 7: Run the test to verify it passes**
 
 Run: `pnpm test tests/approval-status.test.ts`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 8: Typecheck and commit**
+- [x] **Step 8: Typecheck and commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -580,7 +594,7 @@ EOF
 - Consumes: `ApprovalStatus`, `getChannelTermsApprovalStatus` (Task 1); `ChannelTypeDefinition` from `src/lib/channel-types/versions.ts`.
 - Produces: `StepOwner`, `ChannelStepId`, `ChannelStep`, `ChannelReadiness`, `computeChannelReadiness(input)`, `loadChannelReadiness(db, campaignChannelId)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/channel-readiness.test.ts`:
 
@@ -646,12 +660,12 @@ describe("computeChannelReadiness", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/channel-readiness.test.ts`
 Expected: FAIL — cannot resolve `@/lib/channels/readiness`.
 
-- [ ] **Step 3: Implement `src/lib/channels/readiness.ts`**
+- [x] **Step 3: Implement `src/lib/channels/readiness.ts`**
 
 ```ts
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -797,12 +811,12 @@ export async function loadChannelReadiness(db: Db, campaignChannelId: string): P
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm test tests/channel-readiness.test.ts`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -831,7 +845,7 @@ EOF
 - Consumes: `buildChannelTermsSnapshot`, `buildPlacementSnapshot` (Task 1); `createChannelFixture` (Task 1).
 - Produces: `decideChannelTerms(db, actor, { campaignChannelId, decision, comments? })`, `decidePlacement(db, actor, { assetPlacementId, decision, comments? })`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/approval-decisions.test.ts`:
 
@@ -921,12 +935,12 @@ describe("decideChannelTerms", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/approval-decisions.test.ts`
 Expected: FAIL — cannot resolve `@/lib/approvals/decisions`.
 
-- [ ] **Step 3: Implement `src/lib/approvals/decisions.ts`**
+- [x] **Step 3: Implement `src/lib/approvals/decisions.ts`**
 
 ```ts
 import { Prisma, type ApprovalDecision, type ChannelTermsApproval, type PlacementApproval, type PrismaClient } from "@prisma/client";
@@ -1038,12 +1052,12 @@ export async function decidePlacement(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm test tests/approval-decisions.test.ts`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -1072,7 +1086,7 @@ EOF
 - Consumes: `getPlacementApprovalStatus` (Task 1), `decidePlacement` (Task 3).
 - Produces: no new exports — `setPlacementStatus` keeps its signature and gains a gate.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/placement-approval-gate.test.ts`:
 
@@ -1183,12 +1197,12 @@ describe("setPlacementStatus — client approval gate", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/placement-approval-gate.test.ts`
 Expected: FAIL — the first test activates successfully instead of throwing.
 
-- [ ] **Step 3: Add the gate to `setPlacementStatus`**
+- [x] **Step 3: Add the gate to `setPlacementStatus`**
 
 In `src/lib/assets/placements.ts`, add the import:
 
@@ -1212,17 +1226,17 @@ and extend the existing `if (input.status === "active")` block — after the ass
     }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm test tests/placement-approval-gate.test.ts`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Run the existing placement suites for regressions**
+- [x] **Step 5: Run the existing placement suites for regressions**
 
 Run: `pnpm test tests/asset-placements.test.ts tests/asset-placement-requirement.test.ts`
 Expected: any failure here is a test that activated a placement without an approval — fix it by adding a `decidePlacement(...)` approval to that test's setup, not by weakening the gate.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -1251,7 +1265,7 @@ EOF
 - Consumes: `assertDraftAndAccessible` (`src/lib/campaigns/crud.ts:123`), `loadChannelReadiness` (Task 2), `toMinorUnits` (`src/lib/money/currency.ts`), `withAudit`.
 - Produces: `UpdateCampaignChannelInput`, `updateCampaignChannel(db, actor, campaignChannelId, input)`, `setChannelStatus(db, actor, { campaignChannelId, status })`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/campaign-channel-edit.test.ts`:
 
@@ -1420,12 +1434,12 @@ describe("setChannelStatus", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/campaign-channel-edit.test.ts`
 Expected: FAIL — cannot resolve `@/lib/campaigns/channels`.
 
-- [ ] **Step 3: Implement `src/lib/campaigns/channels.ts`**
+- [x] **Step 3: Implement `src/lib/campaigns/channels.ts`**
 
 ```ts
 import type { CampaignChannel, CampaignChannelStatus, PrismaClient } from "@prisma/client";
@@ -1600,12 +1614,12 @@ export async function setChannelStatus(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm test tests/campaign-channel-edit.test.ts`
 Expected: PASS, 11 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -1634,7 +1648,7 @@ EOF
 - Consumes: `loadChannelReadiness` (Task 2), `decideChannelTerms` (Task 3).
 - Produces: no new exports.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/campaign-approval-channel-activation.test.ts`:
 
@@ -1694,12 +1708,12 @@ describe("decideClientApproval — channel activation", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/campaign-approval-channel-activation.test.ts`
 Expected: FAIL — `stillDraft.status` is `"active"`, because the current code activates every channel.
 
-- [ ] **Step 3: Make the activation readiness-aware**
+- [x] **Step 3: Make the activation readiness-aware**
 
 In `src/lib/campaigns/state-machine.ts`, add the import:
 
@@ -1732,17 +1746,17 @@ with:
     }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm test tests/campaign-approval-channel-activation.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Run the campaign approval suite for regressions**
+- [x] **Step 5: Run the campaign approval suite for regressions**
 
 Run: `pnpm test tests/campaign-approval.test.ts`
 Expected: PASS. A test that asserted "all channels are active after client approval" now needs its channel to be ready first — add a `decideChannelTerms(..., "approved")` to that test's setup rather than reverting the behaviour.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -1772,7 +1786,7 @@ EOF
 - Consumes: `getChannelTermsApprovalStatus`, `getPlacementApprovalStatus` (Task 1); `loadChannelReadiness` (Task 2).
 - Produces: `ClientApprovalItem`, `listClientApprovals(db, actor, filter?)`, `countPendingClientApprovals(db, actor)`, `ClientCampaignRow`, `getClientCampaigns(db, actor)`, `ClientCampaignDetail`, `getClientCampaignDetail(db, actor, campaignId)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/client-approvals-view.test.ts`:
 
@@ -1880,12 +1894,12 @@ describe("client approval read models", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm test tests/client-approvals-view.test.ts`
 Expected: FAIL — cannot resolve `@/lib/approvals/client-view`.
 
-- [ ] **Step 3: Implement `src/lib/approvals/client-view.ts`**
+- [x] **Step 3: Implement `src/lib/approvals/client-view.ts`**
 
 ```ts
 import type { PrismaClient } from "@prisma/client";
@@ -2197,7 +2211,7 @@ export async function getClientCampaignDetail(
 }
 ```
 
-- [ ] **Step 4: Add the campaign filter to the leads read model**
+- [x] **Step 4: Add the campaign filter to the leads read model**
 
 In `src/lib/leads/client-view.ts`, change the `filter` parameter of `getLeadsForClient` from
 `{ limit?: number; cursor?: string }` to `{ limit?: number; cursor?: string; campaignId?: string }`,
@@ -2214,12 +2228,12 @@ and inside the `where` clause change the channel constraint to:
 
 The unconditional `clientOrganizationId` stays exactly where it is — the new key is nested beside it, never spread over it.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `pnpm test tests/client-approvals-view.test.ts tests/client-view.test.ts`
 Expected: PASS — 7 new tests, and the existing client-view suite unaffected.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run: `pnpm typecheck && pnpm lint`
 
@@ -2251,11 +2265,11 @@ EOF
 - Consumes: `loadChannelReadiness` (Task 2), `updateCampaignChannel` / `setChannelStatus` (Task 5), `getChannelTermsApprovalStatus` (Task 1).
 - Produces: `updateChannelAction`, `setChannelStatusAction` server actions.
 
-- [ ] **Step 1: Read the Next.js docs for server actions and dynamic routes**
+- [x] **Step 1: Read the Next.js docs for server actions and dynamic routes**
 
 Read `node_modules/next/dist/docs/` — the guides covering server actions, `searchParams`, and dynamic route params. The `params`/`searchParams` in this codebase are Promises that must be awaited; confirm the current contract before writing.
 
-- [ ] **Step 2: Write the server actions**
+- [x] **Step 2: Write the server actions**
 
 Create `src/app/(admin)/campaigns/[id]/channels/[channelId]/actions.ts`:
 
@@ -2312,7 +2326,7 @@ export async function setChannelStatusAction(input: {
 }
 ```
 
-- [ ] **Step 3: Write the terms tab**
+- [x] **Step 3: Write the terms tab**
 
 Create `channel-terms-tab.tsx` — a server component taking the channel, its `ApprovalStatus`, and the decision history. It renders:
 
@@ -2322,13 +2336,13 @@ Create `channel-terms-tab.tsx` — a server component taking the channel, its `A
 
 Note in the card that decisions are made by the client in their own portal; there is no admin approve button.
 
-- [ ] **Step 4: Write the edit dialog and status control**
+- [x] **Step 4: Write the edit dialog and status control**
 
 `edit-channel-dialog.tsx` — `"use client"`, a `Dialog` with number/text/date inputs for quantity, unit price, cost budget and the window, calling `updateChannelAction`, toasting via `sonner`, then `router.refresh()`. Follow `src/app/(admin)/organizations/invite-user-dialog.tsx` for structure. The trigger button is disabled with an explanatory `title` when the campaign is not `draft` or the channel is not `draft`.
 
 `channel-status-control.tsx` — `"use client"`, an Activate button when the channel is `draft` or `paused` and a Pause button when it is `active`, calling `setChannelStatusAction`. When readiness is not `ready`, the Activate button is disabled and its `title` names the outstanding required steps.
 
-- [ ] **Step 5: Wire the channel page to readiness**
+- [x] **Step 5: Wire the channel page to readiness**
 
 In `page.tsx`:
 
@@ -2345,7 +2359,7 @@ In `page.tsx`:
 Run: `pnpm typecheck && pnpm lint`
 Then run the app and walk the flow in the browser: open a channel, confirm the checklist shows 2 required steps (or 1 for a `requiresAsset: false` channel type), confirm "Review" now lands on the Terms tab, confirm Activate is disabled with a reason, and confirm Edit channel is disabled once the campaign leaves draft.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add "src/app/(admin)/campaigns/[id]/channels/[channelId]"
@@ -2372,7 +2386,7 @@ EOF
 - Consumes: `getPlacementApprovalStatus` (Task 1).
 - Produces: nothing new.
 
-- [ ] **Step 1: Add the approval column**
+- [x] **Step 1: Add the approval column**
 
 In `PlacementsTab`, after loading placements, resolve each one's status:
 
@@ -2387,7 +2401,7 @@ In `PlacementsTab`, after loading placements, resolve each one's status:
 
 Add a "Client approval" column between "Consent text" and "Status", rendering a `Badge`: `approved` default, `pending` secondary ("awaiting client"), `changesRequested` destructive, `reapprovalNeeded` destructive ("changed since approval"). Where the status is `changesRequested`, show the client's latest comment underneath in muted small text.
 
-- [ ] **Step 2: Gate the status control**
+- [x] **Step 2: Gate the status control**
 
 Pass `approvalStatus` into `PlacementStatusControl` as a new prop. Inside, disable the `active` `SelectItem` when `approvalStatus !== "approved"` and render the reason as muted text beneath the select. The server-side gate from Task 4 remains the real enforcement — this only avoids an error the operator could have been warned about.
 
@@ -2396,7 +2410,7 @@ Pass `approvalStatus` into `PlacementStatusControl` as a new prop. Inside, disab
 Run: `pnpm typecheck && pnpm lint`
 In the browser: create a placement, confirm it shows "awaiting client", confirm the `active` option is disabled, approve it from the client portal (after Task 11), then confirm activation works.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "src/app/(admin)/campaigns/[id]/channels/[channelId]/page.tsx" "src/app/(admin)/campaigns/[id]/channels/[channelId]/placements/placement-status-control.tsx"
@@ -2419,7 +2433,7 @@ EOF
 - Consumes: `loadChannelReadiness` (Task 2).
 - Produces: nothing new.
 
-- [ ] **Step 1: Load readiness per channel**
+- [x] **Step 1: Load readiness per channel**
 
 Where the campaign's channels are listed, resolve readiness for each:
 
@@ -2431,11 +2445,11 @@ Where the campaign's channels are listed, resolve readiness for each:
   );
 ```
 
-- [ ] **Step 2: Add the Setup column**
+- [x] **Step 2: Add the Setup column**
 
 Add a "Setup" column to the channels table showing one `Badge variant="outline"` per **incomplete required** step (using `step.title`), plus a muted line `${readiness.requiredDone} of ${readiness.requiredTotal} steps done`. Optional steps are not shown as missing — a channel with no allocations and no delivery config reads as ready.
 
-- [ ] **Step 3: Add the readiness banner**
+- [x] **Step 3: Add the readiness banner**
 
 Above the channels table, when any channel is not ready, render a bordered callout: heading `${n} channel${n === 1 ? "" : "s"} not ready to go live`, body listing each unready channel's outstanding required steps, and a link to the first unready channel's page.
 
@@ -2444,7 +2458,7 @@ Above the channels table, when any channel is not ready, render a bordered callo
 Run: `pnpm typecheck && pnpm lint`
 In the browser: a campaign with an unapproved channel shows the banner and the pills; approving the terms clears both.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "src/app/(admin)/campaigns/[id]/page.tsx"
@@ -2473,7 +2487,7 @@ EOF
 - Consumes: `listClientApprovals`, `countPendingClientApprovals` (Task 7); `decideChannelTerms`, `decidePlacement` (Task 3).
 - Produces: `decideChannelTermsAction`, `decidePlacementAction`.
 
-- [ ] **Step 1: Write the server actions**
+- [x] **Step 1: Write the server actions**
 
 Create `src/app/client/approvals/actions.ts`:
 
@@ -2528,19 +2542,19 @@ export async function decidePlacementAction(input: {
 }
 ```
 
-- [ ] **Step 2: Write the page**
+- [x] **Step 2: Write the page**
 
 Create `src/app/client/approvals/page.tsx` — a server component whose first two lines are `const actor = await requireActor();` then `assertPortal(actor, "client");`, before any data fetch (the layout's own check is not enough; see the doc comment on `assertPortal`). It loads `listClientApprovals(db, actor, { pendingOnly: false })`, splits the items into "Channel terms" and "Landing pages" by `kind`, and passes each group plus `hasPermission(actor, "campaign:approveClient")` to `ApprovalsList`.
 
 Pending items render first. Empty state: "Nothing needs your approval right now."
 
-- [ ] **Step 3: Write the list component**
+- [x] **Step 3: Write the list component**
 
 Create `approvals-list.tsx` — `"use client"`. Each row shows the campaign name and code, the channel label, the `summary` label/value pairs, and a status `Badge`. For items whose status is pending/changesRequested/reapprovalNeeded **and** when the viewer can decide, render "Approve" and "Request a change" buttons; both open a `Dialog` showing the same summary rows plus a comments `textarea`. "Request a change" requires a non-empty comment before its submit button enables (the server also rejects an empty one). Decided items render read-only with their decision, date and comment.
 
 A `CLIENT_VIEWER` sees every row and no buttons, with a muted note that only a client admin can decide.
 
-- [ ] **Step 4: Add the nav entries**
+- [x] **Step 4: Add the nav entries**
 
 In `src/app/client/layout.tsx`, extend `CLIENT_NAV` to `Campaigns` (`/client/campaigns`), `Approvals` (`/client/approvals`), `Leads`, `Reports`. Load `countPendingClientApprovals(db, actor)` inside the existing post-`assertPortal` block and pass it to the sidebar so Approvals carries a count badge. This means widening `AppSidebar`'s `nav` prop from `{ href, label }[]` to `{ href, label, badge?: number }[]` in `src/components/app-sidebar.tsx` and rendering the badge only when it is present and non-zero — the admin and partner layouts pass no badge and are unaffected. Keep the layout's `assertPortal` inside its existing try/catch — an uncaught throw there wins over the page's own check and reaches the wrong error boundary.
 
@@ -2549,7 +2563,7 @@ In `src/app/client/layout.tsx`, extend `CLIENT_NAV` to `Campaigns` (`/client/cam
 Run: `pnpm typecheck && pnpm lint`
 In the browser, signed in as a CLIENT_ADMIN: the Approvals badge shows the pending count, approving channel terms clears it, and the admin channel page's checklist now shows the terms step done. Sign in as a CLIENT_VIEWER and confirm the buttons are absent.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/app/client/approvals src/app/client/layout.tsx
@@ -2576,13 +2590,13 @@ EOF
 - Consumes: `getClientCampaigns`, `getClientCampaignDetail` (Task 7); `getLeadsForClient` with `campaignId` (Task 7); the approval dialogs from Task 11.
 - Produces: nothing new.
 
-- [ ] **Step 1: Write the campaigns list**
+- [x] **Step 1: Write the campaigns list**
 
 Create `src/app/client/campaigns/page.tsx` — `requireActor()` then `assertPortal(actor, "client")` first, then `getClientCampaigns(db, actor)`. Render a `Card` + `Table`: Campaign (name over monospace code), Flight (start – end), Delivery (a progress bar plus `${deliveredCount} / ${contractedQuantity}`), Status badge, and "Needs you" — a badge with `needsYouCount` when non-zero, otherwise a muted dash. Rows link to `/client/campaigns/{id}`.
 
 Above the table, when any campaign has `needsYouCount > 0`, render a callout: `${total} item${total === 1 ? "" : "s"} need you before ${firstCampaignName} can launch`, with a button linking to `/client/approvals`.
 
-- [ ] **Step 2: Write the campaign detail**
+- [x] **Step 2: Write the campaign detail**
 
 Create `src/app/client/campaigns/[id]/page.tsx` with `searchParams`-driven tabs (`overview` | `channels` | `leads`), mirroring the tab pattern in the admin channel page.
 
@@ -2595,12 +2609,12 @@ Create `src/app/client/campaigns/[id]/page.tsx` with `searchParams`-driven tabs 
 Run: `pnpm typecheck && pnpm lint`
 In the browser: the client campaign list shows the needs-you count, the overview checklist attributes the terms step to "you" and the placement step to "agency", and the leads tab shows only that campaign's leads.
 
-- [ ] **Step 4: Run the whole suite**
+- [x] **Step 4: Run the whole suite**
 
 Run: `pnpm test`
 Expected: PASS, with no regressions in the existing suites.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/client/campaigns
