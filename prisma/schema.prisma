@@ -694,6 +694,7 @@ model CampaignChannel {
   allocations        PartnerAllocation[]
   deliveryConfig     DeliveryConfig?
   deliveryRuns       DeliveryRun[]
+  termsApprovals     ChannelTermsApproval[]
 
   @@index([campaignId])
 }
@@ -741,6 +742,53 @@ model CampaignApproval {
   campaign Campaign @relation(fields: [campaignId], references: [id])
 
   @@index([campaignId, type])
+}
+
+/**
+ * Append-only. The latest row by decidedAt is the current decision; a client
+ * changing their mind writes another row rather than mutating one, so the
+ * table doubles as the decision history the terms tab renders.
+ *
+ * termsSnapshotJson freezes what was decided on. Channel terms are editable
+ * while the campaign is a draft, so an approval that predates an edit must
+ * stop reading as approved — that comparison is what makes the derived status
+ * "reapprovalNeeded" with no invalidation code path.
+ */
+model ChannelTermsApproval {
+  id                String           @id @default(cuid())
+  campaignChannelId String
+  decision          ApprovalDecision
+  decidedByUserId   String
+  decidedAt         DateTime         @default(now())
+  comments          String?
+  termsSnapshotJson Json
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@index([campaignChannelId, decidedAt])
+}
+
+/** The client's sign-off on a placement's live landing page URL. */
+model PlacementApproval {
+  id                    String           @id @default(cuid())
+  assetPlacementId      String
+  decision              ApprovalDecision
+  decidedByUserId       String
+  decidedAt             DateTime         @default(now())
+  comments              String?
+  placementSnapshotJson Json
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  createdById           String?
+  updatedById           String?
+
+  assetPlacement AssetPlacement @relation(fields: [assetPlacementId], references: [id])
+
+  @@index([assetPlacementId, decidedAt])
 }
 
 model CampaignStatusHistory {
@@ -1265,6 +1313,7 @@ model AssetPlacement {
   assetVersion       AssetVersion        @relation(fields: [assetVersionId], references: [id])
   consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
   engagementEvents   EngagementEvent[]
+  approvals          PlacementApproval[]
 
   @@index([campaignChannelId])
 }
