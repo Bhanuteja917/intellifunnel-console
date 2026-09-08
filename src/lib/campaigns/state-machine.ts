@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit/audit";
 import { buildConfigSnapshot, SNAPSHOT_VERSION } from "@/lib/campaigns/snapshot";
+import { loadChannelReadiness } from "@/lib/channels/readiness";
 import { getSetting } from "@/lib/settings/settings";
 import { logger } from "@/lib/logging/logger";
 import { operatingDayStart } from "@/lib/time/operating-day";
@@ -224,7 +225,20 @@ export async function decideClientApproval(
       return applyTransition(tx, actor, campaign, "draft", comments);
     }
 
-    await tx.campaignChannel.updateMany({ where: { campaignId }, data: { status: "active" } });
+    // Activating a channel whose terms the client never approved, or whose
+    // asset-bearing type has no live placement, would put an unconfigured
+    // channel live. Only ready channels flip; the rest stay draft for an
+    // operator to activate with setChannelStatus once setup is complete.
+    const channelsToConsider = await tx.campaignChannel.findMany({
+      where: { campaignId },
+      select: { id: true },
+    });
+    for (const candidate of channelsToConsider) {
+      const readiness = await loadChannelReadiness(tx, candidate.id);
+      if (readiness.ready) {
+        await tx.campaignChannel.update({ where: { id: candidate.id }, data: { status: "active" } });
+      }
+    }
     return applyTransition(tx, actor, campaign, "scheduled", comments, {
       approvedSnapshotId: approval.id,
     });
