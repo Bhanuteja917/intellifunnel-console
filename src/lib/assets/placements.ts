@@ -1,6 +1,7 @@
 import { Prisma, type AssetPlacement, type AssetPlacementStatus, type PrismaClient } from "@prisma/client";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
+import { getPlacementApprovalStatus } from "@/lib/approvals/status";
 
 export type CreateAssetPlacementInput = {
   campaignChannelId: string;
@@ -80,6 +81,18 @@ export async function setPlacementStatus(
     const asset = await db.asset.findUniqueOrThrow({ where: { id: existing.assetId } });
     if (asset.status !== "active") {
       throw new ValidationError(`Cannot activate this placement — its asset "${asset.name}" is ${asset.status}, not active`);
+    }
+
+    // The client signs off on the live landing page URL before it can collect
+    // leads. A later edit to the placement makes the old approval stale (its
+    // snapshot stops matching), which reads as not-approved here.
+    const approvalStatus = await getPlacementApprovalStatus(db, existing);
+    if (approvalStatus !== "approved") {
+      throw new ValidationError(
+        approvalStatus === "reapprovalNeeded"
+          ? "This placement changed since the client approved it — it needs approval again before going live"
+          : "The client has not approved this placement's landing page URL yet",
+      );
     }
   }
 
