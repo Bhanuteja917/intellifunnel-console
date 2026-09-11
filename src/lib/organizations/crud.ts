@@ -54,6 +54,34 @@ export async function createOrganization(
   );
 }
 
+const ACTIVE_CAMPAIGN_STATUSES = ["live", "paused", "scheduled"] as const;
+
+export async function archiveOrganization(
+  db: PrismaClient,
+  actor: Actor,
+  organizationId: string,
+): Promise<Organization> {
+  assertPermission(actor, "organization:write");
+
+  const activeCampaigns = await db.campaign.count({
+    where: { clientOrganizationId: organizationId, status: { in: [...ACTIVE_CAMPAIGN_STATUSES] } },
+  });
+  if (activeCampaigns > 0) {
+    throw new ValidationError("Cannot archive an organisation with live, paused, or scheduled campaigns");
+  }
+
+  return withAudit<Organization>(
+    db,
+    actor,
+    { entityType: "Organization", entityId: organizationId, action: "archive" },
+    async (tx) =>
+      tx.organization.update({
+        where: { id: organizationId },
+        data: { status: "archived", updatedById: actor.userId },
+      }),
+  );
+}
+
 export async function setOrganizationRetentionOverride(
   db: PrismaClient,
   actor: Actor,

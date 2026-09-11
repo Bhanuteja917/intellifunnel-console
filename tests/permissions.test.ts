@@ -73,6 +73,32 @@ describe("permission matrix", () => {
   it("assertPermission throws ForbiddenError when denied", () => {
     expect(() => assertPermission(actorOf(["CLIENT_VIEWER"]), "campaign:write")).toThrow(ForbiddenError);
   });
+
+  it("reserves organisation and channel type management to Super Admin", () => {
+    const nonSuperAdminRoles = [
+      "CAMPAIGN_MANAGER",
+      "OPERATIONS",
+      "QUALITY",
+      "ACCOUNT_MANAGER",
+      "FINANCE",
+      "CLIENT_ADMIN",
+      "CLIENT_VIEWER",
+      "PARTNER_ADMIN",
+      "PARTNER_OPERATOR",
+    ];
+
+    for (const role of nonSuperAdminRoles) {
+      const actor = actorOf([role]);
+      expect(hasPermission(actor, "organization:read")).toBe(false);
+      expect(hasPermission(actor, "organization:write")).toBe(false);
+      expect(hasPermission(actor, "channelType:read")).toBe(false);
+    }
+
+    const superAdmin = actorOf(["SUPER_ADMIN"]);
+    expect(hasPermission(superAdmin, "organization:read")).toBe(true);
+    expect(hasPermission(superAdmin, "organization:write")).toBe(true);
+    expect(hasPermission(superAdmin, "channelType:read")).toBe(true);
+  });
 });
 
 describe("organisation scoping (AUTH-9)", () => {

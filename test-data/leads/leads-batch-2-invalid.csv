@@ -1,0 +1,6 @@
+email,firstName,lastName,companyName,jobTitle,phone,industry
+,Miss,Ingemail,Beta Corp,Ops Manager,+14155550201,Software
+test.user@gmail.com,Free,Domain,Beta Corp,Marketing Manager,+14155550202,Software
+bad.phone@beta-corp.com,Bad,Phone,Beta Corp,Analyst,12345,Software
+jane.doe@acmecorp.com,Jane,Doe,Acme Corp,VP Marketing,+14155550101,Software
+sam.lee@northwind.io,Sam,Lee,Northwind Traders,Sales Manager,+14155550203,Financial Services

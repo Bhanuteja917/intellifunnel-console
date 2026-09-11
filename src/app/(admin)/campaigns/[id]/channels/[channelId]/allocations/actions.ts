@@ -36,7 +36,7 @@ export async function createAllocationAction(input: {
       endDate: input.endDate,
       revealClientIdentity: input.revealClientIdentity,
     });
-    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}/allocations`);
+    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}`);
     return { id: allocation.id };
   });
 }
@@ -69,7 +69,7 @@ export async function updateAllocationAction(input: {
       endDate: input.endDate,
       revealClientIdentity: input.revealClientIdentity,
     });
-    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}/allocations`);
+    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}`);
     revalidatePath(
       `/campaigns/${input.campaignId}/channels/${input.campaignChannelId}/allocations/${input.allocationId}`,
     );
@@ -86,7 +86,7 @@ export async function setAllocationStatusAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     await setAllocationStatus(db, actor, { allocationId, status });
-    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}/allocations`);
+    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}`);
     revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}/allocations/${allocationId}`);
     return null;
   });

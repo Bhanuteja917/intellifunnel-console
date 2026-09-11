@@ -13,7 +13,7 @@ export async function saveDeliveryConfigAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     const config = await upsertDeliveryConfig(db, actor, input);
-    revalidatePath(`/campaigns/${campaignId}/channels/${input.campaignChannelId}/delivery`);
+    revalidatePath(`/campaigns/${campaignId}/channels/${input.campaignChannelId}`);
     return { id: config.id };
   });
 }
@@ -26,7 +26,7 @@ export async function setDeliveryConfigStatusAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     await setDeliveryConfigStatus(db, actor, campaignChannelId, status);
-    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}/delivery`);
+    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}`);
     return null;
   });
 }
@@ -39,7 +39,7 @@ export async function retryDeliveryRunAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     await retryDeliveryRun(db, actor, runId);
-    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}/delivery`);
+    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}`);
     return null;
   });
 }

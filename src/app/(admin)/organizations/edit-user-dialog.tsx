@@ -21,31 +21,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { inviteUserAction } from "./actions";
+import { updateUserAction } from "./actions";
 import type { RoleCode } from "@/lib/auth/permissions";
 
 type Props = {
-  organizationId: string;
-  organizationName: string;
+  user: { id: string; name: string; status: string; roleCode: string };
   roles: { code: string; name: string }[];
 };
 
-export function InviteUserDialog({ organizationId, organizationName, roles }: Props) {
+export function EditUserDialog({ user, roles }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [email, setEmail] = useState("");
-  const [roleCode, setRoleCode] = useState(roles[0]?.code ?? "");
+  const [name, setName] = useState(user.name);
+  const [status, setStatus] = useState(user.status);
+  const [roleCode, setRoleCode] = useState(user.roleCode);
 
   function submit() {
     startTransition(async () => {
-      const result = await inviteUserAction({
-        email,
-        organizationId,
-        roleCode: roleCode as RoleCode,
+      const result = await updateUserAction(user.id, {
+        name,
+        status: status as "active" | "suspended" | "invited",
+        roleCodes: [roleCode as RoleCode],
       });
       if (result.ok) {
-        toast.success("Invitation sent");
-        setEmail("");
+        toast.success("User updated");
         setOpen(false);
       } else {
         toast.error(result.error);
@@ -56,30 +55,35 @@ export function InviteUserDialog({ organizationId, organizationName, roles }: Pr
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>Invite user</Button>
+        <Button variant="ghost" size="sm">Edit</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Invite a user</DialogTitle>
+          <DialogTitle>Edit user</DialogTitle>
         </DialogHeader>
         <FieldGroup>
           <Field>
-            <FieldLabel htmlFor="invite-email">Email</FieldLabel>
-            <Input
-              id="invite-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
+            <FieldLabel htmlFor="edit-user-name">Name</FieldLabel>
+            <Input id="edit-user-name" value={name} onChange={(event) => setName(event.target.value)} />
           </Field>
           <Field>
-            <FieldLabel>Organisation</FieldLabel>
-            <Input value={organizationName} disabled readOnly />
+            <FieldLabel htmlFor="edit-user-status">Status</FieldLabel>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger id="edit-user-status" className="w-full">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="active">active</SelectItem>
+                  <SelectItem value="suspended">suspended</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </Field>
           <Field>
-            <FieldLabel htmlFor="invite-role">Role</FieldLabel>
+            <FieldLabel htmlFor="edit-user-role">Role</FieldLabel>
             <Select value={roleCode} onValueChange={setRoleCode}>
-              <SelectTrigger id="invite-role" className="w-full">
+              <SelectTrigger id="edit-user-role" className="w-full">
                 <SelectValue placeholder="Role" />
               </SelectTrigger>
               <SelectContent>
@@ -95,11 +99,8 @@ export function InviteUserDialog({ organizationId, organizationName, roles }: Pr
           </Field>
         </FieldGroup>
         <DialogFooter>
-          <Button
-            disabled={pending || email.trim() === "" || roleCode === ""}
-            onClick={submit}
-          >
-            Send invitation
+          <Button disabled={pending || name.trim() === ""} onClick={submit}>
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>

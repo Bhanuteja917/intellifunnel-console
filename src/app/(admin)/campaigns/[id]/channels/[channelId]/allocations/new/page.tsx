@@ -39,7 +39,7 @@ export default async function NewAllocationPage({
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
         <Link
-          href={`/campaigns/${campaign.id}/channels/${channel.id}/allocations` as Route}
+          href={`/campaigns/${campaign.id}/channels/${channel.id}?tab=allocations` as Route}
           className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />

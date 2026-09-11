@@ -35,6 +35,8 @@ export const config = {
     "/channel-types/:path*",
     "/organizations",
     "/organizations/:path*",
+    "/users",
+    "/users/:path*",
     "/resolution-queue",
     "/resolution-queue/:path*",
     "/verification",

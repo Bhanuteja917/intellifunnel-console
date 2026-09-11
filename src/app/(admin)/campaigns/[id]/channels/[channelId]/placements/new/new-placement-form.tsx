@@ -56,7 +56,7 @@ export function NewPlacementForm({ campaignId, campaignChannelId, assetId, versi
       });
       if (result.ok) {
         toast.success("Placement created");
-        router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}/placements` as Route);
+        router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}?tab=placements` as Route);
       } else {
         toast.error(result.error);
       }
@@ -137,7 +137,7 @@ export function NewPlacementForm({ campaignId, campaignChannelId, assetId, versi
       <div className="flex justify-end gap-2">
         <Button
           variant="outline"
-          onClick={() => router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}/placements` as Route)}
+          onClick={() => router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}?tab=placements` as Route)}
         >
           Cancel
         </Button>
