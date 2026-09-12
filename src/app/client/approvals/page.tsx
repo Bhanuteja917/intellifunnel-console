@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPortal, hasPermission } from "@/lib/auth/permissions";
@@ -16,12 +17,13 @@ export default async function ClientApprovalsPage() {
   const items = await listClientApprovals(db, actor, { pendingOnly: false });
   const canDecide = hasPermission(actor, "campaign:approveClient");
 
-  // Anything still awaiting the client sorts above what is already settled.
-  const order = (status: string) => (status === "approved" ? 1 : 0);
-  const sorted = [...items].sort((a, b) => order(a.status) - order(b.status));
-  const terms = sorted.filter((i) => i.kind === "channelTerms");
-  const placements = sorted.filter((i) => i.kind === "placement");
-  const pendingCount = items.filter((i) => i.status !== "approved").length;
+  const terms = items.filter((i) => i.kind === "channelTerms");
+  const placements = items.filter((i) => i.kind === "placement");
+  const termsPending = terms.filter((i) => i.status !== "approved");
+  const termsHistory = terms.filter((i) => i.status === "approved");
+  const placementsPending = placements.filter((i) => i.status !== "approved");
+  const placementsHistory = placements.filter((i) => i.status === "approved");
+  const pendingCount = termsPending.length + placementsPending.length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -51,10 +53,15 @@ export default async function ClientApprovalsPage() {
         </CardHeader>
         <CardContent>
           <ApprovalsList
-            items={terms}
+            items={termsPending}
             canDecide={canDecide}
             emptyMessage="No channel terms to review."
           />
+          {termsHistory.length > 0 && (
+            <HistorySection count={termsHistory.length}>
+              <ApprovalsList items={termsHistory} canDecide={false} emptyMessage="" />
+            </HistorySection>
+          )}
         </CardContent>
       </Card>
 
@@ -67,12 +74,28 @@ export default async function ClientApprovalsPage() {
         </CardHeader>
         <CardContent>
           <ApprovalsList
-            items={placements}
+            items={placementsPending}
             canDecide={canDecide}
             emptyMessage="No landing pages to review yet."
           />
+          {placementsHistory.length > 0 && (
+            <HistorySection count={placementsHistory.length}>
+              <ApprovalsList items={placementsHistory} canDecide={false} emptyMessage="" />
+            </HistorySection>
+          )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function HistorySection({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <details className="mt-4 pt-4 border-t">
+      <summary className="text-sm text-muted-foreground cursor-pointer hover:text-foreground">
+        {count} approved
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
   );
 }
