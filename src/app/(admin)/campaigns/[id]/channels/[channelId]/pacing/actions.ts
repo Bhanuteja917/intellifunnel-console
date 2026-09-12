@@ -20,7 +20,7 @@ export async function saveChannelPacingScheduleAction(input: {
       periodEnd: new Date(b.periodEnd),
       targetQuantity: b.targetQuantity,
     }));
-    await saveSchedule(db, { id: actor.userId }, input.channelId, buckets);
+    await saveSchedule(db, actor, input.channelId, buckets);
     revalidatePath(`/campaigns/${input.campaignId}/channels/${input.channelId}`);
     return null;
   });
@@ -33,7 +33,7 @@ export async function deleteChannelPacingScheduleAction(input: {
   return toActionResult(async () => {
     const actor = await requireActor();
     assertPermission(actor, "campaign:write");
-    await deleteSchedule(db, input.channelId);
+    await deleteSchedule(db, actor, input.channelId);
     revalidatePath(`/campaigns/${input.campaignId}/channels/${input.channelId}`);
     return null;
   });

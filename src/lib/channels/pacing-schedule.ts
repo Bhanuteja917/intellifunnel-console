@@ -1,5 +1,8 @@
 import { type PacingBucket } from "@/lib/allocations/pacing";
 import { type PrismaClient } from "@prisma/client";
+import { assertOrganizationAccess, type Actor } from "@/lib/auth/permissions";
+import { withAudit } from "@/lib/audit/audit";
+import { ValidationError, NotFoundError } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -229,10 +232,13 @@ export function validateBuckets(
     return `Sum of targetQuantity (${total}) does not equal contractedQuantity (${contractedQuantity})`;
   }
 
-  // 6. Each targetQuantity >= 0
+  // 6. Per-bucket: integer check, start <= end, non-negative
   for (let i = 0; i < buckets.length; i++) {
-    if ((buckets[i]?.targetQuantity ?? 0) < 0) {
-      return `Bucket ${i} has negative targetQuantity (${buckets[i]?.targetQuantity})`;
+    const b = buckets[i]!;
+    if (!Number.isInteger(b.targetQuantity)) return "targetQuantity must be an integer";
+    if (b.periodStart.getTime() > b.periodEnd.getTime()) return "periodStart must not be after periodEnd";
+    if (b.targetQuantity < 0) {
+      return `Bucket ${i} has negative targetQuantity (${b.targetQuantity})`;
     }
   }
 
@@ -245,41 +251,53 @@ export function validateBuckets(
 
 export async function saveSchedule(
   db: PrismaClient,
-  actor: { id: string },
+  actor: Actor,
   channelId: string,
   buckets: PacingBucket[],
 ): Promise<void> {
-  const channel = await db.campaignChannel.findUniqueOrThrow({
+  const channel = await db.campaignChannel.findUnique({
     where: { id: channelId },
-    select: { contractedQuantity: true, startDate: true, endDate: true },
+    include: {
+      campaign: { select: { status: true, clientOrganizationId: true, deletedAt: true } },
+    },
   });
-
-  const validationError = validateBuckets(
-    buckets,
-    channel.contractedQuantity,
-    channel.startDate,
-    channel.endDate,
-  );
-  if (validationError) {
-    throw new Error(validationError);
+  if (!channel || channel.campaign.deletedAt !== null) throw new NotFoundError("Channel not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+  if (channel.campaign.status === "completed" || channel.campaign.status === "cancelled") {
+    throw new ValidationError(`Campaign is ${channel.campaign.status}; pacing schedules cannot be modified`);
   }
+  if (channel.status === "completed") {
+    throw new ValidationError(`Channel is completed; its pacing schedule cannot be modified`);
+  }
+  const { contractedQuantity, startDate, endDate } = channel;
 
-  await db.$transaction(async (tx) => {
-    await tx.channelPacingBucket.deleteMany({
-      where: { campaignChannelId: channelId },
-    });
+  const validationError = validateBuckets(buckets, contractedQuantity, startDate, endDate);
+  if (validationError) throw new ValidationError(validationError);
 
-    await tx.channelPacingBucket.createMany({
-      data: buckets.map((bucket) => ({
-        campaignChannelId: channelId,
-        periodStart: bucket.periodStart,
-        periodEnd: bucket.periodEnd,
-        targetQuantity: bucket.targetQuantity,
-        createdById: actor.id,
-        updatedById: actor.id,
-      })),
-    });
-  });
+  await withAudit(
+    db,
+    actor,
+    {
+      entityType: "ChannelPacingBucket",
+      entityId: channelId,
+      action: "saveSchedule",
+      before: { bucketCount: await db.channelPacingBucket.count({ where: { campaignChannelId: channelId } }) },
+      after: { bucketCount: buckets.length },
+    },
+    async (tx) => {
+      await tx.channelPacingBucket.deleteMany({ where: { campaignChannelId: channelId } });
+      await tx.channelPacingBucket.createMany({
+        data: buckets.map((b) => ({
+          campaignChannelId: channelId,
+          periodStart: b.periodStart,
+          periodEnd: b.periodEnd,
+          targetQuantity: b.targetQuantity,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        })),
+      });
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -288,9 +306,34 @@ export async function saveSchedule(
 
 export async function deleteSchedule(
   db: PrismaClient,
+  actor: Actor,
   channelId: string,
 ): Promise<void> {
-  await db.channelPacingBucket.deleteMany({
-    where: { campaignChannelId: channelId },
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: channelId },
+    include: {
+      campaign: { select: { status: true, clientOrganizationId: true, deletedAt: true } },
+    },
   });
+  if (!channel || channel.campaign.deletedAt !== null) throw new NotFoundError("Channel not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+  if (channel.campaign.status === "completed" || channel.campaign.status === "cancelled") {
+    throw new ValidationError(`Campaign is ${channel.campaign.status}; pacing schedules cannot be modified`);
+  }
+  if (channel.status === "completed") {
+    throw new ValidationError(`Channel is completed; its pacing schedule cannot be modified`);
+  }
+
+  await withAudit(
+    db,
+    actor,
+    {
+      entityType: "ChannelPacingBucket",
+      entityId: channelId,
+      action: "deleteSchedule",
+    },
+    async (tx) => {
+      await tx.channelPacingBucket.deleteMany({ where: { campaignChannelId: channelId } });
+    },
+  );
 }

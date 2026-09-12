@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type PaceSignal, expectedToDateWithSchedule, paceSignal } from "@/lib/allocations/pacing";
+import { type PaceSignal, paceSignal } from "@/lib/allocations/pacing";
 import { generateBuckets } from "@/lib/channels/pacing-schedule";
 import {
   saveChannelPacingScheduleAction,
@@ -44,22 +44,27 @@ type PacingScheduleCardProps = {
 function formatBucketPeriod(bucket: { periodStart: Date; periodEnd: Date }): string {
   const start = bucket.periodStart;
   const end = bucket.periodEnd;
-  const startMonth = start.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-  const endMonth = end.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
   const startYear = start.getUTCFullYear();
   const endYear = end.getUTCFullYear();
+  const startMonth = start.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const endMonth = end.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
 
-  // Full calendar month: periodStart is 1st and periodEnd is last day of same month
+  // Full calendar month check
+  const lastDayOfEndMonth = new Date(Date.UTC(endYear, end.getUTCMonth() + 1, 0)).getUTCDate();
   if (
-    start.getUTCDate() === 1 &&
-    end.getUTCDate() === new Date(endYear, end.getUTCMonth() + 1, 0).getUTCDate() &&
-    start.getUTCMonth() === end.getUTCMonth() &&
-    startYear === endYear
+    startDay === 1 && endDay === lastDayOfEndMonth
+    && start.getUTCMonth() === end.getUTCMonth()
+    && startYear === endYear
   ) {
     return `${startMonth} ${startYear}`;
   }
-  // Partial period
-  return `${startMonth} ${start.getUTCDate()} – ${endMonth} ${end.getUTCDate()}, ${endYear}`;
+
+  if (startYear === endYear) {
+    return `${startMonth} ${startDay} – ${endMonth} ${endDay}, ${endYear}`;
+  }
+  return `${startMonth} ${startDay}, ${startYear} – ${endMonth} ${endDay}, ${endYear}`;
 }
 
 const badgeVariant = (pace: PaceSignal) =>
@@ -173,27 +178,15 @@ export function PacingScheduleCard({
               <TableRow>
                 <TableHead>Period</TableHead>
                 <TableHead>Target</TableHead>
-                <TableHead>Pace</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {initialBuckets.map((bucket, i) => {
-                const bucketExpected = expectedToDateWithSchedule(
-                  [bucket],
-                  new Date(),
-                  timeZone,
-                );
-                const bucketPace = paceSignal(0, bucketExpected);
-                return (
-                  <TableRow key={i}>
-                    <TableCell>{formatBucketPeriod(bucket)}</TableCell>
-                    <TableCell>{bucket.targetQuantity}</TableCell>
-                    <TableCell>
-                      <Badge variant={badgeVariant(bucketPace)}>{bucketPace}</Badge>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {initialBuckets.map((bucket, i) => (
+                <TableRow key={i}>
+                  <TableCell>{formatBucketPeriod(bucket)}</TableCell>
+                  <TableCell>{bucket.targetQuantity}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
 
