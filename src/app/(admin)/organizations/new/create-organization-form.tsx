@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createOrganizationAction } from "../../actions";
+import { createOrganizationAction } from "../actions";
 
 type Props = {
   currencies: string[];
