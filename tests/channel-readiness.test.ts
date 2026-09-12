@@ -10,11 +10,11 @@ const base = {
 };
 
 describe("computeChannelReadiness", () => {
-  it("is ready with approved terms and a live placement, ignoring allocations and delivery", () => {
+  it("is ready with approved terms, ignoring placement, allocations and delivery", () => {
     const result = computeChannelReadiness(base);
     expect(result.ready).toBe(true);
-    expect(result.requiredTotal).toBe(2);
-    expect(result.requiredDone).toBe(2);
+    expect(result.requiredTotal).toBe(1);
+    expect(result.requiredDone).toBe(1);
   });
 
   it("drops the placement step for a channel type that needs no asset", () => {
@@ -35,15 +35,15 @@ describe("computeChannelReadiness", () => {
     }
   });
 
-  it("is not ready when an asset-bearing channel has no live placement", () => {
-    expect(computeChannelReadiness({ ...base, activePlacementCount: 0 }).ready).toBe(false);
+  it("is ready when an asset-bearing channel has no live placement (placement is optional)", () => {
+    expect(computeChannelReadiness({ ...base, activePlacementCount: 0 }).ready).toBe(true);
   });
 
-  it("marks allocations and delivery optional and never counts them as required", () => {
+  it("marks placement, allocations and delivery optional and never counts them as required", () => {
     const result = computeChannelReadiness({ ...base, allocationCount: 3, hasDeliveryConfig: true });
     const optional = result.steps.filter((s) => !s.required).map((s) => s.id);
-    expect(optional).toEqual(["allocations", "delivery"]);
-    expect(result.requiredTotal).toBe(2);
+    expect(optional).toEqual(["placement", "allocations", "delivery"]);
+    expect(result.requiredTotal).toBe(1);
   });
 
   it("attributes the terms step to the client and the rest to the agency", () => {

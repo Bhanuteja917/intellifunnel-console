@@ -96,3 +96,31 @@ export async function unarchiveOrganization(
     data: { status: "active", updatedById: actor.userId },
   });
 }
+
+export async function setOrganizationRetentionOverride(
+  db: PrismaClient,
+  actor: Actor,
+  organizationId: string,
+  months: number | null,
+): Promise<Organization> {
+  assertPermission(actor, "compliance:write");
+  if (months !== null && (!Number.isInteger(months) || months <= 0)) {
+    throw new ValidationError("Retention months must be a positive whole number, or null to clear the override");
+  }
+
+  return withAudit<Organization>(
+    db,
+    actor,
+    (updated) => ({
+      entityType: "Organization",
+      entityId: organizationId,
+      action: "update",
+      after: { personalDataRetentionMonths: updated.personalDataRetentionMonths },
+    }),
+    async (tx) =>
+      tx.organization.update({
+        where: { id: organizationId },
+        data: { personalDataRetentionMonths: months, updatedById: actor.userId },
+      }),
+  );
+}
