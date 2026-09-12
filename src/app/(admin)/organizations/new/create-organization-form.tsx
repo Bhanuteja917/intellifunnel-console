@@ -1,17 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,14 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createOrganizationAction } from "./actions";
+import { createOrganizationAction } from "../../actions";
 
 type Props = {
   currencies: string[];
 };
 
-export function NewOrganizationDialog({ currencies }: Props) {
-  const [open, setOpen] = useState(false);
+export function CreateOrganizationForm({ currencies }: Props) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [legalName, setLegalName] = useState("");
@@ -41,17 +35,6 @@ export function NewOrganizationDialog({ currencies }: Props) {
   const [defaultPayoutCurrency, setDefaultPayoutCurrency] = useState("");
 
   const canSubmit = name.trim() !== "" && (isClient || isPartner || isInternal);
-
-  function reset() {
-    setName("");
-    setLegalName("");
-    setCountry("");
-    setIsClient(false);
-    setIsPartner(false);
-    setIsInternal(false);
-    setDefaultBillingCurrency("");
-    setDefaultPayoutCurrency("");
-  }
 
   function submit() {
     startTransition(async () => {
@@ -67,8 +50,7 @@ export function NewOrganizationDialog({ currencies }: Props) {
       });
       if (result.ok) {
         toast.success("Organisation created");
-        reset();
-        setOpen(false);
+        router.push(`/organizations/${result.data.id}`);
       } else {
         toast.error(result.error);
       }
@@ -76,44 +58,51 @@ export function NewOrganizationDialog({ currencies }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline">Create organisation</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create an organisation</DialogTitle>
-        </DialogHeader>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="org-name">Name *</FieldLabel>
-            <Input id="org-name" value={name} onChange={(event) => setName(event.target.value)} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="org-legal-name">Legal name</FieldLabel>
-            <Input id="org-legal-name" value={legalName} onChange={(event) => setLegalName(event.target.value)} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="org-country">Country</FieldLabel>
-            <Input id="org-country" value={country} onChange={(event) => setCountry(event.target.value)} />
-          </Field>
-          <Field>
-            <FieldLabel>Type *</FieldLabel>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={isClient} onCheckedChange={(checked) => setIsClient(checked === true)} />
-                Client
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={isPartner} onCheckedChange={(checked) => setIsPartner(checked === true)} />
-                Partner
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={isInternal} onCheckedChange={(checked) => setIsInternal(checked === true)} />
-                Internal
-              </label>
-            </div>
-          </Field>
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Organisation details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="org-name">Name *</FieldLabel>
+              <Input id="org-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="org-legal-name">Legal name</FieldLabel>
+              <Input id="org-legal-name" value={legalName} onChange={(event) => setLegalName(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="org-country">Country</FieldLabel>
+              <Input id="org-country" value={country} onChange={(event) => setCountry(event.target.value)} />
+            </Field>
+            <Field>
+              <FieldLabel>Type *</FieldLabel>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={isClient} onCheckedChange={(checked) => setIsClient(checked === true)} />
+                  Client
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={isPartner} onCheckedChange={(checked) => setIsPartner(checked === true)} />
+                  Partner
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={isInternal} onCheckedChange={(checked) => setIsInternal(checked === true)} />
+                  Internal
+                </label>
+              </div>
+            </Field>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Billing</CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="grid grid-cols-2 gap-4">
             <Field>
               <FieldLabel htmlFor="org-billing-currency">Default billing currency</FieldLabel>
@@ -150,13 +139,14 @@ export function NewOrganizationDialog({ currencies }: Props) {
               </Select>
             </Field>
           </div>
-        </FieldGroup>
-        <DialogFooter>
-          <Button disabled={pending || !canSubmit} onClick={submit}>
-            Create
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button disabled={pending || !canSubmit} onClick={submit}>
+          Create organisation
+        </Button>
+      </div>
+    </div>
   );
 }

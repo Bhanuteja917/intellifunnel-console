@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
-import { CURRENCY_EXPONENTS } from "@/lib/money/currency";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -12,7 +13,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { NewOrganizationDialog } from "./new-organization-dialog";
 import { OrganizationTableRow } from "./organization-table-row";
 
 export default async function OrganizationsPage() {
@@ -57,7 +57,9 @@ export default async function OrganizationsPage() {
             </p>
           </div>
           {canCreateOrganization && (
-            <NewOrganizationDialog currencies={Object.keys(CURRENCY_EXPONENTS)} />
+            <Button asChild variant="outline">
+              <Link href="/organizations/new">Create organisation</Link>
+            </Button>
           )}
         </CardHeader>
         <CardContent>
