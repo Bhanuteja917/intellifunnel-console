@@ -142,11 +142,15 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Pending invitations · {pendingInvitations.length}</CardTitle>
-            <InviteUserDialog
-              organizationId={organization.id}
-              organizationName={organization.name}
-              roles={roles.map((role) => ({ code: role.code, name: role.name }))}
-            />
+            {organization.status !== "archived" ? (
+              <InviteUserDialog
+                organizationId={organization.id}
+                organizationName={organization.name}
+                roles={roles.map((role) => ({ code: role.code, name: role.name }))}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Invitations are disabled while this organisation is archived.</p>
+            )}
           </CardHeader>
           <CardContent>
             {pendingInvitations.length === 0 ? (

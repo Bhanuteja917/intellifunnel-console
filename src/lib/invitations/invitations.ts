@@ -56,6 +56,11 @@ export async function createInvitation(
   assertPermission(actor, "user:invite");
   assertOrganizationAccess(actor, input.organizationId);
 
+  const org = await db.organization.findUnique({ where: { id: input.organizationId } });
+  if (!org || org.status === "archived") {
+    throw new Error("Cannot invite users to an archived organisation");
+  }
+
   const email = normalizeEmail(input.email);
   const { roleId } = await assertRoleFitsOrganization(db, input.organizationId, input.roleCode);
 
