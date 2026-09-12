@@ -11,9 +11,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { archiveOrganizationAction } from "./actions";
+import { archiveOrganizationAction, unarchiveOrganizationAction } from "./actions";
 
-export function OrganizationRowActions({ organizationId }: { organizationId: string }) {
+export function OrganizationRowActions({
+  organizationId,
+  status,
+}: {
+  organizationId: string;
+  status: string;
+}) {
   const [pending, startTransition] = useTransition();
 
   function archive() {
@@ -21,6 +27,17 @@ export function OrganizationRowActions({ organizationId }: { organizationId: str
       const result = await archiveOrganizationAction(organizationId);
       if (result.ok) {
         toast.success("Organisation archived");
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
+  function unarchive() {
+    startTransition(async () => {
+      const result = await unarchiveOrganizationAction(organizationId);
+      if (result.ok) {
+        toast.success("Organisation unarchived");
       } else {
         toast.error(result.error);
       }
@@ -37,9 +54,16 @@ export function OrganizationRowActions({ organizationId }: { organizationId: str
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
-          <DropdownMenuItem variant="destructive" onSelect={archive}>
-            Archive
-          </DropdownMenuItem>
+          {status === "active" && (
+            <DropdownMenuItem variant="destructive" onSelect={archive}>
+              Archive
+            </DropdownMenuItem>
+          )}
+          {status === "archived" && (
+            <DropdownMenuItem onSelect={unarchive}>
+              Unarchive
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>

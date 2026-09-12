@@ -81,3 +81,18 @@ export async function archiveOrganization(
       }),
   );
 }
+
+export async function unarchiveOrganization(
+  db: PrismaClient,
+  actor: Actor,
+  organizationId: string,
+): Promise<void> {
+  assertPermission(actor, "organization:write");
+  const org = await db.organization.findUnique({ where: { id: organizationId } });
+  if (!org || org.deletedAt !== null) throw new NotFoundError("Organisation not found");
+  if (org.status !== "archived") throw new Error("Organisation is not archived");
+  await db.organization.update({
+    where: { id: organizationId },
+    data: { status: "active", updatedById: actor.userId },
+  });
+}

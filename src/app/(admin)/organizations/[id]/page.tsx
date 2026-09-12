@@ -64,8 +64,8 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         {organization.isPartner && <Badge variant="outline">partner</Badge>}
         {organization.isInternal && <Badge variant="outline">internal</Badge>}
         <Badge>{organization.status}</Badge>
-        {canArchive && organization.status === "active" && (
-          <OrganizationRowActions organizationId={organization.id} />
+        {canArchive && (
+          <OrganizationRowActions organizationId={organization.id} status={organization.status} />
         )}
       </div>
 
