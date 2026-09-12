@@ -107,7 +107,6 @@ export function NewConsentTextForm() {
                       mode="single"
                       selected={effectiveFrom}
                       onSelect={setEffectiveFrom}
-                      initialFocus
                     />
                   </PopoverContent>
                 </Popover>
