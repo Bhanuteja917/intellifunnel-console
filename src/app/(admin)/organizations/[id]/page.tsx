@@ -56,6 +56,12 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
       : Promise.resolve([]),
   ]);
 
+  const allowedCodes = new Set<string>();
+  if (organization.isClient) { allowedCodes.add("CLIENT_ADMIN"); allowedCodes.add("CLIENT_VIEWER"); }
+  if (organization.isPartner) { allowedCodes.add("PARTNER_ADMIN"); allowedCodes.add("PARTNER_OPERATOR"); }
+  if (organization.isInternal) { roles.forEach(r => allowedCodes.add(r.code)); }
+  const filteredRoles = roles.filter(r => allowedCodes.has(r.code));
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
@@ -64,8 +70,8 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         {organization.isPartner && <Badge variant="outline">partner</Badge>}
         {organization.isInternal && <Badge variant="outline">internal</Badge>}
         <Badge>{organization.status}</Badge>
-        {canArchive && organization.status === "active" && (
-          <OrganizationRowActions organizationId={organization.id} />
+        {canArchive && (
+          <OrganizationRowActions organizationId={organization.id} status={organization.status} />
         )}
       </div>
 
@@ -122,7 +128,7 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
                           status: user.status,
                           roleCode: user.roles[0]?.role.code ?? "",
                         }}
-                        roles={roles.map((role) => ({ code: role.code, name: role.name }))}
+                        roles={filteredRoles.map((role) => ({ code: role.code, name: role.name }))}
                       />
                     </TableCell>
                   )}
@@ -142,11 +148,15 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Pending invitations · {pendingInvitations.length}</CardTitle>
-            <InviteUserDialog
-              organizationId={organization.id}
-              organizationName={organization.name}
-              roles={roles.map((role) => ({ code: role.code, name: role.name }))}
-            />
+            {organization.status !== "archived" ? (
+              <InviteUserDialog
+                organizationId={organization.id}
+                organizationName={organization.name}
+                roles={filteredRoles.map((role) => ({ code: role.code, name: role.name }))}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">Invitations are disabled while this organisation is archived.</p>
+            )}
           </CardHeader>
           <CardContent>
             {pendingInvitations.length === 0 ? (

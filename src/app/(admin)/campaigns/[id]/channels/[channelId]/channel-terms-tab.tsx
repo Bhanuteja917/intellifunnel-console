@@ -3,9 +3,6 @@ import type { ApprovalStatus } from "@/lib/approvals/status";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
 
 export const TERMS_BADGE: Record<ApprovalStatus, { variant: "default" | "secondary" | "destructive"; label: string }> = {
   approved: { variant: "default", label: "approved by client" },
@@ -58,6 +55,15 @@ export async function ChannelTermsTab({
 
   return (
     <div className="flex flex-col gap-6">
+      {termsStatus === "changesRequested" && (() => {
+        const latestComment = decisions.find(d => (d.decision as string) === "changesRequested")?.comments;
+        return (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+            <p className="text-sm font-semibold text-destructive">Client requested changes</p>
+            {latestComment && <p className="text-sm text-muted-foreground mt-1">{latestComment}</p>}
+          </div>
+        );
+      })()}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
@@ -98,37 +104,31 @@ export async function ChannelTermsTab({
           </p>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Decision</TableHead>
-                <TableHead>Decided by</TableHead>
-                <TableHead>When</TableHead>
-                <TableHead>Comments</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {decisions.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    No decision recorded yet — the client reviews these terms in their portal.
-                  </TableCell>
-                </TableRow>
-              )}
-              {decisions.map((decision) => (
-                <TableRow key={decision.id}>
-                  <TableCell>
-                    <Badge variant={decision.decision === "approved" ? "default" : "destructive"}>
-                      {decision.decision}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{deciderById.get(decision.decidedByUserId) ?? "—"}</TableCell>
-                  <TableCell>{decision.decidedAt.toISOString().slice(0, 16).replace("T", " ")}</TableCell>
-                  <TableCell className="text-muted-foreground">{decision.comments ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {decisions.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No decision recorded yet — the client reviews these terms in their portal.
+            </p>
+          )}
+          <div className="flex flex-col divide-y">
+            {decisions.map((decision) => (
+              <div key={decision.id} className="py-3 flex flex-col gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant={decision.decision === "approved" ? "default" : "destructive"}>
+                    {decision.decision}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {deciderById.get(decision.decidedByUserId) ?? "—"}
+                  </span>
+                  <span className="text-sm text-muted-foreground ml-auto">
+                    {decision.decidedAt.toISOString().slice(0, 16).replace("T", " ")}
+                  </span>
+                </div>
+                {decision.comments && (
+                  <p className="text-sm text-muted-foreground">{decision.comments}</p>
+                )}
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>

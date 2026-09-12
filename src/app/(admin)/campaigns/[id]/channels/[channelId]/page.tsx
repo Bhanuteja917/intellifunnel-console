@@ -338,6 +338,10 @@ async function PlacementsTab({ campaignId, channelId, canWrite }: { campaignId: 
     ),
   );
 
+  const changesRequestedPlacements = placements.filter(
+    (p) => approvalStatuses.get(p.id) === "changesRequested"
+  );
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -354,38 +358,42 @@ async function PlacementsTab({ campaignId, channelId, canWrite }: { campaignId: 
         )}
       </CardHeader>
       <CardContent>
+        {changesRequestedPlacements.length > 0 && (
+          <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 flex flex-col gap-2">
+            <p className="text-sm font-semibold text-destructive">
+              Client requested changes on {changesRequestedPlacements.length} placement(s)
+            </p>
+            {changesRequestedPlacements.map((p) => (
+              <div key={p.id} className="text-sm text-muted-foreground">
+                <span className="font-medium">{p.asset.name}:</span>{" "}
+                {p.approvals[0]?.comments ?? "No comment provided"}
+              </div>
+            ))}
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Asset</TableHead>
-              <TableHead>Version</TableHead>
               <TableHead>Landing page URL</TableHead>
-              <TableHead>Form slug</TableHead>
-              <TableHead>Consent text</TableHead>
               <TableHead>Client approval</TableHead>
+              <TableHead>Form slug</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {placements.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">No placements yet.</TableCell>
+                <TableCell colSpan={5} className="text-center text-muted-foreground">No placements yet.</TableCell>
               </TableRow>
             )}
             {placements.map((placement) => (
               <TableRow key={placement.id}>
-                <TableCell>{placement.asset.name}</TableCell>
-                <TableCell>v{placement.assetVersion.version} — {placement.assetVersion.fileName}</TableCell>
-                <TableCell>
-                  <a href={placement.landingPageUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                <TableCell>{placement.asset.name} v{placement.assetVersion.version}</TableCell>
+                <TableCell className="max-w-[200px] truncate">
+                  <a href={placement.landingPageUrl} target="_blank" rel="noreferrer" title={placement.landingPageUrl} className="text-primary underline">
                     {placement.landingPageUrl}
                   </a>
-                </TableCell>
-                <TableCell>{placement.formSlug}</TableCell>
-                <TableCell>
-                  {placement.consentTextVersion
-                    ? `${placement.consentTextVersion.name} v${placement.consentTextVersion.version}`
-                    : "—"}
                 </TableCell>
                 <TableCell>
                   {(() => {
@@ -394,15 +402,16 @@ async function PlacementsTab({ campaignId, channelId, canWrite }: { campaignId: 
                     return (
                       <>
                         <Badge variant={badge.variant}>{badge.label}</Badge>
-                        {status === "changesRequested" && placement.approvals[0]?.comments !== undefined && (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {placement.approvals[0]?.comments}
+                        {placement.consentTextVersion && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {placement.consentTextVersion.name} v{placement.consentTextVersion.version}
                           </div>
                         )}
                       </>
                     );
                   })()}
                 </TableCell>
+                <TableCell>{placement.formSlug}</TableCell>
                 <TableCell>
                   {canWrite ? (
                     <PlacementStatusControl

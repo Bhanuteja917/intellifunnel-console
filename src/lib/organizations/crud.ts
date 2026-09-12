@@ -1,7 +1,7 @@
 import type { Organization, PrismaClient } from "@prisma/client";
 import { withAudit } from "@/lib/audit/audit";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
-import { ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 
 export type CreateOrganizationInput = {
   name: string;
@@ -82,32 +82,17 @@ export async function archiveOrganization(
   );
 }
 
-export async function setOrganizationRetentionOverride(
+export async function unarchiveOrganization(
   db: PrismaClient,
   actor: Actor,
   organizationId: string,
-  months: number | null,
-): Promise<Organization> {
-  assertPermission(actor, "compliance:write");
-  // `personalDataRetentionMonths` is an Int column — a non-integer would pass
-  // a bare `<= 0` check and only fail deeper down as a raw Prisma error.
-  if (months !== null && (!Number.isInteger(months) || months <= 0)) {
-    throw new ValidationError("Retention months must be a positive whole number, or null to clear the override");
-  }
-
-  return withAudit<Organization>(
-    db,
-    actor,
-    (updated) => ({
-      entityType: "Organization",
-      entityId: organizationId,
-      action: "update",
-      after: { personalDataRetentionMonths: updated.personalDataRetentionMonths },
-    }),
-    async (tx) =>
-      tx.organization.update({
-        where: { id: organizationId },
-        data: { personalDataRetentionMonths: months, updatedById: actor.userId },
-      }),
-  );
+): Promise<void> {
+  assertPermission(actor, "organization:write");
+  const org = await db.organization.findUnique({ where: { id: organizationId } });
+  if (!org || org.deletedAt !== null) throw new NotFoundError("Organisation not found");
+  if (org.status !== "archived") throw new Error("Organisation is not archived");
+  await db.organization.update({
+    where: { id: organizationId },
+    data: { status: "active", updatedById: actor.userId },
+  });
 }

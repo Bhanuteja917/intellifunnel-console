@@ -70,7 +70,7 @@ export function computeChannelReadiness(input: ReadinessInput): ChannelReadiness
       hint: "Asset version, landing page, form slug, consent text",
       cta: "Add",
       tab: "placements",
-      required: true,
+      required: false,
       done: placementDone,
       owner: placementDone ? "done" : "agency",
     });
