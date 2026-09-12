@@ -8,7 +8,7 @@ import type { Actor } from "@/lib/auth/permissions";
 import { hasPermission } from "@/lib/auth/permissions";
 import { getCampaignForActor } from "@/lib/campaigns/crud";
 import { getSetting } from "@/lib/settings/settings";
-import { expectedToDate, paceSignal } from "@/lib/allocations/pacing";
+import { expectedToDate, expectedToDateWithSchedule, paceSignal } from "@/lib/allocations/pacing";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { getDeliveryConfigForChannel } from "@/lib/delivery/config";
 import { listDeliveryRunsForChannel } from "@/lib/delivery/runs";
@@ -29,6 +29,7 @@ import { RunLogTable } from "./delivery/run-log-table";
 import { ChannelTermsTab, TERMS_BADGE } from "./channel-terms-tab";
 import { EditChannelDialog } from "./edit-channel-dialog";
 import { ChannelStatusControl } from "./channel-status-control";
+import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -231,7 +232,7 @@ export default async function ChannelPage({
       )}
 
       {tab === "pacing" && canReadAllocations && (
-        <PacingTab campaignId={campaign.id} channelId={channel.id} channel={channel} />
+        <PacingTab campaignId={campaign.id} channelId={channel.id} channel={channel} canWriteCampaign={canWriteCampaign} />
       )}
 
       {tab === "delivery" && canReadDelivery && (
@@ -518,16 +519,24 @@ async function AllocationsTab({
 }
 
 async function PacingTab({
-  campaignId, channelId, channel,
+  campaignId, channelId, channel, canWriteCampaign,
 }: {
   campaignId: string;
   channelId: string;
   channel: { contractedQuantity: number; startDate: Date; endDate: Date; deliveredCount: number; reservedCount: number };
+  canWriteCampaign: boolean;
 }) {
   const timeZone = await getSetting(db, "operatingTimezone");
   const now = new Date();
-  const channelExpected = expectedToDate(channel.contractedQuantity, channel.startDate, channel.endDate, now, timeZone);
-  const channelPace = paceSignal(channel.deliveredCount, channelExpected);
+
+  const pacingBuckets = await db.channelPacingBucket.findMany({
+    where: { campaignChannelId: channelId },
+    orderBy: { periodStart: "asc" },
+  });
+
+  const channelExpected = pacingBuckets.length > 0
+    ? expectedToDateWithSchedule(pacingBuckets, now, timeZone)
+    : expectedToDate(channel.contractedQuantity, channel.startDate, channel.endDate, now, timeZone);
 
   const allocations = await db.partnerAllocation.findMany({
     where: { campaignChannelId: channelId },
@@ -555,14 +564,18 @@ async function PacingTab({
 
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader><CardTitle>Channel pacing</CardTitle></CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <div>Delivered: {channel.deliveredCount} / {channel.contractedQuantity} (reserved: {channel.reservedCount})</div>
-          <div>Expected to date: {channelExpected.toFixed(1)}</div>
-          <Badge variant={badgeVariant(channelPace)}>{channelPace}</Badge>
-        </CardContent>
-      </Card>
+      <PacingScheduleCard
+        channelId={channelId}
+        campaignId={campaignId}
+        contractedQuantity={channel.contractedQuantity}
+        startDate={channel.startDate}
+        endDate={channel.endDate}
+        deliveredCount={channel.deliveredCount}
+        expectedToDate={channelExpected}
+        initialBuckets={pacingBuckets}
+        canWrite={canWriteCampaign}
+        timeZone={timeZone}
+      />
 
       <Card>
         <CardHeader><CardTitle>Per-partner pace &amp; rejection</CardTitle></CardHeader>
