@@ -24,7 +24,7 @@ function newToken(): string {
 }
 
 /** A role is only offerable to an organisation carrying the matching capability flag. */
-async function assertRoleFitsOrganization(
+export async function assertRoleFitsOrganization(
   db: PrismaClient,
   organizationId: string,
   roleCode: RoleCode,

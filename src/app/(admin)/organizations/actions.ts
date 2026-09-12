@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { createInvitation, resendInvitation, revokeInvitation } from "@/lib/invitations/invitations";
-import { createOrganization, type CreateOrganizationInput } from "@/lib/organizations/crud";
+import { archiveOrganization, createOrganization, type CreateOrganizationInput } from "@/lib/organizations/crud";
+import { deleteUser, updateUser, type UpdateUserInput } from "@/lib/users/crud";
 import type { RoleCode } from "@/lib/auth/permissions";
 
 export async function createOrganizationAction(
@@ -15,6 +16,15 @@ export async function createOrganizationAction(
     const organization = await createOrganization(db, actor, input);
     revalidatePath("/organizations");
     return { id: organization.id };
+  });
+}
+
+export async function archiveOrganizationAction(organizationId: string): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await archiveOrganization(db, actor, organizationId);
+    revalidatePath("/organizations");
+    return null;
   });
 }
 
@@ -46,6 +56,27 @@ export async function revokeInvitationAction(invitationId: string): Promise<Acti
     const actor = await requireActor();
     await revokeInvitation(db, actor, invitationId);
     revalidatePath("/organizations");
+    return null;
+  });
+}
+
+export async function updateUserAction(
+  userId: string,
+  input: UpdateUserInput,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    const user = await updateUser(db, actor, userId, input);
+    revalidatePath(`/organizations/${user.organizationId}`);
+    return null;
+  });
+}
+
+export async function deleteUserAction(userId: string): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    const user = await deleteUser(db, actor, userId);
+    revalidatePath(`/organizations/${user.organizationId}`);
     return null;
   });
 }
