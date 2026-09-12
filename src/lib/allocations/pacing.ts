@@ -30,7 +30,6 @@ export function expectedToDateWithSchedule(
   asOf: Date,
   timeZone: string,
 ): number {
-  // Defensive sort by periodStart (callers should pass sorted, but don't assume)
   const sortedBuckets = [...buckets].sort((a, b) => a.periodStart.getTime() - b.periodStart.getTime());
 
   const today = operatingDayStart(asOf, timeZone);
@@ -39,13 +38,10 @@ export function expectedToDateWithSchedule(
 
   for (const bucket of sortedBuckets) {
     if (today > bucket.periodEnd) {
-      // Completed: contribute full targetQuantity
       total += bucket.targetQuantity;
     } else if (today >= bucket.periodStart && today <= bucket.periodEnd) {
-      // In-progress: pro-rate using expectedToDate
       total += expectedToDate(bucket.targetQuantity, bucket.periodStart, bucket.periodEnd, asOf, timeZone);
     }
-    // else: future bucket, contribute 0
   }
 
   return total;
