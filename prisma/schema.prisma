@@ -695,6 +695,7 @@ model CampaignChannel {
   deliveryConfig     DeliveryConfig?
   deliveryRuns       DeliveryRun[]
   termsApprovals     ChannelTermsApproval[]
+  pacingBuckets      ChannelPacingBucket[]
 
   @@index([campaignId])
 }
@@ -1316,6 +1317,21 @@ model AssetPlacement {
   approvals          PlacementApproval[]
 
   @@index([campaignChannelId])
+}
+
+model ChannelPacingBucket {
+  id                String    @id @default(cuid())
+  campaignChannelId String
+  date              DateTime  @db.Date
+  bucket            Int
+  targetQuantity    Int
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@unique([campaignChannelId, date, bucket])
+  @@index([campaignChannelId, date])
 }
 
 model EngagementEvent {
