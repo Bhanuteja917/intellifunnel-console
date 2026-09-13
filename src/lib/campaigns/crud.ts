@@ -7,6 +7,7 @@ import type {
   Prisma,
   PrismaClient,
 } from "@prisma/client";
+import type { StepConfig } from "@/lib/channels/readiness";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
@@ -283,6 +284,7 @@ export type CampaignChannelInput = {
   startDate: Date;
   endDate: Date;
   qualificationFormId?: string;
+  stepConfig?: StepConfig;
 };
 
 export async function addCampaignChannel(
@@ -350,6 +352,9 @@ export async function addCampaignChannel(
           startDate: input.startDate,
           endDate: input.endDate,
           qualificationFormId: input.qualificationFormId,
+          stepConfigJson: input.stepConfig !== undefined
+            ? (input.stepConfig as Prisma.InputJsonValue)
+            : undefined,
           createdById: actor.userId,
           updatedById: actor.userId,
         },

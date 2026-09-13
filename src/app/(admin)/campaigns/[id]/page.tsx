@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AddChannelDialog } from "./add-channel-dialog";
+import { ChannelChecklist } from "@/components/channels/channel-checklist";
 import { ApprovalActions } from "./approval-actions";
 import { IcpCriteriaEditor } from "./icp-criteria-editor";
 import { LeadFieldSpecEditor } from "./lead-field-spec-editor";
@@ -55,16 +55,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   const canReadAllocations = hasPermission(actor, "allocation:read");
   const canReadDelivery = hasPermission(actor, "delivery:read");
 
-  const [channelTypes, timeZone] = await Promise.all([
-    canEditConfig
-      ? db.channelType.findMany({
-          where: { isActive: true, currentVersion: { gt: 0 } },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
-      : Promise.resolve([]),
-    getSetting(db, "operatingTimezone"),
-  ]);
+  const timeZone = await getSetting(db, "operatingTimezone");
 
   const now = new Date();
   const readiness = await Promise.all(
@@ -82,23 +73,21 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       ]);
       const allocatedQuantity = allocationsAgg._sum.allocatedQuantity ?? 0;
       const allocationsCount = allocationsAgg._count;
-      // Readiness comes from the shared computation, not a local rule: the
-      // placement step applies only to requiresAsset channel types, and
-      // allocations and delivery are optional (a channel run in-house with no
-      // partner and no delivery endpoint yet is still ready).
       const channelReadiness = await loadChannelReadiness(db, channel.id);
+      const requiredSteps = channelReadiness.steps.filter((s) => s.required);
       const expected = expectedToDate(channel.contractedQuantity, channel.startDate, channel.endDate, now, timeZone);
       const pace = paceSignal(channel.deliveredCount, expected);
       return {
         channelId: channel.id,
+        channelReadiness,
         placementsCount,
         allocationsCount,
         allocatedQuantity,
         deliveryConfigured: deliveryConfigured > 0,
-        ready: channelReadiness.ready,
-        outstanding: channelReadiness.steps.filter((s) => s.required && !s.done).map((s) => s.title),
-        requiredDone: channelReadiness.requiredDone,
-        requiredTotal: channelReadiness.requiredTotal,
+        ready: requiredSteps.every((s) => s.done),
+        outstanding: requiredSteps.filter((s) => !s.done).map((s) => s.title),
+        requiredDone: requiredSteps.filter((s) => s.done).length,
+        requiredTotal: requiredSteps.length,
         hasPlacementStep: channelReadiness.steps.some((s) => s.id === "placement"),
         pace,
       };
@@ -135,6 +124,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         canSubmit={hasPermission(actor, "campaign:submitInternal")}
         canApproveInternal={hasPermission(actor, "campaign:approveInternal")}
         canApproveClient={hasPermission(actor, "campaign:approveClient")}
+        canRevertToDraft={actor.roles.includes("SUPER_ADMIN")}
       />
 
       {firstNotReady !== undefined && (
@@ -169,13 +159,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Channels</CardTitle>
           {canEditConfig && (
-            <AddChannelDialog
-              campaignId={campaign.id}
-              campaignCurrency={campaign.currency}
-              campaignStartDate={campaign.startDate.toISOString().slice(0, 10)}
-              campaignEndDate={campaign.endDate.toISOString().slice(0, 10)}
-              channelTypes={channelTypes}
-            />
+            <Button asChild size="sm">
+              <Link href={`/campaigns/${campaign.id}/channels/new` as Route}>
+                Add channel
+              </Link>
+            </Button>
           )}
         </CardHeader>
         <CardContent>
@@ -217,22 +205,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <Link href={`/campaigns/${campaign.id}/channels/${channel.id}` as Route} className="block">
-                        <div className="flex flex-wrap gap-1">
-                          {r?.ready === true ? (
-                            <Badge>ready</Badge>
-                          ) : (
-                            (r?.outstanding ?? []).map((title) => (
-                              <Badge key={title} variant="outline">{title}</Badge>
-                            ))
-                          )}
-                        </div>
-                        <div className="mt-1.5 text-xs text-muted-foreground">
-                          {r?.requiredDone ?? 0} of {r?.requiredTotal ?? 0} required steps done
-                          {r?.allocationsCount === 0 ? " · in-house" : ""}
-                          {r?.deliveryConfigured === false ? " · delivery unset" : ""}
-                        </div>
-                      </Link>
+                      {r?.channelReadiness && (
+                        <ChannelChecklist
+                          campaignId={campaign.id}
+                          channelId={channel.id}
+                          readiness={r.channelReadiness}
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       <Link href={`/campaigns/${campaign.id}/channels/${channel.id}?tab=pacing` as Route} className="block">

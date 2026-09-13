@@ -1,5 +1,5 @@
 import type { ApprovalDecision, Campaign, CampaignStatus, Prisma, PrismaClient } from "@prisma/client";
-import { InvalidStateTransitionError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ForbiddenError, InvalidStateTransitionError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
   assertPermission,
@@ -12,6 +12,7 @@ import { getSetting } from "@/lib/settings/settings";
 import { logger } from "@/lib/logging/logger";
 import { operatingDayStart } from "@/lib/time/operating-day";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
+import type { StepConfig } from "@/lib/channels/readiness";
 
 /** SRS §5.1, transcribed exactly. */
 export const ALLOWED_TRANSITIONS: Readonly<Record<CampaignStatus, readonly CampaignStatus[]>> = {
@@ -127,10 +128,12 @@ async function assertReadyForApproval(db: PrismaClient, campaignId: string): Pro
     throw new ValidationError("A campaign needs at least one ICP criterion before approval");
   }
 
-  // Check that channels requiring assets have at least one active placement
+  // Check that channels requiring assets have at least one active placement,
+  // unless the placement step has been explicitly skipped or made optional.
   for (const channel of channels) {
     const definition = channel.channelTypeVersion.definitionJson as ChannelTypeDefinition;
-    if (definition.requiresAsset) {
+    const stepConfig = (channel.stepConfigJson ?? {}) as StepConfig;
+    if (definition.requiresAsset && stepConfig.placement !== "skipped" && stepConfig.placement !== "optional") {
       const activeCount = await db.assetPlacement.count({
         where: {
           campaignChannelId: channel.id,
@@ -242,6 +245,54 @@ export async function decideClientApproval(
     return applyTransition(tx, actor, campaign, "scheduled", comments, {
       approvedSnapshotId: approval.id,
     });
+  });
+}
+
+/**
+ * SUPER_ADMIN escape hatch: move a scheduled campaign back to draft so its
+ * details can be corrected. Clears the client-approval snapshot so the full
+ * draft → internal approval → client approval flow must be completed again
+ * before the campaign can go live.
+ */
+export async function superAdminRevertToDraft(
+  db: PrismaClient,
+  actor: Actor,
+  campaignId: string,
+  reason?: string,
+): Promise<Campaign> {
+  if (!actor.roles.includes("SUPER_ADMIN")) {
+    throw new ForbiddenError("Only SUPER_ADMIN can revert a scheduled campaign to draft");
+  }
+  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
+  if (campaign === null || campaign.deletedAt !== null) throw new NotFoundError("Campaign not found");
+  if (campaign.status !== "scheduled") {
+    throw new InvalidStateTransitionError(
+      `Campaign is ${campaign.status}; only scheduled campaigns can be reverted to draft`,
+    );
+  }
+  const revertReason = reason ?? "Reverted to draft by SUPER_ADMIN";
+  return db.$transaction(async (tx) => {
+    const updated = await tx.campaign.update({
+      where: { id: campaignId },
+      data: { status: "draft", approvedSnapshotId: null, updatedById: actor.userId },
+    });
+    await tx.campaignStatusHistory.create({
+      data: {
+        campaignId,
+        fromStatus: "scheduled",
+        toStatus: "draft",
+        changedByUserId: actor.userId,
+        reason: revertReason,
+      },
+    });
+    await writeAudit(tx, actor, {
+      entityType: "Campaign",
+      entityId: campaignId,
+      action: "transition:draft",
+      before: { status: "scheduled" },
+      after: { status: "draft", reason: revertReason },
+    });
+    return updated;
   });
 }
 

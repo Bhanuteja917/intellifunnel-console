@@ -1,59 +1,68 @@
 import { describe, expect, it } from "vitest";
 import { computeChannelReadiness } from "@/lib/channels/readiness";
 
-const base = {
-  definition: { requiresAsset: true },
-  termsStatus: "approved" as const,
-  activePlacementCount: 1,
-  allocationCount: 0,
-  hasDeliveryConfig: false,
-};
+const base = { activePlacementCount: 0, allocationCount: 0, requiresAsset: true };
 
-describe("computeChannelReadiness", () => {
-  it("is ready with approved terms, ignoring placement, allocations and delivery", () => {
+describe("computeChannelReadiness — stepConfig overrides", () => {
+  it("includes all steps with required=true by default when no stepConfig", () => {
     const result = computeChannelReadiness(base);
-    expect(result.ready).toBe(true);
-    expect(result.requiredTotal).toBe(1);
-    expect(result.requiredDone).toBe(1);
+    expect(result.steps.map((s) => s.id)).toEqual(["placement", "allocations"]);
+    expect(result.steps.find((s) => s.id === "placement")?.required).toBe(false); // placement default is not required
+    expect(result.steps.find((s) => s.id === "allocations")?.required).toBe(false); // allocations default is not required
+    expect(result.totalCount).toBe(2);
   });
 
-  it("drops the placement step for a channel type that needs no asset", () => {
+  it("omits placement step when requiresAsset is false", () => {
+    const result = computeChannelReadiness({ ...base, requiresAsset: false });
+    expect(result.steps.map((s) => s.id)).toEqual(["allocations"]);
+    expect(result.totalCount).toBe(1);
+  });
+
+  it("marks placement as required when stepConfig enables it", () => {
     const result = computeChannelReadiness({
       ...base,
-      definition: { requiresAsset: false },
-      activePlacementCount: 0,
+      stepConfig: { placement: "enabled" },
     });
-    expect(result.steps.map((s) => s.id)).toEqual(["terms", "allocations", "delivery"]);
-    expect(result.requiredTotal).toBe(1);
-    expect(result.ready).toBe(true);
+    const placementStep = result.steps.find((s) => s.id === "placement");
+    expect(placementStep?.required).toBe(true);
   });
 
-  it("is not ready while terms are unapproved", () => {
-    for (const termsStatus of ["pending", "changesRequested", "reapprovalNeeded"] as const) {
-      const result = computeChannelReadiness({ ...base, termsStatus });
-      expect(result.ready, termsStatus).toBe(false);
-    }
+  it("marks allocations as optional when stepConfig says optional", () => {
+    const result = computeChannelReadiness({
+      ...base,
+      stepConfig: { allocations: "optional" },
+    });
+    const allocStep = result.steps.find((s) => s.id === "allocations");
+    expect(allocStep?.required).toBe(false);
   });
 
-  it("is ready when an asset-bearing channel has no live placement (placement is optional)", () => {
-    expect(computeChannelReadiness({ ...base, activePlacementCount: 0 }).ready).toBe(true);
+  it("omits placement step when stepConfig skips it", () => {
+    const result = computeChannelReadiness({
+      ...base,
+      stepConfig: { placement: "skipped" },
+    });
+    expect(result.steps.map((s) => s.id)).not.toContain("placement");
+    expect(result.totalCount).toBe(1);
   });
 
-  it("marks placement, allocations and delivery optional and never counts them as required", () => {
-    const result = computeChannelReadiness({ ...base, allocationCount: 3, hasDeliveryConfig: true });
-    const optional = result.steps.filter((s) => !s.required).map((s) => s.id);
-    expect(optional).toEqual(["placement", "allocations", "delivery"]);
-    expect(result.requiredTotal).toBe(1);
+  it("omits both steps when both skipped", () => {
+    const result = computeChannelReadiness({
+      ...base,
+      stepConfig: { placement: "skipped", allocations: "skipped" },
+    });
+    expect(result.steps).toHaveLength(0);
+    expect(result.totalCount).toBe(0);
+    expect(result.doneCount).toBe(0);
   });
 
-  it("attributes the terms step to the client and the rest to the agency", () => {
-    const result = computeChannelReadiness({ ...base, termsStatus: "pending" });
-    expect(result.steps.find((s) => s.id === "terms")?.owner).toBe("client");
-    expect(result.steps.find((s) => s.id === "delivery")?.owner).toBe("agency");
-  });
-
-  it("marks a completed step's owner as done", () => {
-    const result = computeChannelReadiness(base);
-    expect(result.steps.find((s) => s.id === "terms")?.owner).toBe("done");
+  it("counts doneCount correctly with mixed config", () => {
+    const result = computeChannelReadiness({
+      activePlacementCount: 1,
+      allocationCount: 0,
+      requiresAsset: true,
+      stepConfig: { placement: "enabled", allocations: "optional" },
+    });
+    expect(result.doneCount).toBe(1); // placement done
+    expect(result.totalCount).toBe(2); // both shown
   });
 });

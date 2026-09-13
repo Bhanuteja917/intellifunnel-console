@@ -1,148 +1,79 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
-import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
-import { getChannelTermsApprovalStatus, type ApprovalStatus } from "@/lib/approvals/status";
+import type { PrismaClient, Prisma } from "@prisma/client";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export type StepOwner = "client" | "agency" | "done";
-export type ChannelStepId = "terms" | "placement" | "allocations" | "delivery";
-export type ChannelTab = "terms" | "placements" | "allocations" | "delivery";
+export type ChannelStepId = "placement" | "allocations";
+export type StepOverride = "enabled" | "optional" | "skipped";
+export type StepConfig = Partial<Record<ChannelStepId, StepOverride>>;
 
 export type ChannelStep = {
   id: ChannelStepId;
   title: string;
   hint: string;
   cta: string;
-  tab: ChannelTab;
-  required: boolean;
   done: boolean;
-  owner: StepOwner;
+  required: boolean;
 };
 
 export type ChannelReadiness = {
   steps: ChannelStep[];
-  ready: boolean;
-  requiredDone: number;
-  requiredTotal: number;
+  doneCount: number;
+  totalCount: number;
 };
 
-export type ReadinessInput = {
-  definition: Partial<ChannelTypeDefinition>;
-  termsStatus: ApprovalStatus;
+export function computeChannelReadiness(input: {
   activePlacementCount: number;
   allocationCount: number;
-  hasDeliveryConfig: boolean;
-};
+  requiresAsset: boolean;
+  stepConfig?: StepConfig;
+}): ChannelReadiness {
+  const { stepConfig = {} } = input;
+  const steps: ChannelStep[] = [];
 
-/**
- * The single source of truth for "is this channel set up". Every surface that
- * renders or gates on setup state calls this — the admin checklist, the channel
- * activation guard, the campaign channels table, and the client portal's
- * checklist mirror — so they cannot disagree with each other.
- *
- * Pure, so the whole matrix is unit-testable; callers do their own counting.
- */
-export function computeChannelReadiness(input: ReadinessInput): ChannelReadiness {
-  const termsDone = input.termsStatus === "approved";
-  const placementDone = input.activePlacementCount > 0;
-  const allocationsDone = input.allocationCount > 0;
-
-  const steps: ChannelStep[] = [
-    {
-      id: "terms",
-      title: "Channel terms",
-      hint: "Volume, unit price and flight window, approved by the client",
-      cta: "Review",
-      tab: "terms",
-      required: true,
-      done: termsDone,
-      owner: termsDone ? "done" : "client",
-    },
-  ];
-
-  // requiresAsset is the frozen channel-type flag: a channel type with no
-  // asset has no collection point to configure, so the step does not exist for
-  // it rather than sitting permanently incomplete.
-  if (input.definition.requiresAsset === true) {
+  if (input.requiresAsset && stepConfig.placement !== "skipped") {
     steps.push({
       id: "placement",
       title: "Add a placement",
       hint: "Asset version, landing page, form slug, consent text",
-      cta: "Add",
-      tab: "placements",
-      required: false,
-      done: placementDone,
-      owner: placementDone ? "done" : "agency",
+      cta: "Add placement",
+      done: input.activePlacementCount > 0,
+      required: stepConfig.placement === "enabled",
     });
   }
 
-  // Neither of these blocks a channel: a campaign can be run in-house with no
-  // partner allocation at all, and delivery can be configured at any point,
-  // including after the channel is already collecting leads.
-  steps.push(
-    {
+  if (stepConfig.allocations !== "skipped") {
+    steps.push({
       id: "allocations",
       title: "Allocate partner quota",
-      hint: "Optional — leave the quota unallocated to run this channel in-house",
+      hint: "Leave unallocated to run this channel in-house",
       cta: "Allocate",
-      tab: "allocations",
-      required: false,
-      done: allocationsDone,
-      owner: allocationsDone ? "done" : "agency",
-    },
-    {
-      id: "delivery",
-      title: "Configure delivery",
-      hint: "Optional — can be configured at any time, including after launch",
-      cta: "Configure",
-      tab: "delivery",
-      required: false,
-      done: input.hasDeliveryConfig,
-      owner: input.hasDeliveryConfig ? "done" : "agency",
-    },
-  );
+      done: input.allocationCount > 0,
+      required: stepConfig.allocations === "enabled",
+    });
+  }
 
-  const required = steps.filter((s) => s.required);
-  const requiredDone = required.filter((s) => s.done).length;
-
-  return {
-    steps,
-    ready: requiredDone === required.length,
-    requiredDone,
-    requiredTotal: required.length,
-  };
+  const doneCount = steps.filter((s) => s.done).length;
+  return { steps, doneCount, totalCount: steps.length };
 }
 
-/**
- * Convenience loader for callers that hold a channel id. Runs no permission
- * check of its own — every caller has already asserted access to the campaign
- * the channel belongs to. Queries are sequential so this is safe to call with
- * an interactive transaction client.
- */
-export async function loadChannelReadiness(
-  db: Db,
-  campaignChannelId: string,
-): Promise<ChannelReadiness> {
+export async function loadChannelReadiness(db: Db, campaignChannelId: string): Promise<ChannelReadiness> {
   const channel = await db.campaignChannel.findUniqueOrThrow({
     where: { id: campaignChannelId },
     include: { channelTypeVersion: { select: { definitionJson: true } } },
   });
 
-  const termsStatus = await getChannelTermsApprovalStatus(db, channel);
-  const activePlacementCount = await db.assetPlacement.count({
-    where: { campaignChannelId, status: "active" },
-  });
-  const allocationCount = await db.partnerAllocation.count({ where: { campaignChannelId } });
-  const deliveryConfig = await db.deliveryConfig.findUnique({
-    where: { campaignChannelId },
-    select: { id: true },
-  });
+  const [activePlacementCount, allocationCount] = await Promise.all([
+    db.assetPlacement.count({ where: { campaignChannelId, status: "active" } }),
+    db.partnerAllocation.count({ where: { campaignChannelId } }),
+  ]);
+
+  const def = (channel.channelTypeVersion.definitionJson ?? {}) as { requiresAsset?: boolean };
+  const stepConfig = (channel.stepConfigJson ?? {}) as StepConfig;
 
   return computeChannelReadiness({
-    definition: (channel.channelTypeVersion.definitionJson ?? {}) as Partial<ChannelTypeDefinition>,
-    termsStatus,
     activePlacementCount,
     allocationCount,
-    hasDeliveryConfig: deliveryConfig !== null,
+    requiresAsset: def.requiresAsset === true,
+    stepConfig,
   });
 }
