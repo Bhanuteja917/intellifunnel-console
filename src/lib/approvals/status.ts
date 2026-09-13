@@ -158,7 +158,9 @@ function leadSpecSnapshotsMatch(stored: unknown, current: LeadSpecSnapshot): boo
       (s as Partial<LeadSpecSnapshot[number]>).label === c.label &&
       (s as Partial<LeadSpecSnapshot[number]>).dataType === c.dataType &&
       (s as Partial<LeadSpecSnapshot[number]>).isRequired === c.isRequired &&
-      (s as Partial<LeadSpecSnapshot[number]>).rejectIfMissing === c.rejectIfMissing
+      (s as Partial<LeadSpecSnapshot[number]>).rejectIfMissing === c.rejectIfMissing &&
+      JSON.stringify((s as Partial<LeadSpecSnapshot[number]>).allowedValues) === JSON.stringify(c.allowedValues) &&
+      (s as Partial<LeadSpecSnapshot[number]>).validationPattern === c.validationPattern
     );
   });
 }

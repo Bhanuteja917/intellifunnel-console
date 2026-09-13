@@ -8,6 +8,7 @@ import {
 import { withAudit, writeAudit } from "@/lib/audit/audit";
 import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
 import { toMinorUnits } from "@/lib/money/currency";
+import { updateCampaignStatus } from "@/lib/campaigns/state-machine";
 
 export type UpdateCampaignChannelInput = {
   contractedQuantity: number;
@@ -139,18 +140,22 @@ export async function setChannelStatus(
     }
   }
 
-  const updated = await db.campaignChannel.update({
-    where: { id: input.channelId },
-    data: { status: input.status, updatedById: actor.userId },
-  });
+  return db.$transaction(async (tx) => {
+    const updated = await tx.campaignChannel.update({
+      where: { id: input.channelId },
+      data: { status: input.status, updatedById: actor.userId },
+    });
 
-  await writeAudit(db, actor, {
-    entityType: "CampaignChannel",
-    entityId: input.channelId,
-    action: `setStatus:${input.status}`,
-    before: { status: channel.status },
-    after: { status: input.status },
-  });
+    await writeAudit(tx, actor, {
+      entityType: "CampaignChannel",
+      entityId: input.channelId,
+      action: `setStatus:${input.status}`,
+      before: { status: channel.status },
+      after: { status: input.status },
+    });
 
-  return updated;
+    await updateCampaignStatus(tx, channel.campaignId, actor);
+
+    return updated;
+  });
 }
