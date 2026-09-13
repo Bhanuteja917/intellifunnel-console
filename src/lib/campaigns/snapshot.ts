@@ -50,6 +50,7 @@ export type CampaignConfigSnapshot = {
     startDate: string;
     endDate: string;
     definition: unknown;
+    stepConfig: unknown;
   }>;
   targetAccountListIds: string[];
   suppressionListIds: string[];
@@ -148,6 +149,7 @@ export async function buildConfigSnapshot(
       startDate: isoDate(channel.startDate),
       endDate: isoDate(channel.endDate),
       definition: version.definitionJson,
+      stepConfig: channel.stepConfigJson ?? null,
     })),
     targetAccountListIds: talLinks.map((l) => l.listId),
     suppressionListIds: suppressionLinks.map((l) => l.listId),
