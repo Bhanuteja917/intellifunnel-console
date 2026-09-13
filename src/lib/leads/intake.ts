@@ -147,7 +147,7 @@ export async function submitLeadFile(
 
   const campaign = campaignChannel.campaign;
 
-  const specRows = await db.leadFieldSpec.findMany({ where: { campaignId: campaignChannel.campaignId } });
+  const specRows = await db.leadFieldSpec.findMany({ where: { campaignChannelId: input.campaignChannelId } });
   if (!specRows.some((s) => s.fieldKey.toLowerCase() === "email")) {
     throw new ValidationError("This campaign has no 'email' lead field configured — lead intake needs one.");
   }
@@ -389,7 +389,7 @@ export async function submitLeadFile(
       if (outcome !== "failed") {
         const talResult = await matchesTal(db, campaign.id, account.id);
         if (talResult === "unmatched") {
-          if (campaign.advisoryTalMatch) {
+          if (campaignChannel.advisoryTalMatch) {
             if (outcome === "passed") outcome = "needsReview";
             if (rejectReasonCode === null) rejectReasonCode = "NOT_ON_TARGET_ACCOUNT_LIST";
             // advisory: do not stop, continue to the next check
@@ -402,7 +402,7 @@ export async function submitLeadFile(
       }
 
       if (outcome !== "failed") {
-        const cap = await resolveLeadCap(db, campaign.id, account.id);
+        const cap = await resolveLeadCap(db, campaignChannel.id, account.id);
         if (cap !== null) {
           const acceptedCount = await db.lead.count({
             where: { accountId: account.id, campaignChannel: { campaignId: campaign.id }, lifecycleStatus: "accepted" },
@@ -418,7 +418,7 @@ export async function submitLeadFile(
       if (outcome !== "failed") {
         const icp = await matchesIcp(
           db,
-          campaign.id,
+          campaignChannel.id,
           { industry: account.industry, employeeRange: account.employeeRange, revenueRange: account.revenueRange, country: account.country },
           { jobFunction: contact.jobFunction, seniority: contact.seniority, jobTitle: contact.jobTitle },
         );
@@ -434,7 +434,7 @@ export async function submitLeadFile(
               `matchesIcp reported mandatoryFailed with no mappable dimension (row ${rowNumber}, failedDimensions=${JSON.stringify(icp.failedDimensions)})`,
             );
           }
-          if (campaign.advisoryIcpMatch) {
+          if (campaignChannel.advisoryIcpMatch) {
             if (outcome === "passed") outcome = "needsReview";
             if (rejectReasonCode === null) rejectReasonCode = icpCode;
           } else {

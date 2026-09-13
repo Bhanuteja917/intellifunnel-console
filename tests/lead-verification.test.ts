@@ -44,8 +44,6 @@ async function setupNeedsReviewLead() {
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
       currency: "USD",
-      advisoryIcpMatch: false,
-      advisoryTalMatch: false,
     },
   });
   const campaignChannel = await db.campaignChannel.create({
@@ -57,7 +55,7 @@ async function setupNeedsReviewLead() {
       currency: "USD",
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
-      status: "active",
+      status: "live",
     },
   });
   const account = await db.account.create({

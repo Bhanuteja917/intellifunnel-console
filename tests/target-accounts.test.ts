@@ -116,6 +116,42 @@ describe("target account list import", () => {
   });
 });
 
+let channelCounter = 0;
+
+async function createChannelForCampaign(db: ReturnType<typeof testDb>, campaignId: string, defaultMaxLeadsPerAccount?: number) {
+  const stage = await db.funnelStage.findFirstOrThrow();
+  const channelType = await db.channelType.create({
+    data: {
+      code: `CT-CAP-${++channelCounter}`,
+      name: "Cap Test Channel",
+      funnelStageId: stage.id,
+      producesLeads: true,
+      requiresAsset: false,
+      metricMode: "event",
+      allowedMetricFieldsJson: [],
+      pricingUnit: "CPL",
+      requiresTeleVerification: false,
+      currentVersion: 1,
+    },
+  });
+  const channelTypeVersion = await db.channelTypeVersion.create({
+    data: { channelTypeId: channelType.id, version: 1, definitionJson: {}, publishedById: "system" },
+  });
+  return db.campaignChannel.create({
+    data: {
+      campaignId,
+      channelTypeVersionId: channelTypeVersion.id,
+      contractedQuantity: 100,
+      clientUnitPriceMinor: 1000n,
+      currency: "USD",
+      startDate: new Date("2026-10-01"),
+      endDate: new Date("2026-12-31"),
+      status: "draft",
+      defaultMaxLeadsPerAccount: defaultMaxLeadsPerAccount ?? null,
+    },
+  });
+}
+
 describe("resolveAccountCap (PRD decisions 3 and 4)", () => {
   beforeEach(async () => {
     await resetDb();
@@ -131,41 +167,44 @@ describe("resolveAccountCap (PRD decisions 3 and 4)", () => {
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "CAP-1",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
-      currency: "USD", defaultMaxLeadsPerAccount: 5,
+      currency: "USD",
     });
+    const channel = await createChannelForCampaign(db, campaign.id, 5);
     const { listId } = await importTargetAccountList(db, ops, {
       ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
     });
     await attachTargetAccountList(db, manager, campaign.id, listId);
 
-    expect(await resolveAccountCap(db, campaign.id, acme.id)).toBe(3);
+    expect(await resolveAccountCap(db, channel.id, acme.id)).toBe(3);
   });
 
-  it("falls back to the campaign default when there is no override", async () => {
+  it("falls back to the channel default when there is no override", async () => {
     const { db, ops, manager, client } = await setup();
     const globex = await createAccount(db, ops, { name: "Globex", domain: "globex.com", country: "US" });
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "CAP-2",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
-      currency: "USD", defaultMaxLeadsPerAccount: 5,
+      currency: "USD",
     });
+    const channel = await createChannelForCampaign(db, campaign.id, 5);
     const { listId } = await importTargetAccountList(db, ops, {
       ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
     });
     await attachTargetAccountList(db, manager, campaign.id, listId);
 
-    expect(await resolveAccountCap(db, campaign.id, globex.id)).toBe(5);
+    expect(await resolveAccountCap(db, channel.id, globex.id)).toBe(5);
   });
 
-  it("returns null when neither an override nor a campaign default is set", async () => {
+  it("returns null when neither an override nor a channel default is set", async () => {
     const { db, ops, manager, client } = await setup();
     const acme = await createAccount(db, ops, { name: "Acme", domain: "acme.com", country: "US" });
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "CAP-3",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
     });
+    const channel = await createChannelForCampaign(db, campaign.id);
 
-    expect(await resolveAccountCap(db, campaign.id, acme.id)).toBeNull();
+    expect(await resolveAccountCap(db, channel.id, acme.id)).toBeNull();
   });
 });
 
