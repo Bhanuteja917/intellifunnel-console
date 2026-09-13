@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
@@ -9,7 +9,6 @@ import {
   buildIcpSnapshot,
   buildLeadSpecSnapshot,
   getChannelApprovalStatus,
-  getChannelTermsApprovalStatus,
 } from "@/lib/approvals/status";
 
 describe("channel approval status", () => {
@@ -27,12 +26,12 @@ describe("channel approval status", () => {
     expect(await getChannelApprovalStatus(db, channel)).toBe("pending");
   });
 
-  it("getChannelTermsApprovalStatus alias works identically", async () => {
+  it("is pending when a channelApproval table has no rows for this channel", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("pending");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("pending");
   });
 
   it("is approved when the latest decision approves the current terms and ICP is empty", async () => {
@@ -143,7 +142,7 @@ describe("channel approval status", () => {
         decidedByUserId: fx.clientAdminActor.userId,
         termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
         icpSnapshotJson: [] as unknown as Prisma.InputJsonValue, // snapshot of empty ICP
-        leadSpecSnapshotJson: null,
+        leadSpecSnapshotJson: Prisma.DbNull,
       },
     });
 
@@ -174,7 +173,7 @@ describe("channel approval status", () => {
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
         termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
-        icpSnapshotJson: null,
+        icpSnapshotJson: Prisma.DbNull,
         leadSpecSnapshotJson: [] as unknown as Prisma.InputJsonValue,
       },
     });
@@ -207,8 +206,8 @@ describe("channel approval status", () => {
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
         termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
-        icpSnapshotJson: null,
-        leadSpecSnapshotJson: null,
+        icpSnapshotJson: Prisma.DbNull,
+        leadSpecSnapshotJson: Prisma.DbNull,
       },
     });
 

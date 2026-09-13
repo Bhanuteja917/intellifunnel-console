@@ -38,7 +38,7 @@ async function setup() {
     data: {
       campaignId: campaign.id, channelTypeVersionId: channelTypeVersion.id,
       contractedQuantity: 10, clientUnitPriceMinor: 1000n, currency: "USD",
-      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "active", deliveredCount: 2,
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "live", deliveredCount: 2,
     },
   });
   await db.partnerAllocation.create({

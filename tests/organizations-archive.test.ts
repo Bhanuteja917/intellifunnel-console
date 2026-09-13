@@ -22,8 +22,6 @@ async function campaignFor(db: ReturnType<typeof testDb>, clientOrganizationId: 
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
       currency: "USD",
-      advisoryIcpMatch: false,
-      advisoryTalMatch: false,
     },
   });
 }
@@ -58,7 +56,7 @@ describe("archiveOrganization", () => {
     });
   }
 
-  for (const status of ["draft", "pendingInternalApproval", "pendingClientApproval", "completed", "cancelled"]) {
+  for (const status of ["draft", "pending", "completed", "cancelled"]) {
     it(`allows archiving with a ${status} campaign (not active)`, async () => {
       const db = testDb();
       const actor = await superAdmin(db);

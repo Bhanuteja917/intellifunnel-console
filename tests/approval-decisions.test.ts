@@ -5,7 +5,7 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { decideChannelApproval, decideChannelTerms } from "@/lib/approvals/decisions";
+import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getChannelApprovalStatus } from "@/lib/approvals/status";
 import { ForbiddenError, ValidationError } from "@/lib/errors";
 
@@ -87,11 +87,17 @@ describe("decideChannelApproval", () => {
     expect(audit?.action).toBe("approved");
   });
 
-  it("decideChannelTerms alias works identically", async () => {
+  it("records a second approval and the status reads 'approved' again", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
 
-    const approval = await decideChannelTerms(db, fx.clientAdminActor, {
+    // First approval
+    await decideChannelApproval(db, fx.clientAdminActor, {
+      campaignChannelId: fx.channelId,
+      decision: "approved",
+    });
+    // Second approval overwrites the first
+    const approval = await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
     });

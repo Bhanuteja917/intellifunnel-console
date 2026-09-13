@@ -35,8 +35,6 @@ async function setupChannelAndAsset(assetStatus: "draft" | "active" | "archived"
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
       currency: "USD",
-      advisoryIcpMatch: false,
-      advisoryTalMatch: false,
     },
   });
   const campaignChannel = await db.campaignChannel.create({
@@ -48,7 +46,7 @@ async function setupChannelAndAsset(assetStatus: "draft" | "active" | "archived"
       currency: "USD",
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
-      status: "active",
+      status: "live",
     },
   });
   const asset = await db.asset.create({

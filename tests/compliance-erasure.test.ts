@@ -54,11 +54,11 @@ describe("eraseContactNow", () => {
     const channel = await db.campaignChannel.create({
       data: {
         campaignId: campaign.id, channelTypeVersionId: ctv.id, contractedQuantity: 10,
-        clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "active",
+        clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "live",
       },
     });
     for (const fieldKey of ["email", "firstName", "companyName"]) {
-      await db.leadFieldSpec.create({ data: { campaignId: campaign.id, fieldKey, label: fieldKey, dataType: "string" } });
+      await db.leadFieldSpec.create({ data: { campaignChannelId: channel.id, fieldKey, label: fieldKey, dataType: "string" } });
     }
     const submission = await db.leadSubmission.create({
       data: { campaignChannelId: channel.id, sourceType: "internal", submittedById: ops.userId, mappingJson: {} },

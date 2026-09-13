@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
@@ -85,7 +85,7 @@ describe("listClientApprovals", () => {
         decidedByUserId: fx.clientAdminActor.userId,
         termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
         icpSnapshotJson: [] as unknown as Prisma.InputJsonValue,
-        leadSpecSnapshotJson: null,
+        leadSpecSnapshotJson: Prisma.DbNull,
       },
     });
 
