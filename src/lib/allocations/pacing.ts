@@ -2,6 +2,8 @@ import { operatingDayStart } from "@/lib/time/operating-day";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+export type PacingBucket = { periodStart: Date; periodEnd: Date; targetQuantity: number };
+
 /**
  * Linear pro-ration of `cap` across the flight window, both endpoints
  * inclusive: a 1-day window (startDate === endDate) has totalDays === 1,
@@ -21,6 +23,28 @@ export function expectedToDate(cap: number, startDate: Date, endDate: Date, asOf
   const rawElapsedDays = Math.round((today.getTime() - startDate.getTime()) / DAY_MS) + 1;
   const elapsedDays = Math.min(Math.max(rawElapsedDays, 0), totalDays);
   return cap * (elapsedDays / totalDays);
+}
+
+export function expectedToDateWithSchedule(
+  buckets: PacingBucket[],
+  asOf: Date,
+  timeZone: string,
+): number {
+  const sortedBuckets = [...buckets].sort((a, b) => a.periodStart.getTime() - b.periodStart.getTime());
+
+  const today = operatingDayStart(asOf, timeZone);
+
+  let total = 0;
+
+  for (const bucket of sortedBuckets) {
+    if (today > bucket.periodEnd) {
+      total += bucket.targetQuantity;
+    } else if (today >= bucket.periodStart && today <= bucket.periodEnd) {
+      total += expectedToDate(bucket.targetQuantity, bucket.periodStart, bucket.periodEnd, asOf, timeZone);
+    }
+  }
+
+  return total;
 }
 
 export type PaceSignal = "behind" | "onPace" | "ahead";

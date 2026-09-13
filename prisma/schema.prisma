@@ -1350,3 +1350,19 @@ model EngagementEvent {
 
   @@unique([assetPlacementId, date])
 }
+
+model ChannelPacingBucket {
+  id                String          @id @default(cuid())
+  campaignChannelId String
+  periodStart       DateTime        @db.Date
+  periodEnd         DateTime        @db.Date
+  targetQuantity    Int
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel   CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@index([campaignChannelId])
+}
