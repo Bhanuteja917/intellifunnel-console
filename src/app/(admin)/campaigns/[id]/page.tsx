@@ -23,8 +23,6 @@ import {
 } from "@/components/ui/table";
 import { ChannelChecklist } from "@/components/channels/channel-checklist";
 import { ApprovalActions } from "./approval-actions";
-import { IcpCriteriaEditor } from "./icp-criteria-editor";
-import { LeadFieldSpecEditor } from "./lead-field-spec-editor";
 
 function statCard(label: string, value: string, hint: string) {
   return (
@@ -237,31 +235,6 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <IcpCriteriaEditor
-          campaignId={campaign.id}
-          initialCriteria={campaign.icpCriteria.map((c) => ({
-            dimension: c.dimension,
-            operator: c.operator,
-            values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
-            isMandatory: c.isMandatory,
-          }))}
-          canEdit={canEditConfig}
-        />
-        <LeadFieldSpecEditor
-          campaignId={campaign.id}
-          initialFields={campaign.leadFieldSpecs.map((f) => ({
-            fieldKey: f.fieldKey,
-            label: f.label,
-            dataType: f.dataType,
-            isRequired: f.isRequired,
-            rejectIfMissing: f.rejectIfMissing,
-            allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
-            validationPattern: f.validationPattern ?? undefined,
-          }))}
-          canEdit={canEditConfig}
-        />
-      </div>
     </div>
   );
 }

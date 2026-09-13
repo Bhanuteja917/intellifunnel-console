@@ -3,11 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
-import {
-  decideClientApproval,
-  decideInternalApproval,
-  submitForInternalApproval,
-} from "@/lib/campaigns/state-machine";
 import { cloneCampaign } from "@/lib/campaigns/clone";
 import { createCampaign, deleteCampaign } from "@/lib/campaigns/crud";
 
@@ -39,41 +34,6 @@ export async function deleteCampaignAction(campaignId: string): Promise<ActionRe
     const actor = await requireActor();
     await deleteCampaign(db, actor, campaignId);
     revalidatePath("/campaigns");
-    return null;
-  });
-}
-
-export async function submitCampaignAction(campaignId: string): Promise<ActionResult<null>> {
-  return toActionResult(async () => {
-    const actor = await requireActor();
-    await submitForInternalApproval(db, actor, campaignId);
-    revalidatePath(`/campaigns/${campaignId}`);
-    return null;
-  });
-}
-
-export async function approveInternalAction(
-  campaignId: string,
-  decision: "approved" | "rejected",
-  comments?: string,
-): Promise<ActionResult<null>> {
-  return toActionResult(async () => {
-    const actor = await requireActor();
-    await decideInternalApproval(db, actor, campaignId, decision, comments);
-    revalidatePath(`/campaigns/${campaignId}`);
-    return null;
-  });
-}
-
-export async function approveClientAction(
-  campaignId: string,
-  decision: "approved" | "rejected",
-  comments?: string,
-): Promise<ActionResult<null>> {
-  return toActionResult(async () => {
-    const actor = await requireActor();
-    await decideClientApproval(db, actor, campaignId, decision, comments);
-    revalidatePath(`/campaigns/${campaignId}`);
     return null;
   });
 }

@@ -74,7 +74,7 @@ type Row = {
 };
 
 type Props = {
-  campaignId: string;
+  channelId: string;
   initialCriteria: { dimension: IcpDimension; operator: IcpOperator; values: unknown[]; isMandatory: boolean }[];
   canEdit: boolean;
 };
@@ -141,7 +141,7 @@ function valuesDisplay(row: Row) {
 const TEXTAREA_CLASS =
   "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 font-mono text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
 
-export function IcpCriteriaEditor({ campaignId, initialCriteria, canEdit }: Props) {
+export function IcpCriteriaEditor({ channelId, initialCriteria, canEdit }: Props) {
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(() => initialCriteria.map(toRow));
   const [isEditing, setIsEditing] = useState(false);
@@ -215,7 +215,7 @@ export function IcpCriteriaEditor({ campaignId, initialCriteria, canEdit }: Prop
       isMandatory: row.isMandatory,
     }));
     startTransition(async () => {
-      const result = await setIcpCriteriaAction(campaignId, criteria);
+      const result = await setIcpCriteriaAction(channelId, criteria);
       if (result.ok) {
         toast.success("ICP criteria saved");
         setIsEditing(false);

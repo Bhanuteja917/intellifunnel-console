@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { loadChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
-import { getChannelTermsApprovalStatus, getPlacementApprovalStatus } from "@/lib/approvals/status";
+import { getChannelApprovalStatus, getPlacementApprovalStatus } from "@/lib/approvals/status";
 import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
 import { RunLogTable } from "./delivery/run-log-table";
@@ -30,6 +30,8 @@ import { ChannelTermsTab, TERMS_BADGE } from "./channel-terms-tab";
 import { EditChannelDialog } from "./edit-channel-dialog";
 import { ChannelStatusControl } from "./channel-status-control";
 import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
+import { IcpCriteriaEditor } from "../../icp-criteria-editor";
+import { LeadFieldSpecEditor } from "../../lead-field-spec-editor";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -107,9 +109,13 @@ export default async function ChannelPage({
   // guard uses, so the badge, the checklist and what the server will allow can
   // never disagree.
   const readiness = await loadChannelReadiness(db, channelId);
-  const termsStatus = await getChannelTermsApprovalStatus(db, channel);
+  const termsStatus = await getChannelApprovalStatus(db, channel);
   const hasPlacementStep = readiness.steps.some((s) => s.id === "placement");
-  const outstanding = readiness.steps.filter((s) => s.required && !s.done).map((s) => s.title);
+  const requiredSteps = readiness.steps.filter((s) => s.required);
+  const outstanding = requiredSteps.filter((s) => !s.done).map((s) => s.title);
+  const isReady = requiredSteps.every((s) => s.done);
+  const requiredDone = requiredSteps.filter((s) => s.done).length;
+  const requiredTotal = requiredSteps.length;
   const visibleTabs = TABS.filter((t) => t.id !== "placements" || hasPlacementStep);
 
   return (
@@ -128,8 +134,8 @@ export default async function ChannelPage({
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-semibold">Channel {channelLabel}</h1>
                 <Badge variant="outline">{channelLabel}</Badge>
-                <Badge variant={readiness.ready ? "default" : "secondary"}>
-                  {readiness.ready ? "ready" : "setup incomplete"}
+                <Badge variant={isReady ? "default" : "secondary"}>
+                  {isReady ? "ready" : "setup incomplete"}
                 </Badge>
                 <Badge variant="outline">{channel.status}</Badge>
               </div>
@@ -164,15 +170,8 @@ export default async function ChannelPage({
                 />
                 <ChannelStatusControl
                   campaignId={campaign.id}
-                  campaignChannelId={channel.id}
+                  channelId={channel.id}
                   status={channel.status}
-                  activateBlockedReason={
-                    !readiness.ready
-                      ? `Setup is incomplete: ${outstanding.join(", ")}`
-                      : campaign.status !== "scheduled" && campaign.status !== "live"
-                        ? `Campaign is ${campaign.status} — channels activate once it is scheduled or live`
-                        : null
-                  }
                 />
               </div>
             )}
@@ -215,7 +214,34 @@ export default async function ChannelPage({
       )}
 
       {tab === "terms" && (
-        <ChannelTermsTab channel={channel} channelLabel={channelLabel} termsStatus={termsStatus} />
+        <div className="flex flex-col gap-6">
+          <ChannelTermsTab channel={channel} channelLabel={channelLabel} termsStatus={termsStatus} />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <IcpCriteriaEditor
+              channelId={channel.id}
+              initialCriteria={channel.icpCriteria.map((c) => ({
+                dimension: c.dimension,
+                operator: c.operator,
+                values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
+                isMandatory: c.isMandatory,
+              }))}
+              canEdit={canWriteCampaign}
+            />
+            <LeadFieldSpecEditor
+              channelId={channel.id}
+              initialFields={channel.leadFieldSpecs.map((f) => ({
+                fieldKey: f.fieldKey,
+                label: f.label,
+                dataType: f.dataType,
+                isRequired: f.isRequired,
+                rejectIfMissing: f.rejectIfMissing,
+                allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
+                validationPattern: f.validationPattern ?? undefined,
+              }))}
+              canEdit={canWriteCampaign}
+            />
+          </div>
+        </div>
       )}
 
       {tab === "placements" && hasPlacementStep && canReadAssets && (
@@ -240,7 +266,7 @@ export default async function ChannelPage({
           actor={actor}
           campaignId={campaign.id}
           channelId={channel.id}
-          leadFieldSpecs={campaign.leadFieldSpecs.map((f) => f.fieldKey)}
+          leadFieldSpecs={channel.leadFieldSpecs.map((f) => f.fieldKey)}
           deliveryConfig={deliveryConfig}
         />
       )}
@@ -261,6 +287,8 @@ function OverviewTab({
 }) {
   const required = readiness.steps.filter((s) => s.required);
   const optional = readiness.steps.filter((s) => !s.required);
+  const requiredDone = required.filter((s) => s.done).length;
+  const requiredTotal = required.length;
 
   const stepRow = (step: ChannelReadiness["steps"][number]) => (
     <div key={step.id} className="flex items-center gap-3 border-b py-3 last:border-b-0">
@@ -275,14 +303,11 @@ function OverviewTab({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{step.title}</span>
           {!step.required && <Badge variant="outline" className="text-xs">Optional</Badge>}
-          {step.required && !step.done && step.owner === "client" && (
-            <Badge variant="secondary" className="text-xs">with the client</Badge>
-          )}
         </div>
         <div className="text-xs text-muted-foreground">{step.hint}</div>
       </div>
       <Button asChild size="sm" variant="outline">
-        <Link href={`/campaigns/${campaignId}/channels/${channel.id}?tab=${step.tab}` as Route}>{step.cta}</Link>
+        <Link href={`/campaigns/${campaignId}/channels/${channel.id}?tab=${step.id}` as Route}>{step.cta}</Link>
       </Button>
     </div>
   );
@@ -293,14 +318,14 @@ function OverviewTab({
         {statCard("Delivered", `${channel.deliveredCount} / ${channel.contractedQuantity}`, `${channel.reservedCount} reserved`)}
         {statCard("Placements live", String(activePlacementsCount), `${placementsCount} total`)}
         {statCard("Partner quota", `${allocatedQuantity} / ${channel.contractedQuantity}`, `${allocationsCount} allocation(s)`)}
-        {statCard("Setup steps", `${readiness.requiredDone} / ${readiness.requiredTotal}`, "required steps complete")}
+        {statCard("Setup steps", `${requiredDone} / ${requiredTotal}`, "required steps complete")}
       </div>
       <Card>
         <CardHeader>
           <CardTitle>Setup checklist</CardTitle>
           <p className="text-sm text-muted-foreground">
-            A channel is ready once its {readiness.requiredTotal} required{" "}
-            {readiness.requiredTotal === 1 ? "step is" : "steps are"} in place. Optional steps can be
+            A channel is ready once its {requiredTotal} required{" "}
+            {requiredTotal === 1 ? "step is" : "steps are"} in place. Optional steps can be
             completed at any time, including after launch.
           </p>
         </CardHeader>

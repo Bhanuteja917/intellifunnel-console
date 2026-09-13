@@ -37,7 +37,7 @@ export async function ChannelTermsTab({
   channelLabel: string | undefined;
   termsStatus: ApprovalStatus;
 }) {
-  const decisions = await db.channelTermsApproval.findMany({
+  const decisions = await db.channelApproval.findMany({
     where: { campaignChannelId: channel.id },
     orderBy: { decidedAt: "desc" },
   });
@@ -56,7 +56,7 @@ export async function ChannelTermsTab({
   return (
     <div className="flex flex-col gap-6">
       {termsStatus === "changesRequested" && (() => {
-        const latestComment = decisions.find(d => (d.decision as string) === "changesRequested")?.comments;
+        const latestComment = decisions.find(d => d.decision === "rejected")?.comments;
         return (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
             <p className="text-sm font-semibold text-destructive">Client requested changes</p>

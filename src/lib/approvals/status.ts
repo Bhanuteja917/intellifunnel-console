@@ -1,4 +1,5 @@
 import type {
+  AssetPlacement,
   CampaignChannel,
   IcpCriterion,
   LeadFieldSpec,
@@ -47,6 +48,18 @@ type ChannelTermsSubject = Pick<
   | "channelTypeVersionId"
 >;
 
+export type PlacementSnapshot = {
+  landingPageUrl: string;
+  assetVersionId: string;
+  formSlug: string;
+  consentTextVersionId: string | null;
+};
+
+type PlacementSubject = Pick<
+  AssetPlacement,
+  "id" | "landingPageUrl" | "assetVersionId" | "formSlug" | "consentTextVersionId"
+>;
+
 /** `@db.Date` columns compare as calendar days, never as instants. */
 const day = (value: Date): string => value.toISOString().slice(0, 10);
 
@@ -62,6 +75,15 @@ export function buildChannelTermsSnapshot(channel: ChannelTermsSubject): Channel
     startDate: day(channel.startDate),
     endDate: day(channel.endDate),
     channelTypeVersionId: channel.channelTypeVersionId,
+  };
+}
+
+export function buildPlacementSnapshot(placement: PlacementSubject): PlacementSnapshot {
+  return {
+    landingPageUrl: placement.landingPageUrl,
+    assetVersionId: placement.assetVersionId,
+    formSlug: placement.formSlug,
+    consentTextVersionId: placement.consentTextVersionId,
   };
 }
 
@@ -114,7 +136,8 @@ function icpSnapshotsMatch(stored: unknown, current: IcpSnapshot): boolean {
   if (!Array.isArray(stored)) return false;
   if (stored.length !== current.length) return false;
   return stored.every((s, i) => {
-    const c = current[i];
+    const c: IcpSnapshot[number] | undefined = current[i];
+    if (c === undefined) return false;
     return (
       (s as Partial<IcpSnapshot[number]>).dimension === c.dimension &&
       (s as Partial<IcpSnapshot[number]>).operator === c.operator &&
@@ -128,7 +151,8 @@ function leadSpecSnapshotsMatch(stored: unknown, current: LeadSpecSnapshot): boo
   if (!Array.isArray(stored)) return false;
   if (stored.length !== current.length) return false;
   return stored.every((s, i) => {
-    const c = current[i];
+    const c: LeadSpecSnapshot[number] | undefined = current[i];
+    if (c === undefined) return false;
     return (
       (s as Partial<LeadSpecSnapshot[number]>).fieldKey === c.fieldKey &&
       (s as Partial<LeadSpecSnapshot[number]>).label === c.label &&
@@ -192,5 +216,29 @@ export async function getChannelApprovalStatus(
   return derive(latest, true);
 }
 
-// Keep old name as alias for callers that haven't been updated yet (removed after Task 9)
-export const getChannelTermsApprovalStatus = getChannelApprovalStatus;
+function placementSnapshotsMatch(stored: unknown, current: PlacementSnapshot): boolean {
+  if (stored === null || typeof stored !== "object") return false;
+  const s = stored as Partial<PlacementSnapshot>;
+  return (
+    s.landingPageUrl === current.landingPageUrl &&
+    s.assetVersionId === current.assetVersionId &&
+    s.formSlug === current.formSlug &&
+    (s.consentTextVersionId ?? null) === current.consentTextVersionId
+  );
+}
+
+export async function getPlacementApprovalStatus(
+  db: Db,
+  placement: PlacementSubject,
+): Promise<ApprovalStatus> {
+  const latest = await db.placementApproval.findFirst({
+    where: { assetPlacementId: placement.id },
+    orderBy: { decidedAt: "desc" },
+    select: { decision: true, placementSnapshotJson: true },
+  });
+  if (latest === null) return derive(null, false);
+  return derive(
+    latest,
+    placementSnapshotsMatch(latest.placementSnapshotJson, buildPlacementSnapshot(placement)),
+  );
+}

@@ -1,6 +1,7 @@
 import type {
   ApprovalDecision,
   ChannelApproval,
+  PlacementApproval,
   Prisma,
   PrismaClient,
 } from "@prisma/client";
@@ -11,6 +12,7 @@ import {
   buildChannelTermsSnapshot,
   buildIcpSnapshot,
   buildLeadSpecSnapshot,
+  buildPlacementSnapshot,
 } from "@/lib/approvals/status";
 
 /** A rejection the agency cannot act on is useless; an approval needs no note. */
@@ -86,5 +88,57 @@ export async function decideChannelApproval(
   });
 }
 
-// Keep old name as alias during transition (removed after Task 9)
-export const decideChannelTerms = decideChannelApproval;
+/**
+ * The client's sign-off on a placement's live landing page URL. Until this
+ * says `approved`, `setPlacementStatus` refuses to move the placement to
+ * `active`.
+ */
+export async function decidePlacement(
+  db: PrismaClient,
+  actor: Actor,
+  input: { assetPlacementId: string; decision: ApprovalDecision; comments?: string },
+): Promise<PlacementApproval> {
+  assertPermission(actor, "campaign:approveClient");
+
+  const placement = await db.assetPlacement.findUnique({
+    where: { id: input.assetPlacementId },
+    include: {
+      campaignChannel: {
+        select: { campaign: { select: { clientOrganizationId: true, deletedAt: true } } },
+      },
+    },
+  });
+  if (placement === null || placement.campaignChannel.campaign.deletedAt !== null) {
+    throw new NotFoundError("Placement not found");
+  }
+  assertOrganizationAccess(actor, placement.campaignChannel.campaign.clientOrganizationId);
+
+  const comments = normaliseComments(input.decision, input.comments);
+
+  return db.$transaction(async (tx) => {
+    const fresh = await tx.assetPlacement.findUniqueOrThrow({
+      where: { id: input.assetPlacementId },
+    });
+
+    const approval = await tx.placementApproval.create({
+      data: {
+        assetPlacementId: fresh.id,
+        decision: input.decision,
+        decidedByUserId: actor.userId,
+        comments,
+        placementSnapshotJson: buildPlacementSnapshot(fresh) as unknown as Prisma.InputJsonValue,
+        createdById: actor.userId,
+        updatedById: actor.userId,
+      },
+    });
+
+    await writeAudit(tx, actor, {
+      entityType: "PlacementApproval",
+      entityId: approval.id,
+      action: input.decision,
+      after: { assetPlacementId: fresh.id, decision: input.decision, comments },
+    });
+
+    return approval;
+  });
+}

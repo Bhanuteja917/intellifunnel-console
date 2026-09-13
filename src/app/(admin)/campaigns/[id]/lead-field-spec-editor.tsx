@@ -41,7 +41,7 @@ type Row = {
 };
 
 type Props = {
-  campaignId: string;
+  channelId: string;
   initialFields: InitialField[];
   canEdit: boolean;
 };
@@ -109,7 +109,7 @@ function statusLine(row: Row | InitialField) {
 const TEXTAREA_CLASS =
   "w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 font-mono text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
 
-export function LeadFieldSpecEditor({ campaignId, initialFields, canEdit }: Props) {
+export function LeadFieldSpecEditor({ channelId, initialFields, canEdit }: Props) {
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(() => initialFields.map(toRow));
   const [isEditing, setIsEditing] = useState(false);
@@ -201,7 +201,7 @@ export function LeadFieldSpecEditor({ campaignId, initialFields, canEdit }: Prop
       validationPattern: row.validationPattern.trim() === "" ? undefined : row.validationPattern.trim(),
     }));
     startTransition(async () => {
-      const result = await setLeadFieldSpecAction(campaignId, fields);
+      const result = await setLeadFieldSpecAction(channelId, fields);
       if (result.ok) {
         toast.success("Lead field spec saved");
         setIsEditing(false);

@@ -40,7 +40,22 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
     });
   }
 
-  const leadFieldKeys = campaign.leadFieldSpecs.map((spec) => ({
+  // Aggregate lead field specs from all channels (dedup by fieldKey using first occurrence)
+  const channelIds = campaign.channels.map((c) => c.id);
+  const allLeadFieldSpecs = channelIds.length > 0
+    ? await db.leadFieldSpec.findMany({
+        where: { campaignChannelId: { in: channelIds } },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const seenKeys = new Set<string>();
+  const dedupedSpecs = allLeadFieldSpecs.filter((s) => {
+    if (seenKeys.has(s.fieldKey)) return false;
+    seenKeys.add(s.fieldKey);
+    return true;
+  });
+
+  const leadFieldKeys = dedupedSpecs.map((spec) => ({
     fieldKey: spec.fieldKey,
     label: spec.label,
     isRequired: spec.isRequired,
@@ -49,13 +64,13 @@ export default async function UploadLeadsPage({ params }: { params: Promise<{ id
   // Global Constraints: a campaign with no email-keyed field spec cannot use
   // lead intake at all, and the upload UI must say so upfront — not after the
   // operator has already picked a file and mapped every column.
-  const hasEmailSpec = campaign.leadFieldSpecs.some((s) => s.fieldKey.toLowerCase() === "email");
+  const hasEmailSpec = dedupedSpecs.some((s) => s.fieldKey.toLowerCase() === "email");
   const hasChannels = campaign.channels.length > 0;
-  const hasFieldSpecs = campaign.leadFieldSpecs.length > 0;
+  const hasFieldSpecs = dedupedSpecs.length > 0;
   const blockedReason = !hasFieldSpecs
-    ? "This campaign has no lead field specs configured. Configure field mappings on the campaign detail page before uploading leads."
+    ? "This campaign has no lead field specs configured. Configure field mappings on a channel before uploading leads."
     : !hasEmailSpec
-      ? "This campaign has no 'email' lead field configured. Add one on the campaign detail page before uploading leads."
+      ? "This campaign has no 'email' lead field configured. Add one on a channel page before uploading leads."
       : !hasChannels
         ? "This campaign has no channels configured. Add a channel on the campaign detail page before uploading leads."
         : null;

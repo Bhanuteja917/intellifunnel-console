@@ -3,13 +3,16 @@
 import { useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { submitCampaignAction } from "../actions";
+import { superAdminRevertToDraftAction } from "./actions";
 import type { ActionResult } from "@/lib/auth/require";
 
 type Props = {
   campaignId: string;
   status: string;
   canSubmit: boolean;
+  canApproveInternal: boolean;
+  canApproveClient: boolean;
+  canRevertToDraft: boolean;
 };
 
 export function ApprovalActions(props: Props) {
@@ -28,12 +31,18 @@ export function ApprovalActions(props: Props) {
 
   return (
     <div className="flex gap-2">
-      {props.canSubmit && props.status === "draft" && (
+      {props.canRevertToDraft && props.status !== "draft" && (
         <Button
+          variant="outline"
           disabled={pending}
-          onClick={() => run(() => submitCampaignAction(props.campaignId), "Submitted for approval")}
+          onClick={() =>
+            run(
+              () => superAdminRevertToDraftAction(props.campaignId),
+              "Campaign reverted to draft",
+            )
+          }
         >
-          Submit for approval
+          Revert to draft
         </Button>
       )}
     </div>
