@@ -531,8 +531,7 @@ model RejectReason {
 
 enum CampaignStatus {
   draft
-  pendingInternalApproval
-  pendingClientApproval
+  pending
   scheduled
   live
   paused
@@ -588,38 +587,34 @@ enum AllocationStatus {
 
 enum CampaignChannelStatus {
   draft
-  active
+  pending
+  scheduled
+  live
   paused
   completed
+  cancelled
 }
 
 model Campaign {
-  id                         String         @id @default(cuid())
-  clientOrganizationId       String
-  name                       String
-  code                       String         @unique
-  status                     CampaignStatus @default(draft)
-  startDate                  DateTime       @db.Date
-  endDate                    DateTime       @db.Date
-  currency                   String         @db.Char(3)
-  defaultMaxLeadsPerAccount  Int?
-  clonedFromCampaignId       String?
-  approvedSnapshotId         String?
-  advisoryTalMatch           Boolean        @default(false)
-  advisoryIcpMatch           Boolean        @default(false)
-  deletedAt                  DateTime?
-  createdAt                  DateTime       @default(now())
-  updatedAt                  DateTime       @updatedAt
-  createdById                String?
-  updatedById                String?
+  id                   String         @id @default(cuid())
+  clientOrganizationId String
+  name                 String
+  code                 String         @unique
+  status               CampaignStatus @default(draft)
+  startDate            DateTime       @db.Date
+  endDate              DateTime       @db.Date
+  currency             String         @db.Char(3)
+  clonedFromCampaignId String?
+  deletedAt            DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  createdById          String?
+  updatedById          String?
 
-  clientOrganization Organization        @relation(fields: [clientOrganizationId], references: [id])
-  clonedFrom         Campaign?           @relation("CampaignClone", fields: [clonedFromCampaignId], references: [id])
-  clones             Campaign[]          @relation("CampaignClone")
-  icpCriteria        IcpCriterion[]
-  leadFieldSpecs     LeadFieldSpec[]
+  clientOrganization Organization          @relation(fields: [clientOrganizationId], references: [id])
+  clonedFrom         Campaign?             @relation("CampaignClone", fields: [clonedFromCampaignId], references: [id])
+  clones             Campaign[]            @relation("CampaignClone")
   channels           CampaignChannel[]
-  approvals          CampaignApproval[]
   statusHistory      CampaignStatusHistory[]
   targetAccountLists CampaignTargetAccountList[]
   suppressionLists   CampaignSuppressionList[]
@@ -629,25 +624,25 @@ model Campaign {
 }
 
 model IcpCriterion {
-  id          String       @id @default(cuid())
-  campaignId  String
-  dimension   IcpDimension
-  operator    IcpOperator
-  valuesJson  Json
-  isMandatory Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  createdById String?
-  updatedById String?
+  id                String              @id @default(cuid())
+  campaignChannelId String
+  dimension         IcpDimension
+  operator          IcpOperator
+  valuesJson        Json
+  isMandatory       Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  createdById       String?
+  updatedById       String?
 
-  campaign Campaign @relation(fields: [campaignId], references: [id])
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
-  @@index([campaignId])
+  @@index([campaignChannelId])
 }
 
 model LeadFieldSpec {
   id                String            @id @default(cuid())
-  campaignId        String
+  campaignChannelId String
   fieldKey          String
   label             String
   isRequired        Boolean           @default(true)
@@ -660,31 +655,40 @@ model LeadFieldSpec {
   createdById       String?
   updatedById       String?
 
-  campaign Campaign @relation(fields: [campaignId], references: [id])
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
-  @@unique([campaignId, fieldKey])
+  @@unique([campaignChannelId, fieldKey])
 }
 
 model CampaignChannel {
-  id                   String                @id @default(cuid())
-  campaignId           String
-  channelTypeVersionId String
-  contractedQuantity   Int
-  clientUnitPriceMinor BigInt
-  costBudgetMinor      BigInt?
-  currency             String                @db.Char(3)
-  startDate            DateTime              @db.Date
-  endDate              DateTime              @db.Date
-  status               CampaignChannelStatus @default(draft)
-  qualificationFormId  String?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  createdById          String?
-  updatedById          String?
+  id                        String                @id @default(cuid())
+  campaignId                String
+  channelTypeVersionId      String
+  contractedQuantity        Int
+  clientUnitPriceMinor      BigInt
+  costBudgetMinor           BigInt?
+  currency                  String                @db.Char(3)
+  startDate                 DateTime              @db.Date
+  endDate                   DateTime              @db.Date
+  status                    CampaignChannelStatus @default(draft)
+  advisoryIcpMatch          Boolean               @default(false)
+  advisoryTalMatch          Boolean               @default(false)
+  defaultMaxLeadsPerAccount Int?
+  qualificationFormId       String?
+  reservedCount             Int                   @default(0)
+  deliveredCount            Int                   @default(0)
+  stepConfigJson            Json?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  createdById               String?
+  updatedById               String?
 
   campaign           Campaign           @relation(fields: [campaignId], references: [id])
   channelTypeVersion ChannelTypeVersion @relation(fields: [channelTypeVersionId], references: [id])
   qualificationForm  QualificationForm? @relation(fields: [qualificationFormId], references: [id])
+  icpCriteria        IcpCriterion[]
+  leadFieldSpecs     LeadFieldSpec[]
+  channelApprovals   ChannelApproval[]
   leadSubmissions    LeadSubmission[]
   leads              Lead[]
   assets             AssetPlacement[]
@@ -716,24 +720,33 @@ model PartnerAllocation {
   @@index([partnerOrganizationId])
 }
 
-model CampaignApproval {
-  id                 String           @id @default(cuid())
-  campaignId         String
-  type               ApprovalType
-  decision           ApprovalDecision
-  decidedByUserId    String
-  decidedAt          DateTime         @default(now())
-  comments           String?
-  configSnapshotJson Json?
-  snapshotVersion    Int?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  createdById        String?
-  updatedById        String?
+// CampaignApproval model — DELETED ENTIRELY
 
-  campaign Campaign @relation(fields: [campaignId], references: [id])
+// ChannelTermsApproval → ChannelApproval (renamed + extended)
+/**
+ * Append-only. Latest row by decidedAt is current decision; a change-of-mind
+ * writes a new row. Snapshot fields freeze what was approved — if ICP, lead
+ * spec, or terms are edited after approval, snapshot comparison marks it stale.
+ */
+model ChannelApproval {
+  id                   String           @id @default(cuid())
+  campaignChannelId    String
+  type                 ApprovalType     @default(client)
+  decision             ApprovalDecision
+  decidedByUserId      String
+  decidedAt            DateTime         @default(now())
+  comments             String?
+  termsSnapshotJson    Json
+  icpSnapshotJson      Json?
+  leadSpecSnapshotJson Json?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  createdById          String?
+  updatedById          String?
 
-  @@index([campaignId, type])
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@index([campaignChannelId, type, decidedAt])
 }
 
 model CampaignStatusHistory {
