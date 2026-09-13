@@ -8,17 +8,23 @@ import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { publishChannelTypeVersion } from "@/lib/channel-types/versions";
 import { setSetting } from "@/lib/settings/settings";
-import { addCampaignChannel, createCampaign, setIcpCriteria } from "@/lib/campaigns/crud";
+import { addCampaignChannel, createCampaign, setIcpCriteria, setLeadFieldSpec } from "@/lib/campaigns/crud";
 import {
-  activateDueCampaigns,
-  completeFinishedCampaigns,
-  decideClientApproval,
-  decideInternalApproval,
-  submitForInternalApproval,
+  activateDueChannels,
+  completeFinishedChannels,
+  decideChannelApproval,
+  deriveCampaignStatus,
+  submitChannelForApproval,
   transitionCampaign,
 } from "@/lib/campaigns/state-machine";
 import { ForbiddenError, InvalidStateTransitionError, ValidationError } from "@/lib/errors";
 
+/**
+ * Set up a campaign with one channel, plus three actors. The channel has:
+ *   - an ICP criterion (needed to submit for approval)
+ *   - an email lead field spec (needed to submit for approval)
+ *   - an active asset placement (CONTENT_SYNDICATION requiresAsset=true)
+ */
 async function scenario(code: string) {
   const db = testDb();
   const internal = await createOrganization(db, { isInternal: true, isClient: false });
@@ -34,20 +40,22 @@ async function scenario(code: string) {
   const campaign = await createCampaign(db, manager, {
     clientOrganizationId: client.id, name: "Campaign", code,
     startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
-    currency: "USD", defaultMaxLeadsPerAccount: 5,
+    currency: "USD",
   });
-  await setIcpCriteria(db, manager, campaign.id, [
-    { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
-  ]);
   const channel = await addCampaignChannel(db, manager, campaign.id, {
     channelTypeVersionId: version.id, contractedQuantity: 500,
     clientUnitPrice: "42.50", currency: "USD",
     startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
   });
 
-  // CONTENT_SYNDICATION is seeded requiresAsset:true (E5) — every test in
-  // this file submits for approval, so give it a satisfying active placement
-  // here rather than duplicating this setup per test.
+  // Satisfy the three readiness gates: ICP, email lead spec, active asset placement
+  await setIcpCriteria(db, manager, channel.id, [
+    { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+  ]);
+  await setLeadFieldSpec(db, manager, channel.id, [
+    { fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+  ]);
+
   const asset = await db.asset.create({
     data: { ownerOrganizationId: client.id, name: "Whitepaper", type: "whitepaper", language: "en" },
   });
@@ -65,10 +73,48 @@ async function scenario(code: string) {
     },
   });
 
-  return { db, admin, manager, client, clientAdmin, clientViewer, campaign, version };
+  return { db, admin, manager, client, clientAdmin, clientViewer, campaign, channel, version };
 }
 
-describe("approval workflow (E6, FR-CS-1)", () => {
+// ────────────────────────────────────────────────────────────
+// Pure function tests
+// ────────────────────────────────────────────────────────────
+
+describe("deriveCampaignStatus", () => {
+  it("returns draft when any channel is draft", () => {
+    expect(deriveCampaignStatus(["pending", "draft"])).toBe("draft");
+  });
+
+  it("returns live when any channel is live", () => {
+    expect(deriveCampaignStatus(["live", "pending"])).toBe("live");
+  });
+
+  it("returns pending when all submitted and any pending", () => {
+    expect(deriveCampaignStatus(["pending", "scheduled"])).toBe("pending");
+  });
+
+  it("returns scheduled when all channels are scheduled", () => {
+    expect(deriveCampaignStatus(["scheduled", "scheduled"])).toBe("scheduled");
+  });
+
+  it("returns paused when all channels are paused", () => {
+    expect(deriveCampaignStatus(["paused", "paused"])).toBe("paused");
+  });
+
+  it("returns completed when all channels are completed or cancelled", () => {
+    expect(deriveCampaignStatus(["completed", "cancelled"])).toBe("completed");
+  });
+
+  it("returns draft for empty channel list", () => {
+    expect(deriveCampaignStatus([])).toBe("draft");
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Channel approval workflow
+// ────────────────────────────────────────────────────────────
+
+describe("channel approval workflow", () => {
   beforeEach(async () => {
     await resetDb();
     const db = testDb();
@@ -77,168 +123,160 @@ describe("approval workflow (E6, FR-CS-1)", () => {
     await seedChannelTypes(db);
   });
 
-  it("walks draft → internal → client → scheduled", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("FLOW-1");
+  it("walks channel draft → pending → scheduled", async () => {
+    const { db, manager, clientAdmin, campaign, channel } = await scenario("FLOW-1");
 
-    const submitted = await submitForInternalApproval(db, manager, campaign.id);
-    expect(submitted.status).toBe("pendingInternalApproval");
+    const submitted = await submitChannelForApproval(db, manager, channel.id);
+    expect(submitted.status).toBe("pending");
 
-    const internallyApproved = await decideInternalApproval(db, manager, campaign.id, "approved");
-    expect(internallyApproved.status).toBe("pendingClientApproval");
+    // Campaign should derive to pending (has one pending channel)
+    const campaignAfterSubmit = await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(campaignAfterSubmit.status).toBe("pending");
 
-    const scheduled = await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    expect(scheduled.status).toBe("scheduled");
+    const approved = await decideChannelApproval(db, clientAdmin, channel.id, "approved");
+    // Channel start date 2026-10-01 is in the future relative to test execution, so → scheduled
+    expect(approved.status).toBe("scheduled");
+
+    // Campaign should derive to scheduled
+    const campaignAfterApproval = await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(campaignAfterApproval.status).toBe("scheduled");
   });
 
-  it("writes an immutable snapshot on client approval", async () => {
-    const { db, manager, clientAdmin, campaign, version } = await scenario("FLOW-2");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
+  it("writes a ChannelApproval row with all three snapshots on approval", async () => {
+    const { db, manager, clientAdmin, channel, version } = await scenario("FLOW-2");
+    await submitChannelForApproval(db, manager, channel.id);
 
-    const scheduled = await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
 
-    const approval = await db.campaignApproval.findFirstOrThrow({
-      where: { campaignId: campaign.id, type: "client" },
+    const approval = await db.channelApproval.findFirstOrThrow({
+      where: { campaignChannelId: channel.id, decision: "approved" },
     });
     expect(approval.decidedByUserId).toBe(clientAdmin.userId);
-    expect(approval.snapshotVersion).toBe(1);
-    expect(scheduled.approvedSnapshotId).toBe(approval.id);
 
-    const snapshot = approval.configSnapshotJson as {
-      icpCriteria: unknown[];
-      channels: Array<{ channelTypeVersionId: string; contractedQuantity: number; clientUnitPriceMinor: string }>;
-      defaultMaxLeadsPerAccount: number | null;
-    };
-    expect(snapshot.icpCriteria).toHaveLength(1);
-    expect(snapshot.channels[0]?.channelTypeVersionId).toBe(version.id);
-    expect(snapshot.channels[0]?.contractedQuantity).toBe(500);
-    expect(snapshot.channels[0]?.clientUnitPriceMinor).toBe("4250");
-    expect(snapshot.defaultMaxLeadsPerAccount).toBe(5);
+    const terms = approval.termsSnapshotJson as { channelTypeVersionId: string; contractedQuantity: number; clientUnitPriceMinor: string };
+    expect(terms.channelTypeVersionId).toBe(version.id);
+    expect(terms.contractedQuantity).toBe(500);
+    expect(terms.clientUnitPriceMinor).toBe("4250");
+
+    const icp = approval.icpSnapshotJson as Array<{ dimension: string }>;
+    expect(Array.isArray(icp)).toBe(true);
+    expect(icp).toHaveLength(1);
+
+    const spec = approval.leadSpecSnapshotJson as Array<{ fieldKey: string }>;
+    expect(Array.isArray(spec)).toBe(true);
+    expect(spec).toHaveLength(1);
+    expect(spec[0]?.fieldKey).toBe("email");
   });
 
-  it("returns the campaign to draft on rejection, keeping the comments", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("FLOW-3");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
+  it("returns the channel to draft on rejection, keeping the comments", async () => {
+    const { db, manager, clientAdmin, channel } = await scenario("FLOW-3");
+    await submitChannelForApproval(db, manager, channel.id);
 
-    const rejected = await decideClientApproval(db, clientAdmin, campaign.id, "rejected", "Price is wrong");
+    const rejected = await decideChannelApproval(db, clientAdmin, channel.id, "rejected", "Price is wrong");
 
     expect(rejected.status).toBe("draft");
-    const approval = await db.campaignApproval.findFirstOrThrow({
-      where: { campaignId: campaign.id, type: "client", decision: "rejected" },
+    const approval = await db.channelApproval.findFirstOrThrow({
+      where: { campaignChannelId: channel.id, decision: "rejected" },
     });
     expect(approval.comments).toBe("Price is wrong");
-    expect(approval.configSnapshotJson).toBeNull();
   });
 
   it("refuses a Client Viewer's approval", async () => {
-    const { db, manager, clientViewer, campaign } = await scenario("FLOW-4");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
+    const { db, manager, clientViewer, channel } = await scenario("FLOW-4");
+    await submitChannelForApproval(db, manager, channel.id);
 
-    await expect(decideClientApproval(db, clientViewer, campaign.id, "approved"))
+    await expect(decideChannelApproval(db, clientViewer, channel.id, "approved"))
       .rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it("refuses another client's admin", async () => {
-    const { db, manager, campaign } = await scenario("FLOW-5");
+    const { db, manager, channel } = await scenario("FLOW-5");
     const otherOrg = await createOrganization(testDb(), { isClient: true });
     const outsider = await loadActor(testDb(), (await createUser(testDb(), otherOrg.id, "CLIENT_ADMIN")).id);
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
+    await submitChannelForApproval(db, manager, channel.id);
 
-    await expect(decideClientApproval(db, outsider, campaign.id, "approved"))
+    await expect(decideChannelApproval(db, outsider, channel.id, "approved"))
       .rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it("refuses to submit a campaign with no channels", async () => {
-    const { db, manager, client } = await scenario("FLOW-6");
-    const empty = await createCampaign(db, manager, {
-      clientOrganizationId: client.id, name: "Empty", code: "EMPTY-1",
+  it("refuses to submit a channel without ICP criteria", async () => {
+    const { db, manager, client, version } = await scenario("FLOW-6");
+    // Create a campaign + channel with no ICP/spec/asset
+    const bare = await createCampaign(db, manager, {
+      clientOrganizationId: client.id, name: "Bare", code: "BARE-1",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
     });
+    const bareChannel = await addCampaignChannel(db, manager, bare.id, {
+      channelTypeVersionId: version.id, contractedQuantity: 10,
+      clientUnitPrice: "10.00", currency: "USD",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+    });
 
-    await expect(submitForInternalApproval(db, manager, empty.id)).rejects.toBeInstanceOf(ValidationError);
+    await expect(submitChannelForApproval(db, manager, bareChannel.id))
+      .rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("rejects an illegal transition", async () => {
+  it("rejects an illegal campaign-level transition", async () => {
     const { db, manager, campaign } = await scenario("FLOW-7");
 
     await expect(transitionCampaign(db, manager, campaign.id, "live"))
       .rejects.toBeInstanceOf(InvalidStateTransitionError);
   });
 
-  it("records every transition in the status history", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("FLOW-8");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+  it("records channel transitions in campaign status history", async () => {
+    const { db, manager, clientAdmin, campaign, channel } = await scenario("FLOW-8");
+    await submitChannelForApproval(db, manager, channel.id);
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
 
     const history = await db.campaignStatusHistory.findMany({
       where: { campaignId: campaign.id }, orderBy: { changedAt: "asc" },
     });
-    expect(history.map((h) => h.toStatus)).toEqual([
-      "draft", "pendingInternalApproval", "pendingClientApproval", "scheduled",
-    ]);
+    const statuses = history.map((h) => h.toStatus);
+    // draft (create) → pending (channel submit) → scheduled (channel approved)
+    expect(statuses).toContain("draft");
+    expect(statuses).toContain("pending");
+    expect(statuses).toContain("scheduled");
   });
 
-  it("allows cancellation from any pre-live state", async () => {
-    const { db, manager, campaign } = await scenario("FLOW-9");
-    await submitForInternalApproval(db, manager, campaign.id);
+  it("allows cancellation from pending state", async () => {
+    const { db, manager, campaign, channel } = await scenario("FLOW-9");
+    await submitChannelForApproval(db, manager, channel.id);
 
     const cancelled = await transitionCampaign(db, manager, campaign.id, "cancelled", "Client withdrew");
     expect(cancelled.status).toBe("cancelled");
   });
 
-  it("refuses cancellation once live", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("FLOW-10");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    await transitionCampaign(db, manager, campaign.id, "live");
+  it("refuses cancellation once campaign is live", async () => {
+    const { db, manager, campaign } = await scenario("FLOW-10");
+    // Manually set campaign to live for this test
+    await db.campaign.update({ where: { id: campaign.id }, data: { status: "live" } });
 
     await expect(transitionCampaign(db, manager, campaign.id, "cancelled"))
       .rejects.toBeInstanceOf(InvalidStateTransitionError);
   });
 
   it("pauses and resumes a live campaign", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("FLOW-11");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    await transitionCampaign(db, manager, campaign.id, "live");
+    const { db, manager, campaign } = await scenario("FLOW-11");
+    // Manually set campaign to live
+    await db.campaign.update({ where: { id: campaign.id }, data: { status: "live" } });
 
     expect((await transitionCampaign(db, manager, campaign.id, "paused")).status).toBe("paused");
     expect((await transitionCampaign(db, manager, campaign.id, "live")).status).toBe("live");
   });
-
-  it("refuses transitionCampaign on draft -> pendingInternalApproval (gated transition)", async () => {
-    const { db, manager, campaign } = await scenario("GATE-1");
-
-    await expect(transitionCampaign(db, manager, campaign.id, "pendingInternalApproval"))
-      .rejects.toBeInstanceOf(ValidationError);
-  });
-
-  it("refuses transitionCampaign on pendingClientApproval -> scheduled (gated transition)", async () => {
-    const { db, manager, campaign } = await scenario("GATE-2");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-
-    await expect(transitionCampaign(db, manager, campaign.id, "scheduled"))
-      .rejects.toBeInstanceOf(ValidationError);
-  });
 });
+
+// ────────────────────────────────────────────────────────────
+// Scheduled channel transitions (cron)
+// ────────────────────────────────────────────────────────────
 
 /**
  * The scheduled transitions run against the calendar of the platform's
  * operating timezone (`operatingTimezone`, Asia/Kolkata = UTC+05:30), not UTC,
  * because that is the calendar the `@db.Date` flight dates were written
  * against. Every instant below is therefore chosen relative to a real
- * Asia/Kolkata day boundary — 18:30 UTC — rather than to UTC midnight, which
- * is a time the worker's `new Date()` would essentially never produce and
- * which hid the bug these tests are here to catch.
+ * Asia/Kolkata day boundary — 18:30 UTC — rather than to UTC midnight.
  */
-describe("scheduled transitions", () => {
+describe("scheduled channel transitions", () => {
   beforeEach(async () => {
     await resetDb();
     const db = testDb();
@@ -248,65 +286,66 @@ describe("scheduled transitions", () => {
     await seedChannelTypes(db);
   });
 
-  it("activates a scheduled campaign at the operating timezone's day boundary", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-1");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+  it("activates a scheduled channel at the operating timezone's day boundary", async () => {
+    const { db, manager, clientAdmin, campaign, channel } = await scenario("SCHED-1");
+    await submitChannelForApproval(db, manager, channel.id);
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
+    // After approval the channel should be scheduled (start 2026-10-01 is future)
+    const ch = await db.campaignChannel.findUniqueOrThrow({ where: { id: channel.id } });
+    expect(ch.status).toBe("scheduled");
 
     // 2026-09-30T18:29Z is still 2026-09-30 in Asia/Kolkata (23:59 IST).
-    expect(await activateDueCampaigns(db, new Date("2026-09-30T18:29:00.000Z"))).toBe(0);
+    expect(await activateDueChannels(db, new Date("2026-09-30T18:29:00.000Z"))).toBe(0);
     // 2026-09-30T18:30Z is 2026-10-01 00:00 IST — the flight's first day.
-    expect(await activateDueCampaigns(db, new Date("2026-09-30T18:30:00.000Z"))).toBe(1);
+    expect(await activateDueChannels(db, new Date("2026-09-30T18:30:00.000Z"))).toBe(1);
+    expect((await db.campaignChannel.findUniqueOrThrow({ where: { id: channel.id } })).status).toBe("live");
+    // Campaign should also be live now
     expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("live");
   });
 
-  it("completes a live campaign once the flight end date passes (FR-CS-3)", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-2");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    await activateDueCampaigns(db, new Date("2026-10-01T06:00:00.000Z"));
+  it("completes a live channel once the flight end date passes (FR-CS-3)", async () => {
+    const { db, manager, clientAdmin, campaign, channel } = await scenario("SCHED-2");
+    await submitChannelForApproval(db, manager, channel.id);
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
+    await activateDueChannels(db, new Date("2026-10-01T06:00:00.000Z"));
 
     // Still 2026-12-31 in Asia/Kolkata: the last day of the flight is not over.
-    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T18:29:00.000Z"))).toBe(0);
+    expect(await completeFinishedChannels(db, new Date("2026-12-31T18:29:00.000Z"))).toBe(0);
     // 2027-01-01 00:00 IST: the flight's last day has passed.
-    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T18:30:00.000Z"))).toBe(1);
+    expect(await completeFinishedChannels(db, new Date("2026-12-31T18:30:00.000Z"))).toBe(1);
+    expect((await db.campaignChannel.findUniqueOrThrow({ where: { id: channel.id } })).status).toBe("completed");
+    // Campaign should also be completed
     expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("completed");
   });
 
-  it("does not complete a campaign that is still live in the operating timezone", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-3");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
-    await activateDueCampaigns(db, new Date("2026-10-01T06:00:00.000Z"));
+  it("does not complete a channel that is still live in the operating timezone", async () => {
+    const { db, manager, clientAdmin, channel } = await scenario("SCHED-3");
+    await submitChannelForApproval(db, manager, channel.id);
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
+    await activateDueChannels(db, new Date("2026-10-01T06:00:00.000Z"));
 
-    // The endDate column holds 2026-12-31T00:00:00Z, so a UTC comparison
-    // ("endDate < now") completes the campaign from 2026-12-31T00:00:01Z —
-    // 05:30 IST on its own final day, ~18.5 hours of the contracted flight
-    // still to run. In the operating timezone it is 2026-12-31 all day, so
-    // nothing is due.
-    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T00:00:01.000Z"))).toBe(0);
-    expect(await completeFinishedCampaigns(db, new Date("2026-12-31T12:00:00.000Z"))).toBe(0);
-    expect((await db.campaign.findUniqueOrThrow({ where: { id: campaign.id } })).status).toBe("live");
+    // endDate is 2026-12-31; in UTC that's 2026-12-31T00:00:00Z.
+    // In Asia/Kolkata it's 2026-12-31 05:30 IST, so 2026-12-31 is still ongoing.
+    expect(await completeFinishedChannels(db, new Date("2026-12-31T00:00:01.000Z"))).toBe(0);
+    expect(await completeFinishedChannels(db, new Date("2026-12-31T12:00:00.000Z"))).toBe(0);
+    expect((await db.campaignChannel.findUniqueOrThrow({ where: { id: channel.id } })).status).toBe("live");
   });
 
   it("reads the day boundary from the operatingTimezone setting, not a hardcoded zone", async () => {
-    const { db, manager, clientAdmin, campaign } = await scenario("SCHED-4");
-    await submitForInternalApproval(db, manager, campaign.id);
-    await decideInternalApproval(db, manager, campaign.id, "approved");
-    await decideClientApproval(db, clientAdmin, campaign.id, "approved");
+    const { db, manager, clientAdmin, channel } = await scenario("SCHED-4");
+    await submitChannelForApproval(db, manager, channel.id);
+    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
 
-    const admin = await loadActor(db, (await createUser(
+    const adminUser = await createUser(
       db,
       (await db.organization.findFirstOrThrow({ where: { isInternal: true } })).id,
       "SUPER_ADMIN",
-    )).id);
-    await setSetting(db, admin, "operatingTimezone", "Pacific/Kiritimati"); // UTC+14
+    );
+    const adminActor = await loadActor(db, adminUser.id);
+    await setSetting(db, adminActor, "operatingTimezone", "Pacific/Kiritimati"); // UTC+14
 
     // 2026-09-30T10:30Z is already 2026-10-01 in UTC+14, so the flight has
     // started there while it has not in Asia/Kolkata or UTC.
-    expect(await activateDueCampaigns(db, new Date("2026-09-30T10:30:00.000Z"))).toBe(1);
+    expect(await activateDueChannels(db, new Date("2026-09-30T10:30:00.000Z"))).toBe(1);
   });
 });

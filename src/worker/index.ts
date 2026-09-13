@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logging/logger";
-import { activateDueCampaigns, completeFinishedCampaigns } from "@/lib/campaigns/state-machine";
+import { activateDueChannels, completeFinishedChannels } from "@/lib/campaigns/state-machine";
 import { fireDueWebhookRuns } from "@/lib/delivery/webhook-runner";
 import { generateDueCsvRuns } from "@/lib/delivery/csv-runner";
 import { anonymizeExpiredContacts } from "@/lib/compliance/retention";
@@ -27,8 +27,8 @@ async function tick(): Promise<void> {
   const now = new Date();
   const correlationId = crypto.randomUUID();
   try {
-    const activated = await activateDueCampaigns(db, now);
-    const completed = await completeFinishedCampaigns(db, now);
+    const activated = await activateDueChannels(db, now);
+    const completed = await completeFinishedChannels(db, now);
     const webhooksFired = await fireDueWebhookRuns(db, now);
     const storage = await getStorageAdapter();
     const csvRunsGenerated = await generateDueCsvRuns(db, now, storage);

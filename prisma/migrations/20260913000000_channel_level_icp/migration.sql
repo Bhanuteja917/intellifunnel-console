@@ -81,13 +81,37 @@ CREATE UNIQUE INDEX "LeadFieldSpec_campaignChannelId_fieldKey_key"
   ON "LeadFieldSpec"("campaignChannelId", "fieldKey");
 
 -- Step 4: Add advisory flags + defaultMaxLeadsPerAccount + counters + stepConfig to CampaignChannel
-ALTER TABLE "CampaignChannel"
-  ADD COLUMN "advisoryIcpMatch" BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN "advisoryTalMatch" BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN "defaultMaxLeadsPerAccount" INTEGER,
-  ADD COLUMN "reservedCount" INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN "deliveredCount" INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN "stepConfigJson" JSONB;
+-- Use DO blocks so re-running or ordering after earlier migrations is idempotent.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='advisoryIcpMatch') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "advisoryIcpMatch" BOOLEAN NOT NULL DEFAULT false;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='advisoryTalMatch') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "advisoryTalMatch" BOOLEAN NOT NULL DEFAULT false;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='defaultMaxLeadsPerAccount') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "defaultMaxLeadsPerAccount" INTEGER;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='reservedCount') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "reservedCount" INTEGER NOT NULL DEFAULT 0;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='deliveredCount') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "deliveredCount" INTEGER NOT NULL DEFAULT 0;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='CampaignChannel' AND column_name='stepConfigJson') THEN
+    ALTER TABLE "CampaignChannel" ADD COLUMN "stepConfigJson" JSONB;
+  END IF;
+END $$;
 
 -- Step 4b: Backfill from Campaign
 UPDATE "CampaignChannel" cc
