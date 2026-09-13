@@ -34,7 +34,7 @@ describe("channel submit/approve — campaign status derivation", () => {
     expect(campaign.status).toBe("pending");
   });
 
-  it("approving a pending channel moves campaign to scheduled (future start date)", async () => {
+  it("approving a pending channel moves campaign to live (start date already passed)", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db, {
       campaignStatus: "draft",
@@ -117,9 +117,9 @@ describe("channel submit/approve — campaign status derivation", () => {
 
     await decideChannelApproval(db, fx.clientAdminActor, fx.channelId, "approved");
     // First channel is now live (start date 2026-02-01 is past); second is still draft.
-    // Per deriveCampaignStatus: live takes priority over draft → campaign derives to live.
+    // Per deriveCampaignStatus: draft has HIGHEST priority → campaign derives to draft.
     const campaignAfterApproval = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
-    expect(campaignAfterApproval.status).toBe("live");
+    expect(campaignAfterApproval.status).toBe("draft");
   });
 
   it("updateCampaignStatus derives completed when all channels finished", async () => {

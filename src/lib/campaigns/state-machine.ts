@@ -41,23 +41,23 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<CampaignStatus, readonly Campa
  * Priority-ordered derivation of campaign status from its channels.
  * Written as a pure function for testability.
  *
- * Rules (evaluated in priority order):
- *   1. Any channel live   → live
- *   2. Any channel draft  → draft
- *   3. Any channel pending → pending
- *   4. All completed/cancelled → completed
- *   5. All paused/completed/cancelled → paused
- *   6. All scheduled/completed/cancelled → scheduled
+ * Rules (evaluated in priority order — per SRS §5.1 spec table):
+ *   1. Any channel draft  → draft   (HIGHEST priority)
+ *   2. Any channel pending → pending
+ *   3. All channels scheduled (terminal channels ignored) → scheduled
+ *   4. Any channel live   → live
+ *   5. All channels paused (terminal channels ignored) → paused
+ *   6. All completed/cancelled → completed
  *   7. Mixed (e.g. some scheduled + some paused) → paused
  *   8. No channels → draft
  */
 export function deriveCampaignStatus(statuses: CampaignChannelStatus[]): CampaignStatus {
   if (statuses.length === 0) return "draft";
-  if (statuses.some((s) => s === "live")) return "live";
   if (statuses.some((s) => s === "draft")) return "draft";
   if (statuses.some((s) => s === "pending")) return "pending";
   if (statuses.every((s) => s === "completed" || s === "cancelled")) return "completed";
   if (statuses.every((s) => s === "paused" || s === "completed" || s === "cancelled")) return "paused";
+  if (statuses.some((s) => s === "live")) return "live";
   if (statuses.every((s) => s === "scheduled" || s === "completed" || s === "cancelled")) return "scheduled";
   // Mixed (e.g. some scheduled + some paused) — treat as paused
   return "paused";

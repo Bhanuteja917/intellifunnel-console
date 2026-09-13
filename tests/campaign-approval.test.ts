@@ -85,8 +85,12 @@ describe("deriveCampaignStatus", () => {
     expect(deriveCampaignStatus(["pending", "draft"])).toBe("draft");
   });
 
-  it("returns live when any channel is live", () => {
-    expect(deriveCampaignStatus(["live", "pending"])).toBe("live");
+  it("returns live when any channel is live (no draft/pending present)", () => {
+    expect(deriveCampaignStatus(["live", "scheduled"])).toBe("live");
+  });
+
+  it("live + draft → draft (draft takes highest priority)", () => {
+    expect(deriveCampaignStatus(["live", "draft"])).toBe("draft");
   });
 
   it("returns pending when all submitted and any pending", () => {
