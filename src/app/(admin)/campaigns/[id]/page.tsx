@@ -259,40 +259,29 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>ICP criteria</CardTitle></CardHeader>
-          <CardContent>
-            <IcpCriteriaEditor
-              campaignId={campaign.id}
-              initialCriteria={campaign.icpCriteria.map((c) => ({
-                dimension: c.dimension,
-                operator: c.operator,
-                values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
-                isMandatory: c.isMandatory,
-              }))}
-              canEdit={canEditConfig}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Lead field spec</CardTitle></CardHeader>
-          <CardContent>
-            <LeadFieldSpecEditor
-              campaignId={campaign.id}
-              initialFields={campaign.leadFieldSpecs.map((f) => ({
-                fieldKey: f.fieldKey,
-                label: f.label,
-                dataType: f.dataType,
-                isRequired: f.isRequired,
-                rejectIfMissing: f.rejectIfMissing,
-                allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
-                validationPattern: f.validationPattern ?? undefined,
-              }))}
-              canEdit={canEditConfig}
-            />
-          </CardContent>
-        </Card>
+        <IcpCriteriaEditor
+          campaignId={campaign.id}
+          initialCriteria={campaign.icpCriteria.map((c) => ({
+            dimension: c.dimension,
+            operator: c.operator,
+            values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
+            isMandatory: c.isMandatory,
+          }))}
+          canEdit={canEditConfig}
+        />
+        <LeadFieldSpecEditor
+          campaignId={campaign.id}
+          initialFields={campaign.leadFieldSpecs.map((f) => ({
+            fieldKey: f.fieldKey,
+            label: f.label,
+            dataType: f.dataType,
+            isRequired: f.isRequired,
+            rejectIfMissing: f.rejectIfMissing,
+            allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
+            validationPattern: f.validationPattern ?? undefined,
+          }))}
+          canEdit={canEditConfig}
+        />
       </div>
     </div>
   );
