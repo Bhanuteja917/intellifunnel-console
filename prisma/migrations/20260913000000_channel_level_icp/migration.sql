@@ -103,8 +103,18 @@ DROP TABLE IF EXISTS "CampaignApproval";
 
 -- Step 6: Create ChannelApproval table (ChannelTermsApproval did not exist in this codebase;
 --         this is a net-new table combining the rename + extension described in the SDD)
-CREATE TYPE "ApprovalType" AS ENUM ('internal', 'client');
-CREATE TYPE "ApprovalDecision" AS ENUM ('approved', 'rejected');
+-- ApprovalType and ApprovalDecision enums already exist from the 20260903 migration;
+-- they are reused here (CampaignApproval was dropped above but the types persist).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ApprovalType') THEN
+    CREATE TYPE "ApprovalType" AS ENUM ('internal', 'client');
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ApprovalDecision') THEN
+    CREATE TYPE "ApprovalDecision" AS ENUM ('approved', 'rejected');
+  END IF;
+END $$;
 
 CREATE TABLE "ChannelApproval" (
   "id"                   TEXT NOT NULL,
@@ -132,10 +142,12 @@ CREATE INDEX "ChannelApproval_campaignChannelId_type_decidedAt_idx"
   ON "ChannelApproval"("campaignChannelId", "type", "decidedAt");
 
 -- Step 7a: Unify CampaignChannelStatus enum (draft, active, paused, completed → 7-value)
--- Postgres requires creating a new type, migrating, then renaming
+-- Postgres requires creating a new type, migrating, then renaming.
+-- Drop default first so Postgres can cast; restore afterwards.
 CREATE TYPE "CampaignChannelStatus_new" AS ENUM (
   'draft', 'pending', 'scheduled', 'live', 'paused', 'completed', 'cancelled'
 );
+ALTER TABLE "CampaignChannel" ALTER COLUMN "status" DROP DEFAULT;
 ALTER TABLE "CampaignChannel"
   ALTER COLUMN "status" TYPE "CampaignChannelStatus_new"
   USING (
@@ -149,22 +161,25 @@ ALTER TABLE "CampaignChannel"
   )::"CampaignChannelStatus_new";
 DROP TYPE "CampaignChannelStatus";
 ALTER TYPE "CampaignChannelStatus_new" RENAME TO "CampaignChannelStatus";
+ALTER TABLE "CampaignChannel" ALTER COLUMN "status" SET DEFAULT 'draft'::"CampaignChannelStatus";
 
 -- Step 7b: Update CampaignStatus enum
--- Migrate rows before altering type
-UPDATE "Campaign"
-  SET "status" = 'pending'
-  WHERE "status"::text = 'pendingClientApproval';
-UPDATE "Campaign"
-  SET "status" = 'draft'
-  WHERE "status"::text = 'pendingInternalApproval';
-
+-- Map 'pendingClientApproval' → 'pending', 'pendingInternalApproval' → 'draft'
+-- via USING clause (cannot UPDATE rows before type change since new values don't
+-- exist in the old enum).
 CREATE TYPE "CampaignStatus_new" AS ENUM (
   'draft', 'pending', 'scheduled', 'live', 'paused', 'completed', 'cancelled'
 );
+ALTER TABLE "Campaign" ALTER COLUMN "status" DROP DEFAULT;
 ALTER TABLE "Campaign"
   ALTER COLUMN "status" TYPE "CampaignStatus_new"
-  USING "status"::text::"CampaignStatus_new";
+  USING (
+    CASE "status"::text
+      WHEN 'pendingClientApproval'   THEN 'pending'
+      WHEN 'pendingInternalApproval' THEN 'draft'
+      ELSE "status"::text
+    END
+  )::"CampaignStatus_new";
 
 -- Step 7c: Migrate CampaignStatusHistory (also uses CampaignStatus)
 ALTER TABLE "CampaignStatusHistory"
@@ -187,6 +202,7 @@ ALTER TABLE "CampaignStatusHistory"
 
 DROP TYPE "CampaignStatus";
 ALTER TYPE "CampaignStatus_new" RENAME TO "CampaignStatus";
+ALTER TABLE "Campaign" ALTER COLUMN "status" SET DEFAULT 'draft'::"CampaignStatus";
 
 -- Step 8: Remove advisory columns + approvedSnapshotId + defaultMaxLeadsPerAccount from Campaign
 ALTER TABLE "Campaign"

@@ -45,12 +45,10 @@ describe("campaign configuration", () => {
       startDate: new Date("2026-10-01"),
       endDate: new Date("2026-12-31"),
       currency: "USD",
-      defaultMaxLeadsPerAccount: 5,
     });
 
     expect(campaign.status).toBe("draft");
     expect(campaign.code).toBe("ACME-Q4-SEC");
-    expect(campaign.defaultMaxLeadsPerAccount).toBe(5);
   });
 
   it("records the initial status history entry", async () => {
@@ -132,22 +130,27 @@ describe("campaign configuration", () => {
     expect(await db.campaignChannel.count({ where: { campaignId: campaign.id } })).toBe(0);
   });
 
-  it("replaces ICP criteria wholesale", async () => {
-    const { db, manager, client } = await setupCampaign();
+  it("replaces ICP criteria wholesale (channel-scoped)", async () => {
+    const { db, manager, client, version } = await setupCampaign();
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "ICP-1",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
     });
+    const channel = await addCampaignChannel(db, manager, campaign.id, {
+      channelTypeVersionId: version.id, contractedQuantity: 100,
+      clientUnitPrice: "10.00", currency: "USD",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+    });
 
-    await setIcpCriteria(db, manager, campaign.id, [
+    await setIcpCriteria(db, manager, channel.id, [
       { dimension: "industry", operator: "in", values: ["Software", "Fintech"], isMandatory: true },
       { dimension: "country", operator: "in", values: ["US", "GB"], isMandatory: true },
     ]);
-    await setIcpCriteria(db, manager, campaign.id, [
+    await setIcpCriteria(db, manager, channel.id, [
       { dimension: "seniority", operator: "in", values: ["Director", "VP", "C-Level"], isMandatory: true },
     ]);
 
-    const criteria = await db.icpCriterion.findMany({ where: { campaignId: campaign.id } });
+    const criteria = await db.icpCriterion.findMany({ where: { campaignChannelId: channel.id } });
     expect(criteria).toHaveLength(1);
     expect(criteria[0]?.dimension).toBe("seniority");
     expect(criteria[0]?.createdById).toBe(manager.userId);
@@ -155,7 +158,7 @@ describe("campaign configuration", () => {
     // NFR-A-1: a destructive replace has to record what it destroyed, so the
     // second call's audit entry carries the two criteria it deleted.
     const audits = await db.auditLog.findMany({
-      where: { entityType: "Campaign", entityId: campaign.id, action: "setIcpCriteria" },
+      where: { entityType: "CampaignChannel", entityId: channel.id, action: "setIcpCriteria" },
       orderBy: { occurredAt: "asc" },
     });
     expect(audits).toHaveLength(2);
@@ -174,20 +177,25 @@ describe("campaign configuration", () => {
     ]);
   });
 
-  it("stores the lead field spec keyed per campaign", async () => {
-    const { db, manager, client } = await setupCampaign();
+  it("stores the lead field spec keyed per channel", async () => {
+    const { db, manager, client, version } = await setupCampaign();
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "SPEC-1",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
     });
+    const channel = await addCampaignChannel(db, manager, campaign.id, {
+      channelTypeVersionId: version.id, contractedQuantity: 100,
+      clientUnitPrice: "10.00", currency: "USD",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+    });
 
-    await setLeadFieldSpec(db, manager, campaign.id, [
+    await setLeadFieldSpec(db, manager, channel.id, [
       { fieldKey: "email", label: "Work email", dataType: "email", isRequired: true, rejectIfMissing: true },
       { fieldKey: "jobTitle", label: "Job title", dataType: "string", isRequired: true, rejectIfMissing: true },
       { fieldKey: "employeeCount", label: "Employees", dataType: "number", isRequired: false, rejectIfMissing: false },
     ]);
 
-    const spec = await db.leadFieldSpec.findMany({ where: { campaignId: campaign.id } });
+    const spec = await db.leadFieldSpec.findMany({ where: { campaignChannelId: channel.id } });
     expect(spec).toHaveLength(3);
     expect(spec.find((f) => f.fieldKey === "email")?.dataType).toBe("email");
   });
@@ -252,5 +260,53 @@ describe("campaign configuration", () => {
 
     const loaded = await getCampaignForActor(db, owner, campaign.id);
     expect(loaded.id).toBe(campaign.id);
+  });
+
+  describe("setIcpCriteria (channel-level)", () => {
+    it("persists criteria on the channel, not the campaign", async () => {
+      const { db, manager, client, version } = await setupCampaign();
+      const campaign = await createCampaign(db, manager, {
+        clientOrganizationId: client.id, name: "C", code: "ICP-CH-1",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+      });
+      const channel = await addCampaignChannel(db, manager, campaign.id, {
+        channelTypeVersionId: version.id, contractedQuantity: 100,
+        clientUnitPrice: "10.00", currency: "USD",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+      });
+
+      await setIcpCriteria(db, manager, channel.id, [
+        { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+      ]);
+
+      const rows = await db.icpCriterion.findMany({ where: { campaignChannelId: channel.id } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.dimension).toBe("country");
+    });
+
+    it("rejects if channel is not draft", async () => {
+      const { db, manager, client, version } = await setupCampaign();
+      const campaign = await createCampaign(db, manager, {
+        clientOrganizationId: client.id, name: "C", code: "ICP-CH-2",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+      });
+      const channel = await addCampaignChannel(db, manager, campaign.id, {
+        channelTypeVersionId: version.id, contractedQuantity: 100,
+        clientUnitPrice: "10.00", currency: "USD",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+      });
+
+      // Manually set channel status to "pending" to simulate a non-draft state
+      await db.campaignChannel.update({
+        where: { id: channel.id },
+        data: { status: "pending" },
+      });
+
+      await expect(
+        setIcpCriteria(db, manager, channel.id, [
+          { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+        ]),
+      ).rejects.toThrow("pending");
+    });
   });
 });
