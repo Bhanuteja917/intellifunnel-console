@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
-import { CURRENCY_EXPONENTS } from "@/lib/money/currency";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -12,9 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { InviteUserDialog } from "./invite-user-dialog";
-import { InvitationRowActions } from "./invitation-row-actions";
-import { NewOrganizationDialog } from "./new-organization-dialog";
+import { OrganizationTableRow } from "./organization-table-row";
 
 export default async function OrganizationsPage() {
   const actor = await requireActor();
@@ -31,37 +30,37 @@ export default async function OrganizationsPage() {
 
   const canCreateOrganization = hasPermission(actor, "organization:write");
   const canInvite = hasPermission(actor, "user:invite");
-  const roles = canInvite ? await db.role.findMany({ orderBy: { name: "asc" } }) : [];
-  const pendingInvitations = canInvite
-    ? await db.invitation.findMany({
-        where: {
-          status: "pending",
-          organizationId: { in: organizations.map((organization) => organization.id) },
-        },
-        include: { organization: { select: { name: true } }, role: { select: { name: true } } },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
+
+  const pendingCounts = canInvite
+    ? new Map(
+        (
+          await db.invitation.groupBy({
+            by: ["organizationId"],
+            where: {
+              status: "pending",
+              organizationId: { in: organizations.map((organization) => organization.id) },
+            },
+            _count: { _all: true },
+          })
+        ).map((row) => [row.organizationId, row._count._all]),
+      )
+    : null;
 
   return (
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Organisations</CardTitle>
-          <div className="flex gap-2">
-            {canCreateOrganization && (
-              <NewOrganizationDialog currencies={Object.keys(CURRENCY_EXPONENTS)} />
-            )}
-            {canInvite && (
-              <InviteUserDialog
-                organizations={organizations.map((organization) => ({
-                  id: organization.id,
-                  name: organization.name,
-                }))}
-                roles={roles.map((role) => ({ code: role.code, name: role.name }))}
-              />
-            )}
+          <div>
+            <CardTitle>Organisations</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Open an organisation to manage its people and invitations.
+            </p>
           </div>
+          {canCreateOrganization && (
+            <Button asChild variant="outline">
+              <Link href="/organizations/new">Create organisation</Link>
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           <Table>
@@ -70,64 +69,32 @@ export default async function OrganizationsPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Capabilities</TableHead>
                 <TableHead>Users</TableHead>
+                {pendingCounts && <TableHead>Pending</TableHead>}
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {organizations.map((organization) => (
-                <TableRow key={organization.id}>
-                  <TableCell>{organization.name}</TableCell>
+                <OrganizationTableRow key={organization.id} organizationId={organization.id}>
+                  <TableCell className="font-medium">{organization.name}</TableCell>
                   <TableCell className="flex gap-1">
                     {organization.isClient && <Badge variant="outline">client</Badge>}
                     {organization.isPartner && <Badge variant="outline">partner</Badge>}
                     {organization.isInternal && <Badge variant="outline">internal</Badge>}
                   </TableCell>
                   <TableCell>{organization._count.users}</TableCell>
+                  {pendingCounts && (
+                    <TableCell className="text-muted-foreground">
+                      {pendingCounts.get(organization.id) ?? "—"}
+                    </TableCell>
+                  )}
                   <TableCell><Badge>{organization.status}</Badge></TableCell>
-                </TableRow>
+                </OrganizationTableRow>
               ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
-
-      {canInvite && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Pending invitations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {pendingInvitations.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No invitations awaiting acceptance.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Organisation</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingInvitations.map((invitation) => (
-                    <TableRow key={invitation.id}>
-                      <TableCell>{invitation.email}</TableCell>
-                      <TableCell>{invitation.organization.name}</TableCell>
-                      <TableCell>{invitation.role.name}</TableCell>
-                      <TableCell>{invitation.expiresAt.toISOString().slice(0, 10)}</TableCell>
-                      <TableCell>
-                        <InvitationRowActions invitationId={invitation.id} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

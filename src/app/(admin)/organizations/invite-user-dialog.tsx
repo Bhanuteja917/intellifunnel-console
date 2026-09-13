@@ -25,15 +25,15 @@ import { inviteUserAction } from "./actions";
 import type { RoleCode } from "@/lib/auth/permissions";
 
 type Props = {
-  organizations: { id: string; name: string }[];
+  organizationId: string;
+  organizationName: string;
   roles: { code: string; name: string }[];
 };
 
-export function InviteUserDialog({ organizations, roles }: Props) {
+export function InviteUserDialog({ organizationId, organizationName, roles }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
-  const [organizationId, setOrganizationId] = useState(organizations[0]?.id ?? "");
   const [roleCode, setRoleCode] = useState(roles[0]?.code ?? "");
 
   function submit() {
@@ -73,21 +73,8 @@ export function InviteUserDialog({ organizations, roles }: Props) {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="invite-organization">Organisation</FieldLabel>
-            <Select value={organizationId} onValueChange={setOrganizationId}>
-              <SelectTrigger id="invite-organization" className="w-full">
-                <SelectValue placeholder="Organisation" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {organizations.map((organization) => (
-                    <SelectItem key={organization.id} value={organization.id}>
-                      {organization.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <FieldLabel>Organisation</FieldLabel>
+            <Input value={organizationName} disabled readOnly />
           </Field>
           <Field>
             <FieldLabel htmlFor="invite-role">Role</FieldLabel>
@@ -109,7 +96,7 @@ export function InviteUserDialog({ organizations, roles }: Props) {
         </FieldGroup>
         <DialogFooter>
           <Button
-            disabled={pending || email.trim() === "" || organizationId === "" || roleCode === ""}
+            disabled={pending || email.trim() === "" || roleCode === ""}
             onClick={submit}
           >
             Send invitation

@@ -10,6 +10,13 @@ import { ForbiddenError, ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { computeVerificationSla, resolveAllowedBusinessDays } from "@/lib/leads/sla";
+import {
+  convertChannelReservedToDelivered,
+  convertAllocationReservedToDelivered,
+  releaseChannelSlot,
+  releaseAllocationSlot,
+} from "@/lib/allocations/counters";
+import { createWebhookRunOnAccept } from "@/lib/delivery/runs";
 
 export type TeleVerificationInput = {
   callSystem: string;
@@ -92,6 +99,7 @@ export async function decideLeadVerification(
       campaignChannel: {
         include: { campaign: true, channelTypeVersion: { include: { channelType: true } } },
       },
+      submission: { select: { partnerOrganizationId: true } },
     },
   });
 
@@ -184,6 +192,21 @@ export async function decideLeadVerification(
   const verificationStatusTo: LeadVerificationStatus = effectiveDecision === "accept" ? "passed" : "failed";
   const lifecycleStatusTo: LeadLifecycleStatus = effectiveDecision === "accept" ? "accepted" : "rejected";
 
+  // Resolve the lead's live (non-`ended`) allocation once, outside the
+  // transaction — Task 2 guarantees at most one non-`ended` allocation per
+  // partner+channel, but an `ended` row from a prior reallocation can still
+  // be sitting in the table alongside it, and only the live one's counters
+  // matter here.
+  const allocation = lead.submission.partnerOrganizationId === null
+    ? null
+    : await db.partnerAllocation.findFirst({
+        where: {
+          campaignChannelId: lead.campaignChannelId,
+          partnerOrganizationId: lead.submission.partnerOrganizationId,
+          status: { not: "ended" },
+        },
+      });
+
   const updatedLead = await db.$transaction(async (tx) => {
     // Conditional update, not a plain update: the read-based guard above can
     // be passed by two concurrent callers before either commits, so the
@@ -204,6 +227,19 @@ export async function decideLeadVerification(
     });
     if (count === 0) {
       throw new ValidationError("This lead has already been decided and cannot be re-verified.");
+    }
+
+    // Task 5's intake wiring only ever claims `reservedCount` (never
+    // `deliveredCount`) for a row that reaches `needsReview` — so accepting
+    // converts reserved -> delivered, and rejecting releases the reservation
+    // (`wasDelivered: false` is correct unconditionally here).
+    if (effectiveDecision === "accept") {
+      await convertChannelReservedToDelivered(tx, lead.campaignChannelId);
+      if (allocation !== null) await convertAllocationReservedToDelivered(tx, allocation.id);
+      await createWebhookRunOnAccept(tx, lead.campaignChannelId, input.leadId);
+    } else {
+      await releaseChannelSlot(tx, lead.campaignChannelId, false);
+      if (allocation !== null) await releaseAllocationSlot(tx, allocation.id, false);
     }
 
     await tx.verificationRecord.create({

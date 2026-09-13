@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
-// The layout above this segment already gates on actor.portal, so no auth
-// logic is needed here — just a fixed entry point to the one page the
-// portal currently has.
+// Real portal gating happens in allocations/page.tsx (assertPortal, per the
+// doc comment on assertPortal in src/lib/auth/permissions.ts) — this page is
+// just a fixed redirect to the one page the portal currently has.
 export default function PartnerIndexPage() {
   redirect("/partner/allocations");
 }

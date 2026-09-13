@@ -70,7 +70,7 @@ export function NewAllocationForm({ campaignId, campaignChannelId, partnerOrgs }
       });
       if (result.ok) {
         toast.success("Allocation created");
-        router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}/allocations` as Route);
+        router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}?tab=allocations` as Route);
       } else {
         toast.error(result.error);
       }
@@ -176,7 +176,7 @@ export function NewAllocationForm({ campaignId, campaignChannelId, partnerOrgs }
       <div className="flex justify-end gap-2">
         <Button
           variant="outline"
-          onClick={() => router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}/allocations` as Route)}
+          onClick={() => router.push(`/campaigns/${campaignId}/channels/${campaignChannelId}?tab=allocations` as Route)}
         >
           Cancel
         </Button>

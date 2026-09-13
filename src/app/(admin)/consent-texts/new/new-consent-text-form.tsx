@@ -3,10 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { createConsentTextVersionAction } from "../actions";
 import { cn } from "@/lib/utils";
 
@@ -16,23 +19,21 @@ export function NewConsentTextForm() {
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [language, setLanguage] = useState("en");
-  const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState<Date | undefined>(undefined);
 
   const canSubmit =
     name.trim() !== "" &&
     body.trim() !== "" &&
     language.trim() !== "" &&
-    effectiveFrom !== "";
+    effectiveFrom !== undefined;
 
   function submit() {
     startTransition(async () => {
-      // Convert the date string to a Date object at midnight UTC
-      const date = new Date(effectiveFrom);
       const result = await createConsentTextVersionAction({
         name,
         body,
         language,
-        effectiveFrom: date,
+        effectiveFrom: effectiveFrom!,
       });
       if (result.ok) {
         toast.success("Consent text created");
@@ -88,13 +89,27 @@ export function NewConsentTextForm() {
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="consent-effective-from">Effective From *</FieldLabel>
-                <Input
-                  id="consent-effective-from"
-                  type="date"
-                  value={effectiveFrom}
-                  onChange={(event) => setEffectiveFrom(event.target.value)}
-                />
+                <FieldLabel>Effective From *</FieldLabel>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 size-4" />
+                      {effectiveFrom ? effectiveFrom.toLocaleDateString("en-GB") : (
+                        <span className="text-muted-foreground">Pick a date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={effectiveFrom}
+                      onSelect={setEffectiveFrom}
+                    />
+                  </PopoverContent>
+                </Popover>
               </Field>
             </div>
           </FieldGroup>

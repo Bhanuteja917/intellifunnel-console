@@ -1,4 +1,4 @@
-import type { Account, Contact, Prisma, PrismaClient } from "@prisma/client";
+import type { Account, Contact, PartnerAllocation, Prisma, PrismaClient } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import { applyMapping, parseDelimited } from "@/lib/lists/csv";
@@ -7,6 +7,7 @@ import { checkDoNotContact, checkSuppression, matchesIcp, matchesTal, resolveLea
 import { createAccount, resolveAccount } from "@/lib/identity/account-resolution";
 import { upsertContact } from "@/lib/identity/contact";
 import { normalizeCompanyName } from "@/lib/normalise/name";
+import { claimChannelSlot, claimAllocationSlot, releaseAllocationSlot } from "@/lib/allocations/counters";
 
 export type SubmitLeadFileInput = {
   campaignChannelId: string;
@@ -14,6 +15,12 @@ export type SubmitLeadFileInput = {
   partnerOrganizationId?: string;
   content: string;
   mapping: Record<string, string>; // CSV header -> LeadFieldSpec.fieldKey
+  consentMapping?: {
+    formSlug?: string;
+    timestamp?: string;
+    ip?: string;
+    sourceUrl?: string;
+  };
 };
 
 export type SubmitLeadFileResult = {
@@ -88,19 +95,55 @@ export async function submitLeadFile(
   // queue can filter by partner. A "partner" submission must name a partner
   // that's actually allocated to this channel; an "internal" submission
   // must not claim one at all.
+  let allocation: PartnerAllocation | null = null;
   if (input.sourceType === "partner") {
     if (input.partnerOrganizationId === undefined) {
       throw new ValidationError("partnerOrganizationId is required when sourceType is \"partner\"");
     }
-    const allocation = await db.partnerAllocation.findFirst({
-      where: { campaignChannelId: input.campaignChannelId, partnerOrganizationId: input.partnerOrganizationId },
+    // `status: { not: "ended" }` is required, not optional, and must match
+    // `decideLeadVerification`'s identical filter exactly: Task 2 guarantees
+    // at most one *non-ended* allocation per partner+channel, but an `ended`
+    // row from a prior reallocation can sit in the table alongside the live
+    // one. Without this filter the two sides of a lead's lifecycle can bind
+    // it to different rows — intake claiming on the ended row while verify
+    // converts/releases on the live one, driving the live row's
+    // `reservedCount` negative and leaking a reservation on the ended row
+    // that nothing ever releases (and testing the wrong row's cap).
+    allocation = await db.partnerAllocation.findFirst({
+      where: {
+        campaignChannelId: input.campaignChannelId,
+        partnerOrganizationId: input.partnerOrganizationId,
+        status: { not: "ended" },
+      },
     });
     if (allocation === null) {
-      throw new ValidationError("This partner has no allocation on the selected channel");
+      // Distinguish "never allocated" from "allocation has ended" — with the
+      // filter above, an operator who ended an allocation without creating
+      // its replacement would otherwise be told the partner has no
+      // allocation at all, which is both inaccurate and points at the wrong
+      // fix. This extra read only runs on a path that is already throwing.
+      const endedAllocation = await db.partnerAllocation.findFirst({
+        where: {
+          campaignChannelId: input.campaignChannelId,
+          partnerOrganizationId: input.partnerOrganizationId,
+        },
+      });
+      throw new ValidationError(
+        endedAllocation === null
+          ? "This partner has no allocation on the selected channel"
+          : "This partner's allocation on the selected channel has ended — create a new allocation before submitting leads against it.",
+      );
     }
   } else if (input.partnerOrganizationId !== undefined) {
     throw new ValidationError("partnerOrganizationId can only be set when sourceType is \"partner\"");
   }
+
+  // Cap enforcement (this task): the partner+channel pair is fixed for the
+  // whole submission (Task 2's uniqueness guarantee), and so is the pair of
+  // reject reasons a capacity claim can fail with — both are looked up once
+  // here rather than per row.
+  const allocationCapReason = await db.rejectReason.findUniqueOrThrow({ where: { code: "ALLOCATION_CAP_EXCEEDED" } });
+  const channelCapReason = await db.rejectReason.findUniqueOrThrow({ where: { code: "CHANNEL_CAP_REACHED" } });
 
   const campaign = campaignChannel.campaign;
 
@@ -144,6 +187,25 @@ export async function submitLeadFile(
       status: "processing",
     },
   });
+
+  // Batched formSlug -> ConsentTextVersion resolution (this task): scoped to
+  // this submission's own campaignChannelId so a formSlug typo that happens
+  // to collide with a placement on a *different* channel never attaches that
+  // channel's consent text to this submission's leads.
+  const placementConsentTextByFormSlug = new Map<string, string | null>();
+  if (input.consentMapping?.formSlug !== undefined) {
+    const slugColumn = input.consentMapping.formSlug;
+    const requestedSlugs = new Set(
+      parsed.rows.map((row) => row[slugColumn]?.trim()).filter((s): s is string => s !== undefined && s !== ""),
+    );
+    if (requestedSlugs.size > 0) {
+      const placements = await db.assetPlacement.findMany({
+        where: { formSlug: { in: [...requestedSlugs] }, campaignChannelId: input.campaignChannelId },
+        select: { formSlug: true, consentTextVersionId: true },
+      });
+      for (const p of placements) placementConsentTextByFormSlug.set(p.formSlug, p.consentTextVersionId);
+    }
+  }
 
   const submissionErrors: SubmissionErrorRow[] = [];
   let rowsAccepted = 0;
@@ -272,7 +334,20 @@ export async function submitLeadFile(
       let outcome: Outcome = "passed";
       let rejectReasonCode: string | null = null;
 
-      checkDoNotContact(); // always false, deliberate no-op (see Task 3's brief / Global Constraints)
+      // The phone candidate is this row's OWN value, not `contact.phone`:
+      // `upsertContact` never blanks an existing field with an undefined one,
+      // so `contact.phone` can be a stale value carried over from an earlier
+      // submission when this row's phone column is blank — checking that
+      // against the DNC list would block a row on a number it never carried.
+      const doNotContacted = await checkDoNotContact(db, campaign.clientOrganizationId, {
+        email,
+        domain: account.primaryDomain ?? undefined,
+        phone: canonicalField(values, "phone"),
+      });
+      if (doNotContacted) {
+        outcome = "failed";
+        rejectReasonCode = "DO_NOT_CONTACT";
+      }
 
       const suppressed = await checkSuppression(db, campaign.id, {
         email,
@@ -384,7 +459,63 @@ export async function submitLeadFile(
       const autoAccepted = verificationStatus === "passed";
       const now = new Date();
 
+      // Consent capture (this task, best-effort — never blocks or fails a
+      // row): resolve this row's consentTextVersionId via the batched
+      // formSlug map above, and pull timestamp/ip/sourceUrl from the row if
+      // consentMapping named columns for them.
+      const consentSlug = input.consentMapping?.formSlug !== undefined ? rawRow[input.consentMapping.formSlug]?.trim() : undefined;
+      const consentTextVersionId = consentSlug !== undefined && consentSlug !== ""
+        ? placementConsentTextByFormSlug.get(consentSlug) ?? null
+        : null;
+      const rawConsentTimestamp = input.consentMapping?.timestamp !== undefined ? rawRow[input.consentMapping.timestamp] : undefined;
+      const parsedConsentTimestamp = rawConsentTimestamp !== undefined ? new Date(rawConsentTimestamp) : null;
+      const consentAcceptedAt = parsedConsentTimestamp !== null && !Number.isNaN(parsedConsentTimestamp.getTime())
+        ? parsedConsentTimestamp
+        : submission.submittedAt;
+      const consentIp = input.consentMapping?.ip !== undefined ? rawRow[input.consentMapping.ip]?.trim() || null : null;
+      const consentSourceUrl = input.consentMapping?.sourceUrl !== undefined ? rawRow[input.consentMapping.sourceUrl]?.trim() || null : null;
+
       await db.$transaction(async (tx) => {
+        // --- Cap enforcement: only for a row that isn't already failed for an
+        // unrelated reason (a row that was going to be rejected anyway must
+        // not also be charged against capacity it was never going to use). ---
+        let finalVerificationStatus = verificationStatus;
+        let finalRejectReasonId = rejectReasonId;
+        let finalAcceptedAt: Date | null = autoAccepted ? now : null;
+        let finalClientVisible = autoAccepted;
+        let finalLifecycleStatus: "new" | "accepted" = autoAccepted ? "accepted" : "new";
+
+        if (verificationStatus !== "failed") {
+          const wantsDelivered = verificationStatus === "passed";
+
+          if (input.partnerOrganizationId !== undefined) {
+            const allocationClaimed = await claimAllocationSlot(tx, allocation!.id, wantsDelivered);
+            if (!allocationClaimed) {
+              finalVerificationStatus = "failed";
+              finalRejectReasonId = allocationCapReason.id;
+              finalAcceptedAt = null;
+              finalClientVisible = false;
+              finalLifecycleStatus = "new";
+            }
+          }
+
+          if (finalVerificationStatus !== "failed") {
+            const channelClaimed = await claimChannelSlot(tx, input.campaignChannelId, wantsDelivered);
+            if (!channelClaimed) {
+              if (input.partnerOrganizationId !== undefined) {
+                // The allocation claim above succeeded but the channel is
+                // full — undo it so this row consumes neither.
+                await releaseAllocationSlot(tx, allocation!.id, wantsDelivered);
+              }
+              finalVerificationStatus = "failed";
+              finalRejectReasonId = channelCapReason.id;
+              finalAcceptedAt = null;
+              finalClientVisible = false;
+              finalLifecycleStatus = "new";
+            }
+          }
+        }
+
         const lead = await tx.lead.create({
           data: {
             campaignChannelId: input.campaignChannelId,
@@ -397,20 +528,32 @@ export async function submitLeadFile(
             // out of scope for this epic.
             accountId: account.id,
             sourceType: input.sourceType,
-            verificationStatus,
-            lifecycleStatus: autoAccepted ? "accepted" : "new", // "needsReview"/"failed" stay at "new" — E9 decides those
-            clientVisible: autoAccepted,
-            ...(autoAccepted
+            verificationStatus: finalVerificationStatus,
+            lifecycleStatus: finalLifecycleStatus, // "needsReview"/"failed" stay at "new" — E9 decides those
+            clientVisible: finalClientVisible,
+            ...(finalLifecycleStatus === "accepted"
               ? {
-                  acceptedAt: now,
+                  acceptedAt: finalAcceptedAt,
                   // Verification completed instantly via automation — no manual-review clock ever ran, so there is nothing to measure.
                   verificationElapsedMinutes: 0,
                   verificationElapsedBusinessMinutes: 0,
                   slaBreached: false,
                 }
               : {}),
-            rejectReasonId,
+            rejectReasonId: finalRejectReasonId,
             fieldValuesJson: values as Prisma.InputJsonValue,
+          },
+        });
+        // Best-effort consent capture: for EVERY lead created here regardless
+        // of outcome (accepted, needsReview, DNC/suppressed/cap-rejected,
+        // etc.) — consent capture never blocks or fails a row.
+        await tx.leadConsent.create({
+          data: {
+            leadId: lead.id,
+            consentTextVersionId,
+            acceptedAt: consentAcceptedAt,
+            ipAddress: consentIp,
+            sourceUrl: consentSourceUrl,
           },
         });
         await tx.leadStatusHistory.create({
@@ -418,10 +561,10 @@ export async function submitLeadFile(
             leadId: lead.id,
             dimension: "verification",
             fromValue: null,
-            toValue: verificationStatus,
+            toValue: finalVerificationStatus,
           },
         });
-        if (autoAccepted) {
+        if (finalLifecycleStatus === "accepted") {
           await tx.leadStatusHistory.create({
             data: {
               leadId: lead.id,

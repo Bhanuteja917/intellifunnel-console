@@ -15,18 +15,29 @@ import {
 
 const SEGMENT_LABELS: Readonly<Record<string, string>> = {
   campaigns: "Campaigns",
-  new: "New Campaign",
+  assets: "Assets",
+  "consent-texts": "Consent texts",
   "channel-types": "Channel types",
   organizations: "Organisations",
   "resolution-queue": "Resolution queue",
   verification: "Verification",
 };
 
-function labelFor(segment: string): string {
+const NEW_LABELS: Readonly<Record<string, string>> = {
+  campaigns: "New Campaign",
+  assets: "New Asset",
+  "consent-texts": "New Consent Text",
+};
+
+function labelFor(segment: string, parentSegment: string | undefined): string {
   // hasOwn, not a bare lookup: a segment named after an Object.prototype key
   // ("constructor", "toString") matches /campaigns/[id] and would otherwise
   // resolve to an inherited function that React then tries to render.
+  if (segment === "new" && parentSegment && Object.hasOwn(NEW_LABELS, parentSegment)) {
+    return NEW_LABELS[parentSegment]!;
+  }
   if (Object.hasOwn(SEGMENT_LABELS, segment)) return SEGMENT_LABELS[segment]!;
+  if (segment === "new") return "New";
   if (!segment.includes(" ") && !segment.includes("-") && segment.length > 10) return "Details";
   return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
 }
@@ -47,10 +58,10 @@ export function HeaderBreadcrumb() {
             <Fragment key={crumbHref}>
               <BreadcrumbItem>
                 {isLast ? (
-                  <BreadcrumbPage>{labelFor(segment)}</BreadcrumbPage>
+                  <BreadcrumbPage>{labelFor(segment, segments[index - 1])}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
-                    <Link href={crumbHref}>{labelFor(segment)}</Link>
+                    <Link href={crumbHref}>{labelFor(segment, segments[index - 1])}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>

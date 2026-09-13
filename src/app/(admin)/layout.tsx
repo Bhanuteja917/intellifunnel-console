@@ -17,6 +17,8 @@ const ADMIN_NAV = [
   { href: "/verification", label: "Verification", permission: "lead:read" },
   { href: "/assets", label: "Assets", permission: "asset:read" },
   { href: "/consent-texts", label: "Consent texts", permission: "asset:read" },
+  { href: "/reports", label: "Reports", permission: "report:read" },
+  { href: "/compliance", label: "Compliance", permission: "compliance:read" },
 ] as const;
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

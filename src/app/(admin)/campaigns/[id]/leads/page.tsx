@@ -1,5 +1,7 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { notFound } from "next/navigation";
+import type { LeadVerificationStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -17,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SubmissionErrors } from "./submission-errors";
+import { LeadsTable, type LeadRow } from "./leads-table";
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
@@ -27,16 +30,30 @@ function submissionStatusVariant(status: string): BadgeVariant {
   return "outline"; // pending | processing
 }
 
-// Lead.verificationStatus (LeadVerificationStatus): pending | autoValidating | failed | needsReview | passed
-function verificationStatusVariant(status: string): BadgeVariant {
-  if (status === "passed") return "default";
-  if (status === "failed") return "destructive";
-  return "outline"; // needsReview | pending | autoValidating
+const FILTERS = ["all", "accepted", "pending", "rejected"] as const;
+type Filter = (typeof FILTERS)[number];
+
+// LeadVerificationStatus: pending | autoValidating | failed | needsReview | passed
+const PENDING_STATUSES: LeadVerificationStatus[] = ["pending", "autoValidating", "needsReview"];
+
+function filterWhere(filter: Filter): Prisma.LeadWhereInput {
+  if (filter === "accepted") return { verificationStatus: "passed" };
+  if (filter === "pending") return { verificationStatus: { in: PENDING_STATUSES } };
+  if (filter === "rejected") return { verificationStatus: "failed" };
+  return {};
 }
 
-export default async function CampaignLeadsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CampaignLeadsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ filter?: string }>;
+}) {
   const { id } = await params;
+  const { filter: rawFilter } = await searchParams;
   const actor = await requireActor();
+  const filter: Filter = FILTERS.includes(rawFilter as Filter) ? (rawFilter as Filter) : "all";
 
   let campaign;
   try {
@@ -46,7 +63,9 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
     throw error;
   }
 
-  const [submissions, leads] = await Promise.all([
+  const visibilityScope = actor.isInternal ? {} : { clientVisible: true };
+
+  const [submissions, leads, statusCounts, deliveredCount] = await Promise.all([
     // Submissions (and their per-row errors) expose raw, pre-verification
     // CSV data — an internal-only concern — so this query only runs when
     // the Submissions card below will actually render.
@@ -61,15 +80,35 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
     // non-internal actor only ever sees clientVisible leads (see
     // src/app/(admin)/campaigns/page.tsx's isInternal precedent).
     db.lead.findMany({
-      where: {
-        campaignChannel: { campaignId: id },
-        ...(actor.isInternal ? {} : { clientVisible: true }),
+      where: { campaignChannel: { campaignId: id }, ...visibilityScope, ...filterWhere(filter) },
+      include: {
+        account: true,
+        contact: true,
+        rejectReason: true,
+        submission: { include: { partnerOrganization: { select: { name: true } } } },
+        campaignChannel: { select: { channelTypeVersion: { select: { definitionJson: true, version: true } } } },
+        consent: { include: { consentTextVersion: { select: { name: true, version: true } } } },
+        statusHistory: { orderBy: { changedAt: "asc" } },
       },
-      include: { account: true, contact: true, rejectReason: true },
       orderBy: { createdAt: "desc" },
       take: 100,
     }),
+    db.lead.groupBy({
+      by: ["verificationStatus"],
+      where: { campaignChannel: { campaignId: id }, ...visibilityScope },
+      _count: true,
+    }),
+    db.lead.count({
+      where: { campaignChannel: { campaignId: id }, ...visibilityScope, lifecycleStatus: "delivered" },
+    }),
   ]);
+
+  const total = statusCounts.reduce((sum, s) => sum + s._count, 0);
+  const accepted = statusCounts.find((s) => s.verificationStatus === "passed")?._count ?? 0;
+  const pending = statusCounts
+    .filter((s) => ["pending", "autoValidating", "needsReview"].includes(s.verificationStatus))
+    .reduce((sum, s) => sum + s._count, 0);
+  const rejected = statusCounts.find((s) => s.verificationStatus === "failed")?._count ?? 0;
 
   // Rejected-per-submission counts, derived from the already-fetched leads
   // (no extra query) — a lead counts as "rejected" if it didn't pass
@@ -83,8 +122,42 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
 
   const canUpload = hasPermission(actor, "campaign:write");
 
+  const leadRows: LeadRow[] = leads.map((lead) => {
+    const channelDef = lead.campaignChannel.channelTypeVersion.definitionJson as { code?: string; name?: string };
+    return {
+      id: lead.id,
+      name: [lead.contact.firstName, lead.contact.lastName].filter(Boolean).join(" ") || lead.contact.email,
+      email: lead.contact.email,
+      company: lead.account.name,
+      industry: lead.account.industry,
+      partner: lead.submission.partnerOrganization?.name ?? "In-house",
+      channelLabel: `${channelDef.name ?? channelDef.code ?? "channel"} v${lead.campaignChannel.channelTypeVersion.version}`,
+      verificationStatus: lead.verificationStatus,
+      lifecycleStatus: lead.lifecycleStatus,
+      rejectReason: lead.rejectReason?.label ?? null,
+      createdAt: lead.createdAt.toISOString(),
+      consentText: lead.consent?.consentTextVersion
+        ? `${lead.consent.consentTextVersion.name} v${lead.consent.consentTextVersion.version}`
+        : "—",
+      fields: Object.entries((lead.fieldValuesJson ?? {}) as Record<string, unknown>).map(([key, value]) => ({
+        key,
+        value: String(value),
+      })),
+      timeline: lead.statusHistory.map((h) => ({
+        title: `${h.dimension}: ${h.fromValue ? `${h.fromValue} → ` : ""}${h.toValue}`,
+        detail: h.reason ?? "",
+        when: h.changedAt.toISOString(),
+      })),
+    };
+  });
+
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-3">
+        <Link href={`/campaigns/${campaign.id}` as Route} className="text-sm text-muted-foreground hover:text-foreground">
+          ← Back to campaign
+        </Link>
+      </div>
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold">{campaign.name}</h1>
         <Badge variant="outline">{campaign.code}</Badge>
@@ -121,15 +194,15 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
                 </TableRow>
               )}
               {submissions.map((submission) => {
-                const rejected = rejectedBySubmissionId.get(submission.id) ?? 0;
+                const rejectedInSubmission = rejectedBySubmissionId.get(submission.id) ?? 0;
                 return (
                 <TableRow key={submission.id}>
                   <TableCell>{submission.submittedAt.toISOString().slice(0, 19).replace("T", " ")}</TableCell>
                   <TableCell>{submission.sourceType}</TableCell>
                   <TableCell>
                     {submission.rowsTotal} / {submission.rowsAccepted} / {submission.rowsFailed}
-                    {rejected > 0 && (
-                      <p className="text-xs text-muted-foreground">{rejected} rejected</p>
+                    {rejectedInSubmission > 0 && (
+                      <p className="text-xs text-muted-foreground">{rejectedInSubmission} rejected</p>
                     )}
                   </TableCell>
                   <TableCell>
@@ -149,46 +222,12 @@ export default async function CampaignLeadsPage({ params }: { params: Promise<{ 
       </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Leads</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Account</TableHead>
-                <TableHead>Contact email</TableHead>
-                <TableHead>Verification status</TableHead>
-                <TableHead>Reject reason</TableHead>
-                <TableHead>Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    No leads yet.
-                  </TableCell>
-                </TableRow>
-              )}
-              {leads.map((lead) => (
-                <TableRow key={lead.id}>
-                  <TableCell>{lead.account.name}</TableCell>
-                  <TableCell>{lead.contact.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={verificationStatusVariant(lead.verificationStatus)}>
-                      {lead.verificationStatus}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{lead.rejectReason?.label ?? "—"}</TableCell>
-                  <TableCell>{lead.createdAt.toISOString().slice(0, 10)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <LeadsTable
+        campaignId={campaign.id}
+        activeFilter={filter}
+        stats={{ total, accepted, pending, rejected, delivered: deliveredCount }}
+        leads={leadRows}
+      />
     </div>
   );
 }

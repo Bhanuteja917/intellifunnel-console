@@ -11,16 +11,26 @@ export default async function CampaignsPage() {
   assertPermission(actor, "campaign:read");
 
   // AUTH-9: a non-internal actor's list is filtered at the query, not the view.
-  // Deleted campaigns stay in the result set so the "deleted" filter can
-  // surface them — they're just marked via isDeleted for the client to sort out.
-  const campaigns = await db.campaign.findMany({
-    where: {
-      ...(actor.isInternal ? {} : { clientOrganizationId: actor.organizationId }),
-    },
-    include: { clientOrganization: { select: { name: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  // Deleted campaigns are fetched (marked via isDeleted) so the "deleted"
+  // filter can surface them, but as a separate query from active campaigns —
+  // otherwise a single shared `take: 50` lets recently-deleted rows crowd out
+  // active ones on orgs that delete a lot of drafts.
+  const orgFilter = actor.isInternal ? {} : { clientOrganizationId: actor.organizationId };
+  const [activeCampaigns, deletedCampaigns] = await Promise.all([
+    db.campaign.findMany({
+      where: { ...orgFilter, deletedAt: null },
+      include: { clientOrganization: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    db.campaign.findMany({
+      where: { ...orgFilter, deletedAt: { not: null } },
+      include: { clientOrganization: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+  ]);
+  const campaigns = [...activeCampaigns, ...deletedCampaigns];
 
   const canCreate = hasPermission(actor, "campaign:write");
 

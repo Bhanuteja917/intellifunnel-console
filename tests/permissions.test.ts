@@ -51,8 +51,53 @@ describe("permission matrix", () => {
     expect(hasPermission(actor, "campaign:write")).toBe(true);
   });
 
+  it("gives Operations both delivery permissions, Campaign Manager only delivery:read", () => {
+    const ops = actorOf(["OPERATIONS"]);
+    expect(hasPermission(ops, "delivery:read")).toBe(true);
+    expect(hasPermission(ops, "delivery:write")).toBe(true);
+
+    const manager = actorOf(["CAMPAIGN_MANAGER"]);
+    expect(hasPermission(manager, "delivery:read")).toBe(true);
+    expect(hasPermission(manager, "delivery:write")).toBe(false);
+
+    const quality = actorOf(["QUALITY"]);
+    expect(hasPermission(quality, "delivery:read")).toBe(false);
+  });
+
+  it("gives only Operations the compliance permissions", () => {
+    expect(hasPermission(actorOf(["OPERATIONS"]), "compliance:write")).toBe(true);
+    expect(hasPermission(actorOf(["CAMPAIGN_MANAGER"]), "compliance:write")).toBe(false);
+    expect(hasPermission(actorOf(["FINANCE"]), "compliance:read")).toBe(false);
+  });
+
   it("assertPermission throws ForbiddenError when denied", () => {
     expect(() => assertPermission(actorOf(["CLIENT_VIEWER"]), "campaign:write")).toThrow(ForbiddenError);
+  });
+
+  it("reserves organisation and channel type management to Super Admin", () => {
+    const nonSuperAdminRoles = [
+      "CAMPAIGN_MANAGER",
+      "OPERATIONS",
+      "QUALITY",
+      "ACCOUNT_MANAGER",
+      "FINANCE",
+      "CLIENT_ADMIN",
+      "CLIENT_VIEWER",
+      "PARTNER_ADMIN",
+      "PARTNER_OPERATOR",
+    ];
+
+    for (const role of nonSuperAdminRoles) {
+      const actor = actorOf([role]);
+      expect(hasPermission(actor, "organization:read")).toBe(false);
+      expect(hasPermission(actor, "organization:write")).toBe(false);
+      expect(hasPermission(actor, "channelType:read")).toBe(false);
+    }
+
+    const superAdmin = actorOf(["SUPER_ADMIN"]);
+    expect(hasPermission(superAdmin, "organization:read")).toBe(true);
+    expect(hasPermission(superAdmin, "organization:write")).toBe(true);
+    expect(hasPermission(superAdmin, "channelType:read")).toBe(true);
   });
 });
 

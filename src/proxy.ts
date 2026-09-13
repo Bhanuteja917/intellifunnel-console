@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 
 /**
- * Session guard for the admin console and the partner portal. Without it, an
+ * Session guard for the admin console and the partner/client portals. Without it, an
  * unauthenticated request to any guarded route reaches `getCurrentActor` and
  * throws `ForbiddenError("Not authenticated")` with no boundary to catch it —
  * an unhandled 500 instead of a sign-in prompt.
@@ -25,7 +25,7 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  // The `(admin)` route group's own routes, plus the partner portal.
+  // The `(admin)` route group's own routes, plus the partner and client portals.
   // `/invite/[token]` and `/sign-in` are unauthenticated by design and must
   // stay out of this list.
   matcher: [
@@ -35,6 +35,8 @@ export const config = {
     "/channel-types/:path*",
     "/organizations",
     "/organizations/:path*",
+    "/users",
+    "/users/:path*",
     "/resolution-queue",
     "/resolution-queue/:path*",
     "/verification",
@@ -45,5 +47,7 @@ export const config = {
     "/consent-texts/:path*",
     "/partner",
     "/partner/:path*",
+    "/client",
+    "/client/:path*",
   ],
 };

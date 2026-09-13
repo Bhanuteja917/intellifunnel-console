@@ -78,6 +78,7 @@ model Organization {
   defaultBillingCurrency String?            @db.Char(3)
   defaultPayoutCurrency  String?            @db.Char(3)
   payoutTrigger          PayoutTrigger      @default(monthlyArrears)
+  personalDataRetentionMonths Int? // null = inherit SETTING_DEFAULTS.personalDataRetentionMonths
   notes                  String?
   deletedAt              DateTime?
   createdAt              DateTime           @default(now())
@@ -693,6 +694,10 @@ model CampaignChannel {
   leads              Lead[]
   assets             AssetPlacement[]
   allocations        PartnerAllocation[]
+  deliveryConfig     DeliveryConfig?
+  deliveryRuns       DeliveryRun[]
+  termsApprovals     ChannelTermsApproval[]
+  pacingBuckets      ChannelPacingBucket[]
 
   @@index([campaignId])
 }
@@ -708,6 +713,8 @@ model PartnerAllocation {
   endDate               DateTime          @db.Date
   status                AllocationStatus  @default(draft)
   revealClientIdentity  Boolean           @default(false)
+  reservedCount         Int               @default(0)
+  deliveredCount        Int               @default(0)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   createdById           String?
@@ -747,6 +754,53 @@ model ChannelApproval {
   campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
   @@index([campaignChannelId, type, decidedAt])
+}
+
+/**
+ * Append-only. The latest row by decidedAt is the current decision; a client
+ * changing their mind writes another row rather than mutating one, so the
+ * table doubles as the decision history the terms tab renders.
+ *
+ * termsSnapshotJson freezes what was decided on. Channel terms are editable
+ * while the campaign is a draft, so an approval that predates an edit must
+ * stop reading as approved — that comparison is what makes the derived status
+ * "reapprovalNeeded" with no invalidation code path.
+ */
+model ChannelTermsApproval {
+  id                String           @id @default(cuid())
+  campaignChannelId String
+  decision          ApprovalDecision
+  decidedByUserId   String
+  decidedAt         DateTime         @default(now())
+  comments          String?
+  termsSnapshotJson Json
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@index([campaignChannelId, decidedAt])
+}
+
+/** The client's sign-off on a placement's live landing page URL. */
+model PlacementApproval {
+  id                    String           @id @default(cuid())
+  assetPlacementId      String
+  decision              ApprovalDecision
+  decidedByUserId       String
+  decidedAt             DateTime         @default(now())
+  comments              String?
+  placementSnapshotJson Json
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  createdById           String?
+  updatedById           String?
+
+  assetPlacement AssetPlacement @relation(fields: [assetPlacementId], references: [id])
+
+  @@index([assetPlacementId, decidedAt])
 }
 
 model CampaignStatusHistory {
@@ -791,7 +845,8 @@ model ImportBatch {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  errors ImportError[]
+  errors           ImportError[]
+  engagementEvents EngagementEvent[]
 
   @@index([organizationId, type, createdAt])
 }
@@ -1039,6 +1094,8 @@ model Lead {
   rejectReason        RejectReason?        @relation(fields: [rejectReasonId], references: [id])
   statusHistory       LeadStatusHistory[]
   verificationRecords VerificationRecord[]
+  deliveryRunLeads    DeliveryRunLead[]
+  consent             LeadConsent?
 
   @@index([campaignChannelId, verificationStatus])
   @@index([accountId])
@@ -1058,6 +1115,88 @@ model LeadStatusHistory {
   lead Lead @relation(fields: [leadId], references: [id])
 
   @@index([leadId, dimension])
+}
+
+model LeadConsent {
+  id                   String   @id @default(cuid())
+  leadId               String   @unique
+  consentTextVersionId String?
+  acceptedAt           DateTime
+  ipAddress            String?
+  sourceUrl            String?
+  createdAt            DateTime @default(now())
+
+  lead               Lead                @relation(fields: [leadId], references: [id])
+  consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
+}
+
+enum DeliveryMethod {
+  webhook
+  csv
+}
+
+enum DeliveryConfigStatus {
+  active
+  paused
+}
+
+enum DeliveryRunStatus {
+  pending
+  success
+  failed
+  exhausted
+}
+
+model DeliveryConfig {
+  id                String               @id @default(cuid())
+  campaignChannelId String               @unique
+  method            DeliveryMethod
+  status            DeliveryConfigStatus @default(active)
+  webhookUrl        String?
+  webhookSecret     String?
+  csvScheduleCron   String?
+  fieldMappingJson  Json
+  lastCsvCursorAt   DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+}
+
+model DeliveryRun {
+  id                 String            @id @default(cuid())
+  campaignChannelId  String
+  method             DeliveryMethod
+  status             DeliveryRunStatus @default(pending)
+  attemptCount       Int               @default(0)
+  maxAttempts        Int               @default(5)
+  nextRetryAt        DateTime?
+  lastError          String?
+  fileUrl            String?
+  requestPayloadJson Json?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  campaignChannel CampaignChannel   @relation(fields: [campaignChannelId], references: [id])
+  leads           DeliveryRunLead[]
+
+  @@index([campaignChannelId])
+  @@index([status, nextRetryAt])
+}
+
+model DeliveryRunLead {
+  deliveryRunId String
+  leadId        String
+
+  deliveryRun DeliveryRun @relation(fields: [deliveryRunId], references: [id])
+  lead        Lead        @relation(fields: [leadId], references: [id])
+
+  @@id([deliveryRunId, leadId])
+  @@index([leadId])
 }
 
 enum VerificationMethod {
@@ -1161,7 +1300,8 @@ model ConsentTextVersion {
   createdAt     DateTime @default(now())
   createdById   String?
 
-  placements AssetPlacement[]
+  placements   AssetPlacement[]
+  leadConsents LeadConsent[]
 
   @@unique([name, version])
 }
@@ -1184,6 +1324,40 @@ model AssetPlacement {
   asset              Asset               @relation(fields: [assetId], references: [id])
   assetVersion       AssetVersion        @relation(fields: [assetVersionId], references: [id])
   consentTextVersion ConsentTextVersion? @relation(fields: [consentTextVersionId], references: [id])
+  engagementEvents   EngagementEvent[]
+  approvals          PlacementApproval[]
+
+  @@index([campaignChannelId])
+}
+
+model EngagementEvent {
+  id               String   @id @default(cuid())
+  assetPlacementId String
+  date             DateTime @db.Date
+  impressions      Int      @default(0)
+  conversions      Int      @default(0)
+  importBatchId    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  assetPlacement AssetPlacement @relation(fields: [assetPlacementId], references: [id])
+  importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id])
+
+  @@unique([assetPlacementId, date])
+}
+
+model ChannelPacingBucket {
+  id                String          @id @default(cuid())
+  campaignChannelId String
+  periodStart       DateTime        @db.Date
+  periodEnd         DateTime        @db.Date
+  targetQuantity    Int
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel   CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
   @@index([campaignChannelId])
 }

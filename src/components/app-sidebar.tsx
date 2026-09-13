@@ -7,10 +7,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Building2,
   Circle,
+  ClipboardCheck,
   FileText,
   Handshake,
   ImageIcon,
   ListChecks,
+  Lock,
   LogOut,
   Megaphone,
   Radio,
@@ -40,7 +42,8 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-type NavItem = { href: Route; label: string };
+/** `badge` is a count shown beside the label; omit it, or pass 0, for none. */
+type NavItem = { href: Route; label: string; badge?: number };
 
 // Icons are resolved here, client-side, by href rather than accepted as a
 // prop: a layout.tsx passing `nav` is a Server Component, and Lucide icons
@@ -49,6 +52,10 @@ type NavItem = { href: Route; label: string };
 // Components from Server Components").
 const NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
   "/campaigns": Megaphone,
+  "/client/campaigns": Megaphone,
+  "/client/approvals": ClipboardCheck,
+  "/client/leads": ListChecks,
+  "/client/reports": FileText,
   "/channel-types": Radio,
   "/organizations": Building2,
   "/resolution-queue": ListChecks,
@@ -56,6 +63,7 @@ const NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
   "/assets": ImageIcon,
   "/consent-texts": FileText,
   "/partner/allocations": Handshake,
+  "/compliance": Lock,
 };
 
 function iconFor(href: string): LucideIcon {
@@ -132,6 +140,11 @@ export function AppSidebar({
                     <Link href={item.href}>
                       <Icon />
                       <span>{item.label}</span>
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground">
+                          {item.badge}
+                        </span>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

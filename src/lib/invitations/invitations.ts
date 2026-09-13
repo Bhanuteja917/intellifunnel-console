@@ -24,7 +24,7 @@ function newToken(): string {
 }
 
 /** A role is only offerable to an organisation carrying the matching capability flag. */
-async function assertRoleFitsOrganization(
+export async function assertRoleFitsOrganization(
   db: PrismaClient,
   organizationId: string,
   roleCode: RoleCode,
@@ -55,6 +55,11 @@ export async function createInvitation(
 ): Promise<{ invitation: Invitation; token: string }> {
   assertPermission(actor, "user:invite");
   assertOrganizationAccess(actor, input.organizationId);
+
+  const org = await db.organization.findUnique({ where: { id: input.organizationId } });
+  if (!org || org.status === "archived") {
+    throw new Error("Cannot invite users to an archived organisation");
+  }
 
   const email = normalizeEmail(input.email);
   const { roleId } = await assertRoleFitsOrganization(db, input.organizationId, input.roleCode);

@@ -116,7 +116,11 @@ export function CampaignTable({ rows, canDelete }: { rows: CampaignRow[]; canDel
           {visible.map((row) => (
             <TableRow key={row.id}>
               <TableCell>
-                <Link href={`/campaigns/${row.id}`} className="underline">{row.code}</Link>
+                {row.isDeleted ? (
+                  row.code
+                ) : (
+                  <Link href={`/campaigns/${row.id}`} className="underline">{row.code}</Link>
+                )}
               </TableCell>
               <TableCell>{row.name}</TableCell>
               <TableCell>{row.clientName}</TableCell>

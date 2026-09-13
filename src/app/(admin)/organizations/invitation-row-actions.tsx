@@ -1,16 +1,8 @@
 "use client";
 
 import { useTransition } from "react";
-import { MoreHorizontalIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { resendInvitationAction, revokeInvitationAction } from "./actions";
 import type { ActionResult } from "@/lib/auth/require";
 
@@ -29,28 +21,25 @@ export function InvitationRowActions({ invitationId }: { invitationId: string })
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" disabled={pending}>
-          <MoreHorizontalIcon />
-          <span className="sr-only">Invitation actions</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            onSelect={() => run(() => resendInvitationAction(invitationId), "Invitation resent")}
-          >
-            Resend
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => run(() => revokeInvitationAction(invitationId), "Invitation revoked")}
-          >
-            Revoke
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex items-center justify-end gap-3">
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto p-0"
+        disabled={pending}
+        onClick={() => run(() => resendInvitationAction(invitationId), "Invitation resent")}
+      >
+        Resend
+      </Button>
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto p-0 text-destructive"
+        disabled={pending}
+        onClick={() => run(() => revokeInvitationAction(invitationId), "Invitation revoked")}
+      >
+        Revoke
+      </Button>
+    </div>
   );
 }

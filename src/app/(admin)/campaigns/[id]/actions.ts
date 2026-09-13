@@ -14,6 +14,7 @@ import {
 import { assertPermission } from "@/lib/auth/permissions";
 import { getPublishedVersion } from "@/lib/channel-types/versions";
 import { ValidationError } from "@/lib/errors";
+import { superAdminRevertToDraft } from "@/lib/campaigns/state-machine";
 
 export async function setIcpCriteriaAction(
   campaignId: string,
@@ -48,6 +49,7 @@ export async function addCampaignChannelAction(
     costBudget?: string;
     startDate: string;
     endDate: string;
+    stepConfig?: import("@/lib/channels/readiness").StepConfig;
   },
 ): Promise<ActionResult<{ id: string }>> {
   return toActionResult(async () => {
@@ -77,8 +79,21 @@ export async function addCampaignChannelAction(
       currency: campaign.currency,
       startDate: new Date(input.startDate),
       endDate: new Date(input.endDate),
+      stepConfig: input.stepConfig,
     });
     revalidatePath(`/campaigns/${campaignId}`);
     return { id: channel.id };
+  });
+}
+
+export async function superAdminRevertToDraftAction(
+  campaignId: string,
+  reason?: string,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await superAdminRevertToDraft(db, actor, campaignId, reason);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return null;
   });
 }

@@ -29,6 +29,7 @@ export const REJECT_REASONS: readonly Seed[] = [
   { code: "DUPLICATE_CROSS_CAMPAIGN", label: "Duplicate across the client's live campaigns", category: "duplicate", isPartnerReplaceable: true },
   { code: "ACCOUNT_CAP_REACHED", label: "Per-account lead cap reached", category: "duplicate", isPartnerReplaceable: false },
   { code: "ALLOCATION_CAP_EXCEEDED", label: "Allocation cap exceeded", category: "duplicate", isPartnerReplaceable: false },
+  { code: "CHANNEL_CAP_REACHED", label: "Campaign channel volume cap reached", category: "duplicate", isPartnerReplaceable: false },
   { code: "CONSENT_MISSING", label: "Consent evidence missing", category: "consent", isPartnerReplaceable: false },
   { code: "CONSENT_INVALID", label: "Consent evidence incomplete or invalid", category: "consent", isPartnerReplaceable: false },
   { code: "QUALIFYING_ANSWER_UNACCEPTABLE", label: "Answer outside acceptable values", category: "qualification", isPartnerReplaceable: true },

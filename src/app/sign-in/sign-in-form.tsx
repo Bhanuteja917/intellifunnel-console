@@ -30,11 +30,13 @@ export function SignInForm() {
 
       // The session cookie is set by the time signIn.email resolves, so this
       // server round-trip sees the new session. A partner-portal user lands
-      // in the partner portal; everyone else (admin today, and client, which
-      // has no portal routes yet) keeps the existing default.
+      // in the partner portal, a client-portal user lands in the client
+      // portal; everyone else (admin today) keeps the existing default.
       const portalResult = await getPostSignInPortalAction();
       if (portalResult.ok && portalResult.data.portal === "partner") {
         router.push("/partner");
+      } else if (portalResult.ok && portalResult.data.portal === "client") {
+        router.push("/client");
       } else {
         router.push("/campaigns");
       }

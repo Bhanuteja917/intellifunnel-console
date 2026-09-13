@@ -32,7 +32,7 @@ export async function createAssetPlacementAction(input: {
       formSlug,
       consentTextVersionId: input.consentTextVersionId,
     });
-    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}/placements`);
+    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}`);
     return { id: placement.id };
   });
 }
@@ -46,7 +46,7 @@ export async function setPlacementStatusAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     await setPlacementStatus(db, actor, { placementId, status });
-    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}/placements`);
+    revalidatePath(`/campaigns/${campaignId}/channels/${campaignChannelId}`);
     return null;
   });
 }
