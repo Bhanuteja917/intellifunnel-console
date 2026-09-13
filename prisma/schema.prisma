@@ -677,6 +677,7 @@ model CampaignChannel {
   endDate              DateTime              @db.Date
   status               CampaignChannelStatus @default(draft)
   qualificationFormId  String?
+  stepConfigJson       Json?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   createdById          String?
