@@ -7,6 +7,7 @@ import { getCampaignForActor } from "@/lib/campaigns/crud";
 import { hasPermission } from "@/lib/auth/permissions";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { NotFoundError } from "@/lib/errors";
+import { loadChannelReadiness } from "@/lib/channels/readiness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AddChannelDialog } from "./add-channel-dialog";
+import { ChannelChecklist } from "@/components/channels/channel-checklist";
 import { ApprovalActions } from "./approval-actions";
 import { IcpCriteriaEditor } from "./icp-criteria-editor";
 import { LeadFieldSpecEditor } from "./lead-field-spec-editor";
@@ -36,13 +37,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   }
 
   const canEditConfig = hasPermission(actor, "campaign:write") && campaign.status === "draft";
-  const channelTypes = canEditConfig
-    ? await db.channelType.findMany({
-        where: { isActive: true, currentVersion: { gt: 0 } },
-        select: { id: true, name: true },
-        orderBy: { name: "asc" },
-      })
-    : [];
+  const channelReadiness = await Promise.all(
+    campaign.channels.map((ch) => loadChannelReadiness(db, ch.id)),
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -63,6 +60,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         canSubmit={hasPermission(actor, "campaign:submitInternal")}
         canApproveInternal={hasPermission(actor, "campaign:approveInternal")}
         canApproveClient={hasPermission(actor, "campaign:approveClient")}
+        canRevertToDraft={actor.roles.includes("SUPER_ADMIN")}
       />
 
       <Card>
@@ -104,13 +102,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Channels</CardTitle>
           {canEditConfig && (
-            <AddChannelDialog
-              campaignId={campaign.id}
-              campaignCurrency={campaign.currency}
-              campaignStartDate={campaign.startDate.toISOString().slice(0, 10)}
-              campaignEndDate={campaign.endDate.toISOString().slice(0, 10)}
-              channelTypes={channelTypes}
-            />
+            <Button asChild size="sm">
+              <Link href={`/campaigns/${campaign.id}/channels/new` as Route}>
+                Add channel
+              </Link>
+            </Button>
           )}
         </CardHeader>
         <CardContent>
@@ -121,12 +117,11 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                 <TableHead>Quantity</TableHead>
                 <TableHead>Unit price</TableHead>
                 <TableHead>Window</TableHead>
-                <TableHead>Placements</TableHead>
-                <TableHead>Allocations</TableHead>
+                <TableHead>Setup</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {campaign.channels.map((channel) => (
+              {campaign.channels.map((channel, i) => (
                 <TableRow key={channel.id}>
                   <TableCell>
                     {(channel.channelTypeVersion.definitionJson as { code?: string }).code} v
@@ -142,18 +137,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
                     {channel.endDate.toISOString().slice(0, 10)}
                   </TableCell>
                   <TableCell>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/campaigns/${campaign.id}/channels/${channel.id}/placements` as Route}>
-                        Placements
-                      </Link>
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/campaigns/${campaign.id}/channels/${channel.id}/allocations` as Route}>
-                        Allocations
-                      </Link>
-                    </Button>
+                    {channelReadiness[i] && (
+                      <ChannelChecklist
+                        campaignId={campaign.id}
+                        channelId={channel.id}
+                        readiness={channelReadiness[i]}
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
