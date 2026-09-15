@@ -59,7 +59,6 @@ const NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
   "/campaigns": Megaphone,
   "/client/campaigns": Megaphone,
   "/client/approvals": ClipboardCheck,
-  "/client/leads": ListChecks,
   "/client/reports": FileText,
   "/channel-types": Radio,
   "/organizations": Building2,

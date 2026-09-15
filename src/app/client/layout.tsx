@@ -38,7 +38,6 @@ export default async function ClientLayout({ children }: { children: React.React
   const nav = [
     { href: "/client/campaigns" as const, label: "Campaigns" },
     { href: "/client/approvals" as const, label: "Approvals", badge: pendingApprovals },
-    { href: "/client/leads" as const, label: "Leads" },
     { href: "/client/reports" as const, label: "Reports" },
   ];
 

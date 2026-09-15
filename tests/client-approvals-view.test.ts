@@ -68,7 +68,7 @@ describe("client approval read models", () => {
 
   it("returns the campaign list with a needs-you count", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { requiresAsset: false });
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
 
     const rows = await getClientCampaigns(db, fx.clientAdminActor);
 
@@ -76,6 +76,15 @@ describe("client approval read models", () => {
     expect(rows[0]?.campaignId).toBe(fx.campaignId);
     expect(rows[0]?.needsYouCount).toBe(1);
     expect(rows[0]?.contractedQuantity).toBe(45);
+  });
+
+  it("excludes draft campaigns from the campaign list", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false });
+
+    const rows = await getClientCampaigns(db, fx.clientAdminActor);
+
+    expect(rows).toHaveLength(0);
   });
 
   it("returns per-channel readiness on the campaign detail", async () => {
@@ -87,6 +96,16 @@ describe("client approval read models", () => {
     expect(detail.channels).toHaveLength(1);
     expect(detail.channels[0]?.termsStatus).toBe("pending");
     expect(detail.channels[0]?.readiness.doneCount).toBe(0);
+  });
+
+  it("never exposes the partner-allocation readiness step to the client", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false });
+
+    const detail = await getClientCampaignDetail(db, fx.clientAdminActor, fx.campaignId);
+
+    const stepIds = detail.channels[0]?.readiness.steps.map((s) => s.id) ?? [];
+    expect(stepIds).not.toContain("allocations");
   });
 
   it("refuses a campaign belonging to another organisation", async () => {
