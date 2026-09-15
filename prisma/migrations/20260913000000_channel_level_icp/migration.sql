@@ -6,10 +6,11 @@ ALTER TABLE "LeadFieldSpec" ADD COLUMN "campaignChannelId" TEXT;
 
 -- Step 2: Backfill IcpCriterion — duplicate each row once per channel of that campaign
 INSERT INTO "IcpCriterion"
-  (id, "campaignChannelId", dimension, operator, "valuesJson", "isMandatory",
+  (id, "campaignId", "campaignChannelId", dimension, operator, "valuesJson", "isMandatory",
    "createdAt", "updatedAt", "createdById", "updatedById")
 SELECT
   gen_random_uuid()::text,
+  ic."campaignId",
   cc.id,
   ic.dimension,
   ic.operator,
@@ -27,12 +28,17 @@ WHERE ic."campaignChannelId" IS NULL;
 DELETE FROM "IcpCriterion" WHERE "campaignChannelId" IS NULL;
 
 -- Step 2b: Backfill LeadFieldSpec
+-- Drop the old unique constraint first: duplicating rows per channel means
+-- multiple rows can share (campaignId, fieldKey) until campaignId is dropped below.
+DROP INDEX IF EXISTS "LeadFieldSpec_campaignId_fieldKey_key";
+
 INSERT INTO "LeadFieldSpec"
-  (id, "campaignChannelId", "fieldKey", label, "isRequired", "dataType",
+  (id, "campaignId", "campaignChannelId", "fieldKey", label, "isRequired", "dataType",
    "allowedValuesJson", "validationPattern", "rejectIfMissing",
    "createdAt", "updatedAt", "createdById", "updatedById")
 SELECT
   gen_random_uuid()::text,
+  lfs."campaignId",
   cc.id,
   lfs."fieldKey",
   lfs.label,
@@ -72,10 +78,10 @@ ALTER TABLE "IcpCriterion" DROP COLUMN "campaignId";
 DROP INDEX IF EXISTS "IcpCriterion_campaignId_idx";
 CREATE INDEX "IcpCriterion_campaignChannelId_idx" ON "IcpCriterion"("campaignChannelId");
 
--- Step 3c: Drop old campaignId FK, unique, and column from LeadFieldSpec
+-- Step 3c: Drop old campaignId FK and column from LeadFieldSpec
+-- (unique index on campaignId+fieldKey already dropped in step 2b above)
 ALTER TABLE "LeadFieldSpec"
   DROP CONSTRAINT IF EXISTS "LeadFieldSpec_campaignId_fkey";
-DROP INDEX IF EXISTS "LeadFieldSpec_campaignId_fieldKey_key";
 ALTER TABLE "LeadFieldSpec" DROP COLUMN "campaignId";
 CREATE UNIQUE INDEX "LeadFieldSpec_campaignChannelId_fieldKey_key"
   ON "LeadFieldSpec"("campaignChannelId", "fieldKey");
