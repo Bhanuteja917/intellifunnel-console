@@ -105,15 +105,20 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">{campaign.name}</h1>
-        <Badge variant="outline">{campaign.code}</Badge>
-        <Badge>{campaign.status}</Badge>
-        {actor.isInternal && campaign.status !== "draft" && (
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/campaigns/${campaign.id}/leads`}>View leads</Link>
-          </Button>
-        )}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">{campaign.name}</h1>
+          <Badge variant="outline">{campaign.code}</Badge>
+          <Badge>{campaign.status}</Badge>
+          {actor.isInternal && campaign.status !== "draft" && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/campaigns/${campaign.id}/leads`}>View leads</Link>
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {campaign.startDate.toISOString().slice(0, 10)} – {campaign.endDate.toISOString().slice(0, 10)}
+        </p>
       </div>
 
       <ApprovalActions
