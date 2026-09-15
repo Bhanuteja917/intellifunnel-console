@@ -78,7 +78,7 @@ export function NewAllocationForm({ campaignId, campaignChannelId, partnerOrgs }
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
           <CardTitle>Allocation details</CardTitle>

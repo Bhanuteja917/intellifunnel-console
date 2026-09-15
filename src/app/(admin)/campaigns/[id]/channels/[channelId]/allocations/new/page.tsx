@@ -36,7 +36,7 @@ export default async function NewAllocationPage({
   });
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex max-w-2xl flex-col gap-6 py-6">
       <div className="flex flex-col gap-4">
         <Link
           href={`/campaigns/${campaign.id}/channels/${channel.id}?tab=allocations` as Route}

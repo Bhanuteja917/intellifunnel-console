@@ -26,7 +26,7 @@ import { getChannelApprovalStatus, getPlacementApprovalStatus } from "@/lib/appr
 import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
 import { RunLogTable } from "./delivery/run-log-table";
-import { ChannelTermsTab, TERMS_BADGE } from "./channel-terms-tab";
+import { ChannelTermsTab, DecisionHistoryTab, TERMS_BADGE } from "./channel-terms-tab";
 import { EditChannelDialog } from "./edit-channel-dialog";
 import { ChannelStatusControl } from "./channel-status-control";
 import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
@@ -241,6 +241,7 @@ export default async function ChannelPage({
               canEdit={canWriteCampaign}
             />
           </div>
+          <DecisionHistoryTab channelId={channel.id} />
         </div>
       )}
 
