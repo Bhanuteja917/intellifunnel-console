@@ -152,7 +152,11 @@ export async function getClientCampaigns(
   assertPermission(actor, "campaign:read");
 
   const campaigns = await db.campaign.findMany({
-    where: { clientOrganizationId: actor.organizationId, deletedAt: null },
+    where: {
+      clientOrganizationId: actor.organizationId,
+      deletedAt: null,
+      status: { not: "draft" },
+    },
     select: {
       id: true,
       name: true,
@@ -237,9 +241,14 @@ export async function getClientCampaignDetail(
       endDate: channel.endDate,
       deliveredCount: channel.deliveredCount,
       termsStatus,
+      // stepConfig.allocations is forced to "skipped" regardless of the
+      // channel's own admin-facing config: whether a channel is fulfilled
+      // in-house or through a partner allocation is an internal delivery
+      // decision, never something the client should see or act on.
       readiness: computeChannelReadiness({
         activePlacementCount: channel.assets.filter((a) => a.status === "active").length,
         allocationCount: channel._count.allocations,
+        stepConfig: { allocations: "skipped" },
         requiresAsset: (definition as { requiresAsset?: boolean }).requiresAsset === true,
       }),
     });

@@ -13,6 +13,35 @@ export type ClientLeadView = {
   deliveryStatus: "pending" | "success" | "failed" | "notConfigured";
 };
 
+export type LeadBreakdownBucket = { label: string; count: number };
+
+export type ClientLeadBreakdown = {
+  totalCount: number;
+  byJobTitle: LeadBreakdownBucket[];
+  byJobFunction: LeadBreakdownBucket[];
+  byGeography: LeadBreakdownBucket[];
+};
+
+const BREAKDOWN_TOP_N = 8;
+
+function bucketize(values: (string | null)[]): LeadBreakdownBucket[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const label = value !== null && value.trim() !== "" ? value : "Unknown";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  const sorted = [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count);
+
+  if (sorted.length <= BREAKDOWN_TOP_N) return sorted;
+
+  const top = sorted.slice(0, BREAKDOWN_TOP_N);
+  const otherCount = sorted.slice(BREAKDOWN_TOP_N).reduce((sum, b) => sum + b.count, 0);
+  return [...top, { label: "Other", count: otherCount }];
+}
+
 /**
  * AUTH-10: a distinct read model, not admin-response field-filtering. The
  * `where` below never matches a row outside the actor's own organisation or
@@ -115,5 +144,47 @@ export async function getLeadsForClient(
       };
     }),
     nextCursor,
+  };
+}
+
+/**
+ * AUTH-10 read model, same shape as `getLeadsForClient`: org scope is
+ * unconditional and re-checked per row via `assertOrganizationAccess` as
+ * defence in depth. Only job title, job function and country leave this
+ * function — no account/partner identity, no payout or delivery-partner
+ * data. Each dimension is capped to the top 8 values with the remainder
+ * collapsed into "Other" so a long tail of one-off titles doesn't turn the
+ * chart into an unreadable list.
+ */
+export async function getClientLeadBreakdown(
+  db: PrismaClient,
+  actor: Actor,
+  campaignId: string,
+): Promise<ClientLeadBreakdown> {
+  assertPermission(actor, "campaign:read");
+
+  const rows = await db.lead.findMany({
+    where: {
+      clientVisible: true,
+      campaignChannel: {
+        campaign: { clientOrganizationId: actor.organizationId, id: campaignId },
+      },
+    },
+    select: {
+      contact: { select: { jobTitle: true, jobFunction: true, country: true } },
+      campaignChannel: { select: { campaign: { select: { clientOrganizationId: true } } } },
+    },
+    orderBy: { id: "asc" },
+  });
+
+  for (const row of rows) {
+    assertOrganizationAccess(actor, row.campaignChannel.campaign.clientOrganizationId);
+  }
+
+  return {
+    totalCount: rows.length,
+    byJobTitle: bucketize(rows.map((r) => r.contact.jobTitle)),
+    byJobFunction: bucketize(rows.map((r) => r.contact.jobFunction)),
+    byGeography: bucketize(rows.map((r) => r.contact.country)),
   };
 }
