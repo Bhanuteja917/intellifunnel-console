@@ -71,7 +71,6 @@ export function NewChannelForm({
   const [channelTypeId, setChannelTypeId] = useState(channelTypes[0]?.id ?? "");
   const [quantity, setQuantity] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
-  const [costBudget, setCostBudget] = useState("");
   const [startDate, setStartDate] = useState(campaignStartDate);
   const [endDate, setEndDate] = useState(campaignEndDate);
   const [stepConfig, setStepConfig] = useState<StepConfig>({});
@@ -103,7 +102,6 @@ export function NewChannelForm({
         channelTypeId,
         contractedQuantity: Number(quantity),
         clientUnitPrice: unitPrice,
-        costBudget: costBudget.trim() === "" ? undefined : costBudget,
         startDate,
         endDate,
         stepConfig: Object.keys(stepConfig).length > 0 ? stepConfig : undefined,
@@ -176,17 +174,6 @@ export function NewChannelForm({
                 value={unitPrice}
                 onChange={(e) => setUnitPrice(e.target.value)}
                 placeholder="e.g. 125.00"
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="channel-budget">
-                Cost budget ({campaignCurrency}, optional)
-              </FieldLabel>
-              <Input
-                id="channel-budget"
-                value={costBudget}
-                onChange={(e) => setCostBudget(e.target.value)}
-                placeholder="optional"
               />
             </Field>
             <div className="grid grid-cols-2 gap-4">

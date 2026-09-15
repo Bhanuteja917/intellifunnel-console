@@ -43,7 +43,6 @@ export function EditChannelDialog({
   const [pending, startTransition] = useTransition();
   const [quantity, setQuantity] = useState(String(initial.contractedQuantity));
   const [unitPrice, setUnitPrice] = useState(initial.clientUnitPrice);
-  const [costBudget, setCostBudget] = useState(initial.costBudget);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [endDate, setEndDate] = useState(initial.endDate);
 
@@ -62,7 +61,7 @@ export function EditChannelDialog({
         campaignChannelId,
         contractedQuantity: Number(quantity),
         clientUnitPrice: unitPrice,
-        costBudget,
+        costBudget: initial.costBudget,
         currency,
         startDate,
         endDate,
@@ -108,14 +107,6 @@ export function EditChannelDialog({
               id="channel-unit-price"
               value={unitPrice}
               onChange={(event) => setUnitPrice(event.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="channel-cost-budget">Cost budget ({currency}, optional)</FieldLabel>
-            <Input
-              id="channel-cost-budget"
-              value={costBudget}
-              onChange={(event) => setCostBudget(event.target.value)}
             />
           </Field>
           <Field>

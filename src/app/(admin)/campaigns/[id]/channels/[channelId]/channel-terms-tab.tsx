@@ -79,12 +79,6 @@ export async function ChannelTermsTab({
           )}
           {row("Contracted value", `${channel.currency} ${total}`)}
           {row(
-            "Cost budget",
-            channel.costBudgetMinor === null
-              ? "—"
-              : `${channel.currency} ${fromMinorUnits(channel.costBudgetMinor, channel.currency)}`,
-          )}
-          {row(
             "Flight window",
             `${channel.startDate.toISOString().slice(0, 10)} – ${channel.endDate.toISOString().slice(0, 10)}`,
           )}
