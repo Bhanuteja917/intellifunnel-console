@@ -4,8 +4,8 @@ import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
-import { decideChannelTerms } from "@/lib/approvals/decisions";
-import { getChannelTermsApprovalStatus } from "@/lib/approvals/status";
+import { decideChannelApproval } from "@/lib/approvals/decisions";
+import { getChannelApprovalStatus } from "@/lib/approvals/status";
 import { ValidationError } from "@/lib/errors";
 
 const validEdit = {
@@ -36,19 +36,19 @@ describe("updateCampaignChannel", () => {
   it("invalidates an existing approval by making the snapshot stale", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
-    await decideChannelTerms(db, fx.clientAdminActor, {
+    await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
     });
 
     const updated = await updateCampaignChannel(db, fx.adminActor, fx.channelId, validEdit);
 
-    expect(await getChannelTermsApprovalStatus(db, updated)).toBe("reapprovalNeeded");
+    expect(await getChannelApprovalStatus(db, updated)).toBe("reapprovalNeeded");
   });
 
   it("refuses once the campaign is past draft", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { campaignStatus: "pendingInternalApproval" });
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
 
     await expect(
       updateCampaignChannel(db, fx.adminActor, fx.channelId, validEdit),
@@ -64,14 +64,15 @@ describe("updateCampaignChannel", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("refuses a window outside the campaign flight", async () => {
+  it("refuses when end date precedes start date", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
 
     await expect(
       updateCampaignChannel(db, fx.adminActor, fx.channelId, {
         ...validEdit,
-        endDate: new Date("2027-06-01"),
+        startDate: new Date("2026-03-31"),
+        endDate: new Date("2026-02-01"),
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -96,40 +97,32 @@ describe("setChannelStatus", () => {
     await seedFunnelStages(testDb());
   });
 
-  it("refuses to activate a channel that is not ready", async () => {
+  it("refuses to set live when the campaign is still draft", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { campaignStatus: "scheduled" });
+    const fx = await createChannelFixture(db, { campaignStatus: "draft" });
 
     await expect(
-      setChannelStatus(db, fx.adminActor, { campaignChannelId: fx.channelId, status: "active" }),
+      setChannelStatus(db, fx.adminActor, { channelId: fx.channelId, status: "live" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("activates a ready channel on a scheduled campaign", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { campaignStatus: "scheduled", requiresAsset: false });
-    await decideChannelTerms(db, fx.clientAdminActor, {
-      campaignChannelId: fx.channelId,
-      decision: "approved",
-    });
+    const fx = await createChannelFixture(db, { campaignStatus: "scheduled", channelStatus: "scheduled", requiresAsset: false });
 
     const updated = await setChannelStatus(db, fx.adminActor, {
-      campaignChannelId: fx.channelId,
-      status: "active",
+      channelId: fx.channelId,
+      status: "live",
     });
-    expect(updated.status).toBe("active");
+    expect(updated.status).toBe("live");
   });
 
   it("refuses to activate while the campaign is still a draft", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db, { requiresAsset: false });
-    await decideChannelTerms(db, fx.clientAdminActor, {
-      campaignChannelId: fx.channelId,
-      decision: "approved",
-    });
 
     await expect(
-      setChannelStatus(db, fx.adminActor, { campaignChannelId: fx.channelId, status: "active" }),
+      setChannelStatus(db, fx.adminActor, { channelId: fx.channelId, status: "live" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
@@ -137,29 +130,29 @@ describe("setChannelStatus", () => {
     const db = testDb();
     const fx = await createChannelFixture(db, {
       campaignStatus: "live",
-      channelStatus: "active",
+      channelStatus: "live",
       requiresAsset: true,
     });
 
     const paused = await setChannelStatus(db, fx.adminActor, {
-      campaignChannelId: fx.channelId,
+      channelId: fx.channelId,
       status: "paused",
     });
     expect(paused.status).toBe("paused");
 
     const resumed = await setChannelStatus(db, fx.adminActor, {
-      campaignChannelId: fx.channelId,
-      status: "active",
+      channelId: fx.channelId,
+      status: "live",
     });
-    expect(resumed.status).toBe("active");
+    expect(resumed.status).toBe("live");
   });
 
   it("refuses a status this control does not own", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { campaignStatus: "live", channelStatus: "active" });
+    const fx = await createChannelFixture(db, { campaignStatus: "live", channelStatus: "live" });
 
     await expect(
-      setChannelStatus(db, fx.adminActor, { campaignChannelId: fx.channelId, status: "completed" }),
+      setChannelStatus(db, fx.adminActor, { channelId: fx.channelId, status: "completed" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });

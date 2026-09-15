@@ -168,18 +168,21 @@ export async function attachTargetAccountList(
 
 /**
  * Cap resolution (SRS §4.3): the entry override wins if set, otherwise the
- * campaign default applies, otherwise the account is uncapped.
+ * channel default applies, otherwise the account is uncapped.
  */
 export async function resolveAccountCap(
   db: PrismaClient,
-  campaignId: string,
+  campaignChannelId: string,
   accountId: string,
 ): Promise<number | null> {
-  const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
-  if (campaign === null) throw new NotFoundError("Campaign not found");
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: campaignChannelId },
+    select: { campaignId: true, defaultMaxLeadsPerAccount: true },
+  });
+  if (channel === null) throw new NotFoundError("Campaign channel not found");
 
   const links = await db.campaignTargetAccountList.findMany({
-    where: { campaignId },
+    where: { campaignId: channel.campaignId },
     select: { listId: true },
   });
 
@@ -195,5 +198,5 @@ export async function resolveAccountCap(
     if (entry?.maxLeadsPerAccountOverride != null) return entry.maxLeadsPerAccountOverride;
   }
 
-  return campaign.defaultMaxLeadsPerAccount;
+  return channel.defaultMaxLeadsPerAccount;
 }

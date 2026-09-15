@@ -14,12 +14,12 @@ describe("generateBuckets — month", () => {
     expect(buckets).toHaveLength(3);
     // Oct 15–31 = 17 days, Nov 1–30 = 30 days, Dec 1–15 = 15 days = 62 total days
     // Quantities proportional by days; last bucket absorbs rounding
-    expect(buckets[0].periodStart.toISOString().slice(0, 10)).toBe("2026-10-15");
-    expect(buckets[0].periodEnd.toISOString().slice(0, 10)).toBe("2026-10-31");
-    expect(buckets[1].periodStart.toISOString().slice(0, 10)).toBe("2026-11-01");
-    expect(buckets[1].periodEnd.toISOString().slice(0, 10)).toBe("2026-11-30");
-    expect(buckets[2].periodStart.toISOString().slice(0, 10)).toBe("2026-12-01");
-    expect(buckets[2].periodEnd.toISOString().slice(0, 10)).toBe("2026-12-15");
+    expect(buckets[0]!.periodStart.toISOString().slice(0, 10)).toBe("2026-10-15");
+    expect(buckets[0]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-10-31");
+    expect(buckets[1]!.periodStart.toISOString().slice(0, 10)).toBe("2026-11-01");
+    expect(buckets[1]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-11-30");
+    expect(buckets[2]!.periodStart.toISOString().slice(0, 10)).toBe("2026-12-01");
+    expect(buckets[2]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-12-15");
 
     const total = buckets.reduce((s, b) => s + b.targetQuantity, 0);
     expect(total).toBe(45);
@@ -33,9 +33,9 @@ describe("generateBuckets — month", () => {
     };
     const buckets = generateBuckets(channel, "month");
     expect(buckets).toHaveLength(1);
-    expect(buckets[0].periodStart.toISOString().slice(0, 10)).toBe("2026-11-10");
-    expect(buckets[0].periodEnd.toISOString().slice(0, 10)).toBe("2026-11-25");
-    expect(buckets[0].targetQuantity).toBe(30);
+    expect(buckets[0]!.periodStart.toISOString().slice(0, 10)).toBe("2026-11-10");
+    expect(buckets[0]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-11-25");
+    expect(buckets[0]!.targetQuantity).toBe(30);
   });
 
   it("full calendar months", () => {
@@ -46,10 +46,10 @@ describe("generateBuckets — month", () => {
     };
     const buckets = generateBuckets(channel, "month");
     expect(buckets).toHaveLength(2);
-    expect(buckets[0].periodStart.toISOString().slice(0, 10)).toBe("2026-01-01");
-    expect(buckets[0].periodEnd.toISOString().slice(0, 10)).toBe("2026-01-31");
-    expect(buckets[1].periodStart.toISOString().slice(0, 10)).toBe("2026-02-01");
-    expect(buckets[1].periodEnd.toISOString().slice(0, 10)).toBe("2026-02-28");
+    expect(buckets[0]!.periodStart.toISOString().slice(0, 10)).toBe("2026-01-01");
+    expect(buckets[0]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-01-31");
+    expect(buckets[1]!.periodStart.toISOString().slice(0, 10)).toBe("2026-02-01");
+    expect(buckets[1]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-02-28");
     expect(buckets.reduce((s, b) => s + b.targetQuantity, 0)).toBe(60);
   });
 });
@@ -64,9 +64,9 @@ describe("generateBuckets — week", () => {
     };
     const buckets = generateBuckets(channel, "week");
     expect(buckets).toHaveLength(1);
-    expect(buckets[0].periodStart.toISOString().slice(0, 10)).toBe("2026-09-14");
-    expect(buckets[0].periodEnd.toISOString().slice(0, 10)).toBe("2026-09-16");
-    expect(buckets[0].targetQuantity).toBe(10);
+    expect(buckets[0]!.periodStart.toISOString().slice(0, 10)).toBe("2026-09-14");
+    expect(buckets[0]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-09-16");
+    expect(buckets[0]!.targetQuantity).toBe(10);
   });
 
   it("flight spanning two ISO weeks", () => {
@@ -79,11 +79,11 @@ describe("generateBuckets — week", () => {
     const buckets = generateBuckets(channel, "week");
     expect(buckets).toHaveLength(2);
     // First bucket: Sep 16 (Wed) → Sep 20 (Sun)
-    expect(buckets[0].periodStart.toISOString().slice(0, 10)).toBe("2026-09-16");
-    expect(buckets[0].periodEnd.toISOString().slice(0, 10)).toBe("2026-09-20");
+    expect(buckets[0]!.periodStart.toISOString().slice(0, 10)).toBe("2026-09-16");
+    expect(buckets[0]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-09-20");
     // Second bucket: Sep 21 (Mon) → Sep 24 (Thu, endDate)
-    expect(buckets[1].periodStart.toISOString().slice(0, 10)).toBe("2026-09-21");
-    expect(buckets[1].periodEnd.toISOString().slice(0, 10)).toBe("2026-09-24");
+    expect(buckets[1]!.periodStart.toISOString().slice(0, 10)).toBe("2026-09-21");
+    expect(buckets[1]!.periodEnd.toISOString().slice(0, 10)).toBe("2026-09-24");
     expect(buckets.reduce((s, b) => s + b.targetQuantity, 0)).toBe(30);
   });
 });

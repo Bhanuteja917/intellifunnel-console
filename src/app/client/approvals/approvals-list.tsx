@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { decideChannelTermsAction, decidePlacementAction } from "./actions";
+import { decideChannelTermsAction } from "./actions";
 
 const STATUS_BADGE: Record<ApprovalStatus, { variant: "default" | "secondary" | "destructive"; label: string }> = {
   approved: { variant: "default", label: "approved" },
@@ -46,20 +46,12 @@ export function ApprovalsList({
     if (open === null) return;
     const { item, decision } = open;
     startTransition(async () => {
-      const result =
-        item.kind === "channelTerms"
-          ? await decideChannelTermsAction({
-              campaignChannelId: item.subjectId,
-              campaignId: item.campaignId,
-              decision,
-              comments,
-            })
-          : await decidePlacementAction({
-              assetPlacementId: item.subjectId,
-              campaignId: item.campaignId,
-              decision,
-              comments,
-            });
+      const result = await decideChannelTermsAction({
+        campaignChannelId: item.subjectId,
+        campaignId: item.campaignId,
+        decision,
+        comments,
+      });
 
       if (result.ok) {
         toast.success(decision === "approved" ? "Approved" : "Change request sent");
@@ -146,7 +138,7 @@ export function ApprovalsList({
           <DialogHeader>
             <DialogTitle>
               {open?.decision === "approved" ? "Approve" : "Request a change"}
-              {open?.item.kind === "channelTerms" ? " — channel terms" : " — landing page"}
+              {" — channel terms"}
             </DialogTitle>
           </DialogHeader>
           <div className="rounded-md border">

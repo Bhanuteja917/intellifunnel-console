@@ -17,25 +17,25 @@ import { ValidationError } from "@/lib/errors";
 import { superAdminRevertToDraft } from "@/lib/campaigns/state-machine";
 
 export async function setIcpCriteriaAction(
-  campaignId: string,
+  channelId: string,
   criteria: IcpCriterionInput[],
 ): Promise<ActionResult<null>> {
   return toActionResult(async () => {
     const actor = await requireActor();
-    await setIcpCriteria(db, actor, campaignId, criteria);
-    revalidatePath(`/campaigns/${campaignId}`);
+    await setIcpCriteria(db, actor, channelId, criteria);
+    revalidatePath(`/campaigns`);
     return null;
   });
 }
 
 export async function setLeadFieldSpecAction(
-  campaignId: string,
+  channelId: string,
   fields: LeadFieldSpecInput[],
 ): Promise<ActionResult<null>> {
   return toActionResult(async () => {
     const actor = await requireActor();
-    await setLeadFieldSpec(db, actor, campaignId, fields);
-    revalidatePath(`/campaigns/${campaignId}`);
+    await setLeadFieldSpec(db, actor, channelId, fields);
+    revalidatePath(`/campaigns`);
     return null;
   });
 }

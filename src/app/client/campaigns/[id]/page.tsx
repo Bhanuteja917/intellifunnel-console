@@ -7,7 +7,7 @@ import { requireActor } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
 import { getClientCampaignDetail } from "@/lib/approvals/client-view";
 import { getLeadsForClient } from "@/lib/leads/client-view";
-import type { ChannelReadiness, StepOwner } from "@/lib/channels/readiness";
+import type { ChannelReadiness } from "@/lib/channels/readiness";
 import type { ApprovalStatus } from "@/lib/approvals/status";
 import { NotFoundError } from "@/lib/errors";
 import { Badge } from "@/components/ui/badge";
@@ -38,8 +38,6 @@ const STATUS_VARIANT: Record<ApprovalStatus, "default" | "secondary" | "destruct
   changesRequested: "destructive",
   reapprovalNeeded: "destructive",
 };
-
-const OWNER_LABEL: Record<StepOwner, string> = { client: "you", agency: "agency", done: "done" };
 
 function statCard(label: string, value: string, hint: string) {
   return (
@@ -84,8 +82,7 @@ export default async function ClientCampaignPage({
   const awaitingYou = campaign.channels.reduce(
     (sum, channel) =>
       sum +
-      (channel.termsStatus === "approved" ? 0 : 1) +
-      channel.placements.filter((p) => p.status !== "approved").length,
+      (channel.termsStatus === "approved" ? 0 : 1),
     0,
   );
 
@@ -160,8 +157,8 @@ export default async function ClientCampaignPage({
                 <div key={channel.channelId}>
                   <div className="mb-1 flex items-center gap-2">
                     <span className="text-sm font-medium">{channel.label}</span>
-                    <Badge variant={channel.readiness.ready ? "default" : "secondary"}>
-                      {channel.readiness.ready ? "ready" : "setup in progress"}
+                    <Badge variant={channel.readiness.steps.filter((s) => s.required).every((s) => s.done) ? "default" : "secondary"}>
+                      {channel.readiness.steps.filter((s) => s.required).every((s) => s.done) ? "ready" : "setup in progress"}
                     </Badge>
                   </div>
                   <ChecklistRows readiness={channel.readiness} />
@@ -180,7 +177,7 @@ export default async function ClientCampaignPage({
             {statCard("Awaiting you", String(awaitingYou), "terms and landing pages")}
             {statCard(
               "Channels ready",
-              `${campaign.channels.filter((c) => c.readiness.ready).length} / ${campaign.channels.length}`,
+              `${campaign.channels.filter((c) => c.readiness.steps.filter((s) => s.required).every((s) => s.done)).length} / ${campaign.channels.length}`,
               "setup complete",
             )}
           </div>
@@ -230,35 +227,7 @@ export default async function ClientCampaignPage({
                 </Badge>
               </CardHeader>
               <CardContent>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Landing pages
-                </div>
-                {channel.placements.length === 0 ? (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    None yet — the agency is still setting this channel up.
-                  </p>
-                ) : (
-                  <div className="mt-2 flex flex-col">
-                    {channel.placements.map((placement) => (
-                      <div
-                        key={placement.placementId}
-                        className="flex flex-wrap items-center justify-between gap-2 border-b py-2 last:border-b-0"
-                      >
-                        <a
-                          href={placement.landingPageUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm break-all underline underline-offset-4"
-                        >
-                          {placement.landingPageUrl}
-                        </a>
-                        <Badge variant={STATUS_VARIANT[placement.status]}>
-                          {STATUS_LABEL[placement.status]}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <ChecklistRows readiness={channel.readiness} />
               </CardContent>
             </Card>
           ))}
@@ -340,18 +309,9 @@ function ChecklistRows({ readiness }: { readiness: ChannelReadiness }) {
             </div>
             <div className="text-xs text-muted-foreground">{step.hint}</div>
           </div>
-          <Badge variant={step.owner === "client" ? "secondary" : "outline"}>
-            {OWNER_LABEL[step.owner]}
-          </Badge>
-          {step.owner === "client" ? (
-            <Button asChild size="sm">
-              <Link href={"/client/approvals" as Route}>Review</Link>
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" disabled>
-              {step.done ? "Done" : "Track"}
-            </Button>
-          )}
+          <Button size="sm" variant="outline" disabled={step.done}>
+            {step.done ? "Done" : "In progress"}
+          </Button>
         </div>
       ))}
     </div>

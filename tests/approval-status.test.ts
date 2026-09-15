@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import {
   buildChannelTermsSnapshot,
-  getChannelTermsApprovalStatus,
-  getPlacementApprovalStatus,
+  buildIcpSnapshot,
+  buildLeadSpecSnapshot,
+  getChannelApprovalStatus,
 } from "@/lib/approvals/status";
 
-describe("channel terms approval status", () => {
+describe("channel approval status", () => {
   beforeEach(async () => {
     await resetDb();
     await seedRoles(testDb());
@@ -21,52 +23,67 @@ describe("channel terms approval status", () => {
     const fx = await createChannelFixture(db);
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("pending");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("pending");
   });
 
-  it("is approved when the latest decision approves the current terms", async () => {
+  it("is pending when a channelApproval table has no rows for this channel", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
-    await db.channelTermsApproval.create({
+
+    expect(await getChannelApprovalStatus(db, channel)).toBe("pending");
+  });
+
+  it("is approved when the latest decision approves the current terms and ICP is empty", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
+    await db.channelApproval.create({
       data: {
         campaignChannelId: channel.id,
+        type: "client",
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
-        termsSnapshotJson: buildChannelTermsSnapshot(channel),
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: [] as unknown as Prisma.InputJsonValue,
+        leadSpecSnapshotJson: [] as unknown as Prisma.InputJsonValue,
       },
     });
 
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("approved");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("approved");
   });
 
   it("is changesRequested when the latest decision rejects", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
-    await db.channelTermsApproval.create({
+    await db.channelApproval.create({
       data: {
         campaignChannelId: channel.id,
+        type: "client",
         decision: "rejected",
         decidedByUserId: fx.clientAdminActor.userId,
         comments: "price is wrong",
-        termsSnapshotJson: buildChannelTermsSnapshot(channel),
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
       },
     });
 
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("changesRequested");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("changesRequested");
   });
 
   it("needs re-approval once the terms change after an approval", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
-    await db.channelTermsApproval.create({
+    await db.channelApproval.create({
       data: {
         campaignChannelId: channel.id,
+        type: "client",
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
-        termsSnapshotJson: buildChannelTermsSnapshot(channel),
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: [] as unknown as Prisma.InputJsonValue,
+        leadSpecSnapshotJson: [] as unknown as Prisma.InputJsonValue,
       },
     });
 
@@ -75,7 +92,7 @@ describe("channel terms approval status", () => {
       data: { contractedQuantity: 60 },
     });
 
-    expect(await getChannelTermsApprovalStatus(db, edited)).toBe("reapprovalNeeded");
+    expect(await getChannelApprovalStatus(db, edited)).toBe("reapprovalNeeded");
   });
 
   it("lets a newer decision supersede an older one", async () => {
@@ -84,92 +101,149 @@ describe("channel terms approval status", () => {
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
     const snapshot = buildChannelTermsSnapshot(channel);
 
-    await db.channelTermsApproval.create({
+    await db.channelApproval.create({
       data: {
         campaignChannelId: channel.id,
+        type: "client",
         decision: "rejected",
         decidedByUserId: fx.clientAdminActor.userId,
         comments: "not yet",
-        termsSnapshotJson: snapshot,
+        termsSnapshotJson: snapshot as unknown as Prisma.InputJsonValue,
         decidedAt: new Date("2026-01-01T10:00:00Z"),
       },
     });
-    await db.channelTermsApproval.create({
+    await db.channelApproval.create({
       data: {
         campaignChannelId: channel.id,
+        type: "client",
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
-        termsSnapshotJson: snapshot,
+        termsSnapshotJson: snapshot as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: [] as unknown as Prisma.InputJsonValue,
+        leadSpecSnapshotJson: [] as unknown as Prisma.InputJsonValue,
         decidedAt: new Date("2026-01-02T10:00:00Z"),
       },
     });
 
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("approved");
-  });
-});
-
-describe("placement approval status", () => {
-  beforeEach(async () => {
-    await resetDb();
-    await seedRoles(testDb());
-    await seedFunnelStages(testDb());
+    expect(await getChannelApprovalStatus(db, channel)).toBe("approved");
   });
 
-  it("is pending with no decision, approved after a matching one, stale after an edit", async () => {
+  it("is reapprovalNeeded when ICP criteria changed after approval", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
-    const asset = await db.asset.create({
-      data: {
-        ownerOrganizationId: fx.clientOrgId,
-        name: "A",
-        type: "whitepaper",
-        language: "en",
-        status: "active",
-      },
-    });
-    const assetVersion = await db.assetVersion.create({
-      data: {
-        assetId: asset.id,
-        version: 1,
-        fileName: "a.pdf",
-        storageKey: "k",
-        mimeType: "application/pdf",
-        sizeBytes: 10,
-      },
-    });
-    const placement = await db.assetPlacement.create({
-      data: {
-        campaignChannelId: fx.channelId,
-        assetId: asset.id,
-        assetVersionId: assetVersion.id,
-        landingPageUrl: "https://example.com/lp",
-        formSlug: `slug-${Date.now()}`,
-      },
-    });
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
-    expect(await getPlacementApprovalStatus(db, placement)).toBe("pending");
-
-    await db.placementApproval.create({
+    // Create approval with empty ICP snapshot
+    await db.channelApproval.create({
       data: {
-        assetPlacementId: placement.id,
+        campaignChannelId: channel.id,
+        type: "client",
         decision: "approved",
         decidedByUserId: fx.clientAdminActor.userId,
-        placementSnapshotJson: {
-          landingPageUrl: placement.landingPageUrl,
-          assetVersionId: placement.assetVersionId,
-          formSlug: placement.formSlug,
-          consentTextVersionId: placement.consentTextVersionId,
-        },
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: [] as unknown as Prisma.InputJsonValue, // snapshot of empty ICP
+        leadSpecSnapshotJson: Prisma.DbNull,
       },
     });
 
-    expect(await getPlacementApprovalStatus(db, placement)).toBe("approved");
-
-    const moved = await db.assetPlacement.update({
-      where: { id: placement.id },
-      data: { landingPageUrl: "https://example.com/lp-v2" },
+    // Now add an ICP criterion (changed after approval)
+    await db.icpCriterion.create({
+      data: {
+        campaignChannelId: channel.id,
+        dimension: "country",
+        operator: "in",
+        valuesJson: ["US"],
+        isMandatory: true,
+      },
     });
 
-    expect(await getPlacementApprovalStatus(db, moved)).toBe("reapprovalNeeded");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("reapprovalNeeded");
+  });
+
+  it("is reapprovalNeeded when lead spec changed after approval", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
+
+    // Create approval with empty lead spec snapshot
+    await db.channelApproval.create({
+      data: {
+        campaignChannelId: channel.id,
+        type: "client",
+        decision: "approved",
+        decidedByUserId: fx.clientAdminActor.userId,
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: Prisma.DbNull,
+        leadSpecSnapshotJson: [] as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    // Now add a lead field spec (changed after approval)
+    await db.leadFieldSpec.create({
+      data: {
+        campaignChannelId: channel.id,
+        fieldKey: "jobTitle",
+        label: "Job Title",
+        dataType: "string",
+        isRequired: true,
+        rejectIfMissing: true,
+      },
+    });
+
+    expect(await getChannelApprovalStatus(db, channel)).toBe("reapprovalNeeded");
+  });
+
+  it("does not flag staleness when ICP snapshot is null (pre-ICP approval)", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
+
+    // Old-style approval with no ICP snapshot at all
+    await db.channelApproval.create({
+      data: {
+        campaignChannelId: channel.id,
+        type: "client",
+        decision: "approved",
+        decidedByUserId: fx.clientAdminActor.userId,
+        termsSnapshotJson: buildChannelTermsSnapshot(channel) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: Prisma.DbNull,
+        leadSpecSnapshotJson: Prisma.DbNull,
+      },
+    });
+
+    // Add ICP criteria — should NOT trigger staleness since snapshot was null
+    await db.icpCriterion.create({
+      data: {
+        campaignChannelId: channel.id,
+        dimension: "country",
+        operator: "in",
+        valuesJson: ["US"],
+        isMandatory: true,
+      },
+    });
+
+    // Still approved: null snapshot means ICP staleness is not tracked
+    expect(await getChannelApprovalStatus(db, channel)).toBe("approved");
+  });
+
+  it("buildIcpSnapshot sorts by id and is deterministic", () => {
+    const criteria = [
+      { id: "z", campaignChannelId: "c1", dimension: "country" as const, operator: "in" as const, valuesJson: ["UK"], isMandatory: false, createdAt: new Date(), updatedAt: new Date(), createdById: null, updatedById: null },
+      { id: "a", campaignChannelId: "c1", dimension: "industry" as const, operator: "in" as const, valuesJson: ["tech"], isMandatory: true, createdAt: new Date(), updatedAt: new Date(), createdById: null, updatedById: null },
+    ];
+    const snapshot = buildIcpSnapshot(criteria);
+    expect(snapshot[0]!.dimension).toBe("industry"); // "a" sorts before "z"
+    expect(snapshot[1]!.dimension).toBe("country");
+  });
+
+  it("buildLeadSpecSnapshot sorts by fieldKey", () => {
+    const specs = [
+      { id: "1", campaignChannelId: "c1", fieldKey: "zipCode", label: "Zip", dataType: "string" as const, isRequired: false, rejectIfMissing: false, allowedValuesJson: null, validationPattern: null, createdAt: new Date(), updatedAt: new Date(), createdById: null, updatedById: null },
+      { id: "2", campaignChannelId: "c1", fieldKey: "email", label: "Email", dataType: "email" as const, isRequired: true, rejectIfMissing: true, allowedValuesJson: null, validationPattern: null, createdAt: new Date(), updatedAt: new Date(), createdById: null, updatedById: null },
+    ];
+    const snapshot = buildLeadSpecSnapshot(specs);
+    expect(snapshot[0]!.fieldKey).toBe("email");
+    expect(snapshot[1]!.fieldKey).toBe("zipCode");
   });
 });
+

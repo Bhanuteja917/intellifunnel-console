@@ -30,7 +30,11 @@ export async function cloneCampaign(
 
   const source = await db.campaign.findUnique({
     where: { id: sourceCampaignId },
-    include: { icpCriteria: true, leadFieldSpecs: true, channels: true },
+    include: {
+      channels: {
+        include: { icpCriteria: true, leadFieldSpecs: true },
+      },
+    },
   });
   if (source === null || source.deletedAt !== null) throw new NotFoundError("Campaign not found");
   assertOrganizationAccess(actor, source.clientOrganizationId);
@@ -75,45 +79,11 @@ export async function cloneCampaign(
           startDate,
           endDate,
           currency: source.currency,
-          defaultMaxLeadsPerAccount: source.defaultMaxLeadsPerAccount,
-          advisoryTalMatch: source.advisoryTalMatch,
-          advisoryIcpMatch: source.advisoryIcpMatch,
           clonedFromCampaignId: source.id,
           createdById: actor.userId,
           updatedById: actor.userId,
         },
       });
-
-      for (const criterion of source.icpCriteria) {
-        await tx.icpCriterion.create({
-          data: {
-            campaignId: clone.id,
-            dimension: criterion.dimension,
-            operator: criterion.operator,
-            valuesJson: criterion.valuesJson ?? {},
-            isMandatory: criterion.isMandatory,
-            createdById: actor.userId,
-            updatedById: actor.userId,
-          },
-        });
-      }
-
-      for (const field of source.leadFieldSpecs) {
-        await tx.leadFieldSpec.create({
-          data: {
-            campaignId: clone.id,
-            fieldKey: field.fieldKey,
-            label: field.label,
-            dataType: field.dataType,
-            isRequired: field.isRequired,
-            rejectIfMissing: field.rejectIfMissing,
-            allowedValuesJson: field.allowedValuesJson ?? undefined,
-            validationPattern: field.validationPattern,
-            createdById: actor.userId,
-            updatedById: actor.userId,
-          },
-        });
-      }
 
       for (const channel of source.channels) {
         // Channel windows are clamped into the clone's flight window; a copied
@@ -121,7 +91,7 @@ export async function cloneCampaign(
         const channelStart = channel.startDate < startDate ? startDate : channel.startDate;
         const channelEnd = channel.endDate > endDate ? endDate : channel.endDate;
 
-        await tx.campaignChannel.create({
+        const clonedChannel = await tx.campaignChannel.create({
           data: {
             campaignId: clone.id,
             channelTypeVersionId: channel.channelTypeVersionId,
@@ -132,11 +102,45 @@ export async function cloneCampaign(
             startDate: channelStart > channelEnd ? startDate : channelStart,
             endDate: channelStart > channelEnd ? endDate : channelEnd,
             qualificationFormId: channel.qualificationFormId,
+            advisoryIcpMatch: channel.advisoryIcpMatch,
+            advisoryTalMatch: channel.advisoryTalMatch,
+            defaultMaxLeadsPerAccount: channel.defaultMaxLeadsPerAccount,
             status: "draft",
             createdById: actor.userId,
             updatedById: actor.userId,
           },
         });
+
+        for (const criterion of channel.icpCriteria) {
+          await tx.icpCriterion.create({
+            data: {
+              campaignChannelId: clonedChannel.id,
+              dimension: criterion.dimension,
+              operator: criterion.operator,
+              valuesJson: criterion.valuesJson ?? {},
+              isMandatory: criterion.isMandatory,
+              createdById: actor.userId,
+              updatedById: actor.userId,
+            },
+          });
+        }
+
+        for (const field of channel.leadFieldSpecs) {
+          await tx.leadFieldSpec.create({
+            data: {
+              campaignChannelId: clonedChannel.id,
+              fieldKey: field.fieldKey,
+              label: field.label,
+              dataType: field.dataType,
+              isRequired: field.isRequired,
+              rejectIfMissing: field.rejectIfMissing,
+              allowedValuesJson: field.allowedValuesJson ?? undefined,
+              validationPattern: field.validationPattern,
+              createdById: actor.userId,
+              updatedById: actor.userId,
+            },
+          });
+        }
       }
 
       for (const link of talLinks) {

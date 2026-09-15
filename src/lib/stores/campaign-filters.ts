@@ -3,8 +3,7 @@ import { create } from "zustand";
 export type CampaignStatusFilter =
   | "all"
   | "draft"
-  | "pendingInternalApproval"
-  | "pendingClientApproval"
+  | "pending"
   | "scheduled"
   | "live"
   | "paused"

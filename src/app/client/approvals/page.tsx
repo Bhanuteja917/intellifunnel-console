@@ -18,12 +18,9 @@ export default async function ClientApprovalsPage() {
   const canDecide = hasPermission(actor, "campaign:approveClient");
 
   const terms = items.filter((i) => i.kind === "channelTerms");
-  const placements = items.filter((i) => i.kind === "placement");
   const termsPending = terms.filter((i) => i.status !== "approved");
   const termsHistory = terms.filter((i) => i.status === "approved");
-  const placementsPending = placements.filter((i) => i.status !== "approved");
-  const placementsHistory = placements.filter((i) => i.status === "approved");
-  const pendingCount = termsPending.length + placementsPending.length;
+  const pendingCount = termsPending.length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -65,26 +62,6 @@ export default async function ClientApprovalsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Landing pages</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            The live page each channel collects leads on. A page cannot go live until you approve it.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <ApprovalsList
-            items={placementsPending}
-            canDecide={canDecide}
-            emptyMessage="No landing pages to review yet."
-          />
-          {placementsHistory.length > 0 && (
-            <HistorySection count={placementsHistory.length}>
-              <ApprovalsList items={placementsHistory} canDecide={false} emptyMessage="" />
-            </HistorySection>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

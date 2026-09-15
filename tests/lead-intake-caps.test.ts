@@ -36,18 +36,19 @@ async function setupChannel(contractedQuantity = 100) {
     data: {
       clientOrganizationId: clientOrg.id, name: "Test Campaign", code: `CAM-${Date.now()}`,
       status: "live", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"),
-      currency: "USD", advisoryIcpMatch: false, advisoryTalMatch: false,
+      currency: "USD",
     },
   });
   const campaignChannel = await db.campaignChannel.create({
     data: {
       campaignId: campaign.id, channelTypeVersionId: channelTypeVersion.id,
       contractedQuantity, clientUnitPriceMinor: 1000n, currency: "USD",
-      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "active",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "live",
+      advisoryIcpMatch: false, advisoryTalMatch: false,
     },
   });
   await db.leadFieldSpec.create({
-    data: { campaignId: campaign.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    data: { campaignChannelId: campaignChannel.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
   });
   // Without a spec for it, companyDomain never survives validateFieldValues
   // (it only projects fields the campaign has a LeadFieldSpec for), so every
@@ -55,7 +56,7 @@ async function setupChannel(contractedQuantity = 100) {
   // domain") before ever reaching the business-rule pipeline this suite
   // exercises.
   await db.leadFieldSpec.create({
-    data: { campaignId: campaign.id, fieldKey: "companyDomain", label: "Company Domain", dataType: "string", isRequired: false, rejectIfMissing: false },
+    data: { campaignChannelId: campaignChannel.id, fieldKey: "companyDomain", label: "Company Domain", dataType: "string", isRequired: false, rejectIfMissing: false },
   });
   return { db, actor, allocActor, campaignChannel, partnerOrg, campaign, clientOrg, internalOrg };
 }
@@ -252,7 +253,7 @@ describe("submitLeadFile — cap enforcement", () => {
     // `needsReview` is the only state decideLeadVerification can act on, and
     // it is also the state that leaves a *reservation* behind at intake —
     // exactly the counter this regression is about.
-    await db.campaign.update({ where: { id: campaign.id }, data: { advisoryTalMatch: true } });
+    await db.campaignChannel.update({ where: { id: campaignChannel.id }, data: { advisoryTalMatch: true } });
     const talList = await db.targetAccountList.create({
       data: { ownerOrganizationId: clientOrg.id, name: "TAL", isReusable: false },
     });

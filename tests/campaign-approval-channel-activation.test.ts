@@ -3,25 +3,94 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
-import { decideChannelTerms } from "@/lib/approvals/decisions";
-import { decideClientApproval } from "@/lib/campaigns/state-machine";
+import { setIcpCriteria, setLeadFieldSpec } from "@/lib/campaigns/crud";
+import { submitChannelForApproval, decideChannelApproval, updateCampaignStatus } from "@/lib/campaigns/state-machine";
 
-describe("decideClientApproval — channel activation", () => {
+describe("channel submit/approve — campaign status derivation", () => {
   beforeEach(async () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
   });
 
-  it("activates ready channels and leaves unready ones in draft", async () => {
+  it("submitting a draft channel moves campaign to pending", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db, {
-      campaignStatus: "pendingClientApproval",
+      campaignStatus: "draft",
       requiresAsset: false,
     });
 
-    // A second channel on the same campaign, deliberately left unapproved.
-    const unready = await db.campaignChannel.create({
+    // Give the channel ICP + email lead spec so it's submittable
+    await setIcpCriteria(db, fx.adminActor, fx.channelId, [
+      { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+    ]);
+    await setLeadFieldSpec(db, fx.adminActor, fx.channelId, [
+      { fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    ]);
+
+    await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+
+    const campaign = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaign.status).toBe("pending");
+  });
+
+  it("approving a pending channel moves campaign to live (start date already passed)", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, {
+      campaignStatus: "draft",
+      requiresAsset: false,
+    });
+
+    await setIcpCriteria(db, fx.adminActor, fx.channelId, [
+      { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+    ]);
+    await setLeadFieldSpec(db, fx.adminActor, fx.channelId, [
+      { fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    ]);
+
+    await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+    const approved = await decideChannelApproval(db, fx.clientAdminActor, fx.channelId, "approved");
+
+    // Channel start date is 2026-02-01 (past), so → live
+    expect(approved.status).toBe("live");
+
+    const campaign = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaign.status).toBe("live");
+  });
+
+  it("rejecting a pending channel returns it and its campaign to draft", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, {
+      campaignStatus: "draft",
+      requiresAsset: false,
+    });
+
+    await setIcpCriteria(db, fx.adminActor, fx.channelId, [
+      { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+    ]);
+    await setLeadFieldSpec(db, fx.adminActor, fx.channelId, [
+      { fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    ]);
+
+    await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+    await decideChannelApproval(db, fx.clientAdminActor, fx.channelId, "rejected", "Needs revision");
+
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
+    expect(channel.status).toBe("draft");
+
+    const campaign = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaign.status).toBe("draft");
+  });
+
+  it("a second channel on the same campaign keeps campaign pending when first is approved and second is draft", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, {
+      campaignStatus: "draft",
+      requiresAsset: false,
+    });
+
+    // A second channel on the same campaign, left in draft.
+    await db.campaignChannel.create({
       data: {
         campaignId: fx.campaignId,
         channelTypeVersionId: fx.channelTypeVersionId,
@@ -34,17 +103,42 @@ describe("decideClientApproval — channel activation", () => {
       },
     });
 
-    await decideChannelTerms(db, fx.clientAdminActor, {
-      campaignChannelId: fx.channelId,
-      decision: "approved",
+    await setIcpCriteria(db, fx.adminActor, fx.channelId, [
+      { dimension: "country", operator: "in", values: ["US"], isMandatory: true },
+    ]);
+    await setLeadFieldSpec(db, fx.adminActor, fx.channelId, [
+      { fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    ]);
+
+    await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+    // First channel is now pending; second is still draft → campaign derives to draft (draft beats pending)
+    const campaignAfterSubmit = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaignAfterSubmit.status).toBe("draft");
+
+    await decideChannelApproval(db, fx.clientAdminActor, fx.channelId, "approved");
+    // First channel is now live (start date 2026-02-01 is past); second is still draft.
+    // Per deriveCampaignStatus: draft has HIGHEST priority → campaign derives to draft.
+    const campaignAfterApproval = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaignAfterApproval.status).toBe("draft");
+  });
+
+  it("updateCampaignStatus derives completed when all channels finished", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, {
+      campaignStatus: "live",
+      channelStatus: "live",
+      requiresAsset: false,
     });
 
-    await decideClientApproval(db, fx.clientAdminActor, fx.campaignId, "approved");
+    // Mark the channel as completed
+    await db.campaignChannel.update({
+      where: { id: fx.channelId },
+      data: { status: "completed" },
+    });
 
-    const ready = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
-    const stillDraft = await db.campaignChannel.findUniqueOrThrow({ where: { id: unready.id } });
+    await updateCampaignStatus(db, fx.campaignId, null);
 
-    expect(ready.status).toBe("active");
-    expect(stillDraft.status).toBe("draft");
+    const campaign = await db.campaign.findUniqueOrThrow({ where: { id: fx.campaignId } });
+    expect(campaign.status).toBe("completed");
   });
 });

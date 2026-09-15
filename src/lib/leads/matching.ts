@@ -65,8 +65,8 @@ export async function checkSuppression(
  * Thin wrapper around `resolveAccountCap` so Task 4's pipeline can import
  * every matching check from this one module. No behaviour is added on top.
  */
-export async function resolveLeadCap(db: PrismaClient, campaignId: string, accountId: string): Promise<number | null> {
-  return resolveAccountCap(db, campaignId, accountId);
+export async function resolveLeadCap(db: PrismaClient, campaignChannelId: string, accountId: string): Promise<number | null> {
+  return resolveAccountCap(db, campaignChannelId, accountId);
 }
 
 /**
@@ -160,7 +160,7 @@ function evaluateCriterion(
 }
 
 /**
- * FR-IN-4 step 9: ICP match. Runs every `IcpCriterion` for the campaign
+ * FR-IN-4 step 9: ICP match. Runs every `IcpCriterion` for the channel
  * through the dimension mapping and operator rules; a failed mandatory
  * criterion sets `mandatoryFailed`, and every failed criterion (mandatory or
  * not) is recorded in `failedDimensions` for reporting. Skipped criteria
@@ -168,11 +168,11 @@ function evaluateCriterion(
  */
 export async function matchesIcp(
   db: Db,
-  campaignId: string,
+  campaignChannelId: string,
   account: { industry: string | null; employeeRange: string | null; revenueRange: string | null; country: string | null },
   contact: { jobFunction: string | null; seniority: string | null; jobTitle: string | null },
 ): Promise<IcpMatchResult> {
-  const criteria = await db.icpCriterion.findMany({ where: { campaignId } });
+  const criteria = await db.icpCriterion.findMany({ where: { campaignChannelId } });
 
   let mandatoryFailed = false;
   const failedDimensions: string[] = [];

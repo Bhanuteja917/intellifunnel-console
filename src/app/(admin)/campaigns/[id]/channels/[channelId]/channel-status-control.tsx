@@ -1,38 +1,40 @@
 "use client";
 
-import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import { toast } from "sonner";
 import type { CampaignChannelStatus } from "@prisma/client";
-import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { setChannelStatusAction } from "./actions";
+
+const CHANNEL_STATUSES: CampaignChannelStatus[] = ["draft", "pending", "scheduled", "live", "paused", "completed", "cancelled"];
 
 type Props = {
   campaignId: string;
-  campaignChannelId: string;
+  channelId: string;
   status: CampaignChannelStatus;
-  /** Null when the channel can be activated; otherwise why it cannot. */
-  activateBlockedReason: string | null;
 };
 
-export function ChannelStatusControl({
-  campaignId,
-  campaignChannelId,
-  status,
-  activateBlockedReason,
-}: Props) {
+export function ChannelStatusControl({ campaignId, channelId, status }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  function set(next: CampaignChannelStatus) {
+  function onChange(next: string) {
     startTransition(async () => {
-      const result = await setChannelStatusAction({
+      const result = await setChannelStatusAction(
         campaignId,
-        campaignChannelId,
-        status: next,
-      });
+        channelId,
+        next as CampaignChannelStatus,
+      );
       if (result.ok) {
-        toast.success(next === "active" ? "Channel activated" : "Channel paused");
+        toast.success(`Status set to ${next}`);
         router.refresh();
       } else {
         toast.error(result.error);
@@ -40,27 +42,18 @@ export function ChannelStatusControl({
     });
   }
 
-  // completed channels are terminal, and this control does not own that hop.
-  if (status === "completed") return null;
-
-  if (status === "active") {
-    return (
-      <Button variant="outline" size="sm" onClick={() => set("paused")} disabled={pending}>
-        Pause channel
-      </Button>
-    );
-  }
-
-  const blocked = status === "draft" ? activateBlockedReason : null;
-
   return (
-    <Button
-      size="sm"
-      onClick={() => set("active")}
-      disabled={pending || blocked !== null}
-      title={blocked ?? undefined}
-    >
-      {status === "paused" ? "Resume channel" : "Activate channel"}
-    </Button>
+    <Select value={status} onValueChange={onChange} disabled={pending}>
+      <SelectTrigger className="w-40">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {CHANNEL_STATUSES.map((value) => (
+            <SelectItem key={value} value={value}>{value}</SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }

@@ -2,8 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import { NotFoundError } from "@/lib/errors";
 import {
-  getChannelTermsApprovalStatus,
-  getPlacementApprovalStatus,
+  getChannelApprovalStatus,
   type ApprovalStatus,
 } from "@/lib/approvals/status";
 import { computeChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
@@ -11,7 +10,7 @@ import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { fromMinorUnits } from "@/lib/money/currency";
 
 export type ClientApprovalItem = {
-  kind: "channelTerms" | "placement";
+  kind: "channelTerms";
   subjectId: string;
   campaignId: string;
   campaignName: string;
@@ -46,7 +45,6 @@ export type ClientCampaignChannel = {
   deliveredCount: number;
   termsStatus: ApprovalStatus;
   readiness: ChannelReadiness;
-  placements: { placementId: string; landingPageUrl: string; status: ApprovalStatus }[];
 };
 
 export type ClientCampaignDetail = {
@@ -100,16 +98,6 @@ export async function listClientApprovals(
       channelTypeVersionId: true,
       campaign: { select: { id: true, name: true, code: true } },
       channelTypeVersion: { select: { definitionJson: true } },
-      assets: {
-        select: {
-          id: true,
-          landingPageUrl: true,
-          assetVersionId: true,
-          formSlug: true,
-          consentTextVersionId: true,
-        },
-        orderBy: { createdAt: "desc" },
-      },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -121,8 +109,8 @@ export async function listClientApprovals(
       {}) as Partial<ChannelTypeDefinition>;
     const channelLabel = definition.name ?? definition.code ?? "Channel";
 
-    const termsStatus = await getChannelTermsApprovalStatus(db, channel);
-    const lastTerms = await db.channelTermsApproval.findFirst({
+    const termsStatus = await getChannelApprovalStatus(db, channel);
+    const lastTerms = await db.channelApproval.findFirst({
       where: { campaignChannelId: channel.id },
       orderBy: { decidedAt: "desc" },
       select: { comments: true, decidedAt: true },
@@ -147,31 +135,6 @@ export async function listClientApprovals(
       lastComments: lastTerms?.comments ?? null,
       lastDecidedAt: lastTerms?.decidedAt ?? null,
     });
-
-    for (const placement of channel.assets) {
-      const status = await getPlacementApprovalStatus(db, placement);
-      const lastPlacement = await db.placementApproval.findFirst({
-        where: { assetPlacementId: placement.id },
-        orderBy: { decidedAt: "desc" },
-        select: { comments: true, decidedAt: true },
-      });
-
-      items.push({
-        kind: "placement",
-        subjectId: placement.id,
-        campaignId: channel.campaign.id,
-        campaignName: channel.campaign.name,
-        campaignCode: channel.campaign.code,
-        channelLabel,
-        status,
-        summary: [
-          { label: "Landing page", value: placement.landingPageUrl },
-          { label: "Form", value: placement.formSlug },
-        ],
-        lastComments: lastPlacement?.comments ?? null,
-        lastDecidedAt: lastPlacement?.decidedAt ?? null,
-      });
-    }
   }
 
   return filter.pendingOnly === false ? items : items.filter((i) => PENDING.includes(i.status));
@@ -245,16 +208,8 @@ export async function getClientCampaignDetail(
           deliveredCount: true,
           channelTypeVersionId: true,
           channelTypeVersion: { select: { definitionJson: true } },
-          deliveryConfig: { select: { id: true } },
           assets: {
-            select: {
-              id: true,
-              status: true,
-              landingPageUrl: true,
-              assetVersionId: true,
-              formSlug: true,
-              consentTextVersionId: true,
-            },
+            select: { id: true, status: true },
             orderBy: { createdAt: "desc" },
           },
           _count: { select: { allocations: true } },
@@ -270,16 +225,7 @@ export async function getClientCampaignDetail(
   for (const channel of campaign.channels) {
     const definition = (channel.channelTypeVersion.definitionJson ??
       {}) as Partial<ChannelTypeDefinition>;
-    const termsStatus = await getChannelTermsApprovalStatus(db, channel);
-
-    const placements: ClientCampaignChannel["placements"] = [];
-    for (const placement of channel.assets) {
-      placements.push({
-        placementId: placement.id,
-        landingPageUrl: placement.landingPageUrl,
-        status: await getPlacementApprovalStatus(db, placement),
-      });
-    }
+    const termsStatus = await getChannelApprovalStatus(db, channel);
 
     channels.push({
       channelId: channel.id,
@@ -292,13 +238,10 @@ export async function getClientCampaignDetail(
       deliveredCount: channel.deliveredCount,
       termsStatus,
       readiness: computeChannelReadiness({
-        definition,
-        termsStatus,
         activePlacementCount: channel.assets.filter((a) => a.status === "active").length,
         allocationCount: channel._count.allocations,
-        hasDeliveryConfig: channel.deliveryConfig !== null,
+        requiresAsset: (definition as { requiresAsset?: boolean }).requiresAsset === true,
       }),
-      placements,
     });
   }
 

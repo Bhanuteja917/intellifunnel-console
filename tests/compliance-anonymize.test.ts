@@ -31,12 +31,12 @@ async function makeAcceptedLead(db: ReturnType<typeof testDb>, opts: {
   const channel = await db.campaignChannel.create({
     data: {
       campaignId: campaign.id, channelTypeVersionId: ctv.id, contractedQuantity: 10,
-      clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "active",
+      clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "live",
     },
   });
   for (const fieldKey of opts.fieldSpecKeys ?? []) {
     await db.leadFieldSpec.create({
-      data: { campaignId: campaign.id, fieldKey, label: fieldKey, dataType: "string" },
+      data: { campaignChannelId: channel.id, fieldKey, label: fieldKey, dataType: "string" },
     });
   }
   const submission = await db.leadSubmission.create({
@@ -174,7 +174,7 @@ describe("anonymizeExpiredContacts", () => {
     const channel = await db.campaignChannel.create({
       data: {
         campaignId: campaign.id, channelTypeVersionId: ctv.id, contractedQuantity: 10,
-        clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "active",
+        clientUnitPriceMinor: 1000n, currency: "USD", startDate: new Date("2020-01-01"), endDate: new Date("2020-12-31"), status: "live",
       },
     });
     const submission = await db.leadSubmission.create({ data: { campaignChannelId: channel.id, sourceType: "internal", submittedById: manager.userId, mappingJson: {} } });

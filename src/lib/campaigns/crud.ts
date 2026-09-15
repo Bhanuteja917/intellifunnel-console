@@ -32,9 +32,6 @@ export type CreateCampaignInput = {
   startDate: Date;
   endDate: Date;
   currency: string;
-  defaultMaxLeadsPerAccount?: number;
-  advisoryTalMatch?: boolean;
-  advisoryIcpMatch?: boolean;
 };
 
 /**
@@ -99,9 +96,6 @@ export async function createCampaign(
           startDate: input.startDate,
           endDate: input.endDate,
           currency: input.currency,
-          defaultMaxLeadsPerAccount: input.defaultMaxLeadsPerAccount,
-          advisoryTalMatch: input.advisoryTalMatch ?? false,
-          advisoryIcpMatch: input.advisoryIcpMatch ?? false,
           createdById: actor.userId,
           updatedById: actor.userId,
         },
@@ -137,6 +131,29 @@ export async function assertDraftAndAccessible(
   return campaign;
 }
 
+/**
+ * Channel-level equivalent of `assertDraftAndAccessible`. Used by channel-scoped
+ * config mutations (ICP criteria, lead field spec). Checks: channel exists,
+ * campaign not deleted, actor has org access, channel.status === "draft".
+ */
+export async function assertChannelDraftAndAccessible(
+  db: Db,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<CampaignChannel & { campaign: Campaign }> {
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: campaignChannelId },
+    include: { campaign: true },
+  });
+  if (channel === null) throw new NotFoundError("Channel not found");
+  if (channel.campaign.deletedAt !== null) throw new NotFoundError("Campaign not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+  if (channel.status !== "draft") {
+    throw new ValidationError(`Channel is ${channel.status}; configuration edits require a draft`);
+  }
+  return channel;
+}
+
 export type IcpCriterionInput = {
   dimension: IcpDimension;
   operator: IcpOperator;
@@ -147,11 +164,11 @@ export type IcpCriterionInput = {
 export async function setIcpCriteria(
   db: PrismaClient,
   actor: Actor,
-  campaignId: string,
+  campaignChannelId: string,
   criteria: IcpCriterionInput[],
 ): Promise<void> {
   assertPermission(actor, "campaign:write");
-  await assertDraftAndAccessible(db, actor, campaignId);
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
 
   // This is a destructive replace, so the audit entry has to carry what was
   // destroyed (NFR-A-1). The rows are read inside the transaction, and are
@@ -160,8 +177,8 @@ export async function setIcpCriteria(
     db,
     actor,
     (before) => ({
-      entityType: "Campaign",
-      entityId: campaignId,
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
       action: "setIcpCriteria",
       before,
       after: criteria,
@@ -169,18 +186,18 @@ export async function setIcpCriteria(
     async (tx) => {
       // Re-verify draft status inside the transaction: a client approval can
       // commit between the outer check and this write (FR-CS-2).
-      await assertDraftAndAccessible(tx, actor, campaignId);
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
 
       const existing = await tx.icpCriterion.findMany({
-        where: { campaignId },
+        where: { campaignChannelId },
         orderBy: { id: "asc" },
       });
 
-      await tx.icpCriterion.deleteMany({ where: { campaignId } });
+      await tx.icpCriterion.deleteMany({ where: { campaignChannelId } });
       for (const criterion of criteria) {
         await tx.icpCriterion.create({
           data: {
-            campaignId,
+            campaignChannelId,
             dimension: criterion.dimension,
             operator: criterion.operator,
             valuesJson: criterion.values as Prisma.InputJsonValue,
@@ -214,11 +231,11 @@ export type LeadFieldSpecInput = {
 export async function setLeadFieldSpec(
   db: PrismaClient,
   actor: Actor,
-  campaignId: string,
+  campaignChannelId: string,
   fields: LeadFieldSpecInput[],
 ): Promise<void> {
   assertPermission(actor, "campaign:write");
-  await assertDraftAndAccessible(db, actor, campaignId);
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
 
   const keys = new Set(fields.map((f) => f.fieldKey));
   if (keys.size !== fields.length) throw new ValidationError("Duplicate fieldKey in lead field spec");
@@ -229,26 +246,26 @@ export async function setLeadFieldSpec(
     db,
     actor,
     (before) => ({
-      entityType: "Campaign",
-      entityId: campaignId,
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
       action: "setLeadFieldSpec",
       before,
       after: fields,
     }),
     async (tx) => {
       // Re-verify draft status inside the transaction (FR-CS-2).
-      await assertDraftAndAccessible(tx, actor, campaignId);
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
 
       const existing = await tx.leadFieldSpec.findMany({
-        where: { campaignId },
+        where: { campaignChannelId },
         orderBy: { fieldKey: "asc" },
       });
 
-      await tx.leadFieldSpec.deleteMany({ where: { campaignId } });
+      await tx.leadFieldSpec.deleteMany({ where: { campaignChannelId } });
       for (const field of fields) {
         await tx.leadFieldSpec.create({
           data: {
-            campaignId,
+            campaignChannelId,
             fieldKey: field.fieldKey,
             label: field.label,
             dataType: field.dataType,
@@ -392,10 +409,14 @@ export async function getCampaignForActor(db: PrismaClient, actor: Actor, campai
   const campaign = await db.campaign.findUnique({
     where: { id: campaignId },
     include: {
-      icpCriteria: true,
-      leadFieldSpecs: true,
-      channels: { include: { channelTypeVersion: true } },
-      approvals: { orderBy: { decidedAt: "desc" } },
+      channels: {
+        include: {
+          channelTypeVersion: true,
+          icpCriteria: true,
+          leadFieldSpecs: true,
+          channelApprovals: { orderBy: { decidedAt: "desc" } },
+        },
+      },
     },
   });
   if (campaign === null || campaign.deletedAt !== null) throw new NotFoundError("Campaign not found");

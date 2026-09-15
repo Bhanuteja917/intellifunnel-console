@@ -93,25 +93,25 @@ async function redactLeadFieldValues(tx: Prisma.TransactionClient, contactId: st
     select: {
       id: true,
       fieldValuesJson: true,
-      campaignChannel: { select: { campaign: { select: { id: true } } } },
+      campaignChannelId: true,
     },
   });
   if (leads.length === 0) return;
 
-  const campaignIds = [...new Set(leads.map((lead) => lead.campaignChannel.campaign.id))];
+  const channelIds = [...new Set(leads.map((lead) => lead.campaignChannelId))];
   const specs = await tx.leadFieldSpec.findMany({
-    where: { campaignId: { in: campaignIds } },
-    select: { campaignId: true, fieldKey: true },
+    where: { campaignChannelId: { in: channelIds } },
+    select: { campaignChannelId: true, fieldKey: true },
   });
-  const canonicalKeysByCampaign = new Map<string, Map<string, string>>();
+  const canonicalKeysByChannel = new Map<string, Map<string, string>>();
   for (const spec of specs) {
-    const map = canonicalKeysByCampaign.get(spec.campaignId) ?? new Map<string, string>();
+    const map = canonicalKeysByChannel.get(spec.campaignChannelId) ?? new Map<string, string>();
     map.set(spec.fieldKey.toLowerCase(), spec.fieldKey);
-    canonicalKeysByCampaign.set(spec.campaignId, map);
+    canonicalKeysByChannel.set(spec.campaignChannelId, map);
   }
 
   for (const lead of leads) {
-    const canonicalMap = canonicalKeysByCampaign.get(lead.campaignChannel.campaign.id);
+    const canonicalMap = canonicalKeysByChannel.get(lead.campaignChannelId);
     if (canonicalMap === undefined) continue;
 
     const values = { ...(lead.fieldValuesJson as Record<string, unknown>) };

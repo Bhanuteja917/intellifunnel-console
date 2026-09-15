@@ -5,7 +5,7 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { decideChannelTerms } from "@/lib/approvals/decisions";
+import { decideChannelApproval } from "@/lib/approvals/decisions";
 import {
   countPendingClientApprovals,
   getClientCampaignDetail,
@@ -36,7 +36,7 @@ describe("client approval read models", () => {
   it("stops counting an item once it is approved", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db, { requiresAsset: false });
-    await decideChannelTerms(db, fx.clientAdminActor, {
+    await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
     });
@@ -85,8 +85,8 @@ describe("client approval read models", () => {
     const detail = await getClientCampaignDetail(db, fx.clientAdminActor, fx.campaignId);
 
     expect(detail.channels).toHaveLength(1);
-    expect(detail.channels[0]?.readiness.ready).toBe(false);
-    expect(detail.channels[0]?.readiness.steps.find((s) => s.id === "terms")?.owner).toBe("client");
+    expect(detail.channels[0]?.termsStatus).toBe("pending");
+    expect(detail.channels[0]?.readiness.doneCount).toBe(0);
   });
 
   it("refuses a campaign belonging to another organisation", async () => {

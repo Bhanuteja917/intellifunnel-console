@@ -31,14 +31,14 @@ async function setupChannel() {
     data: {
       campaignId: campaign.id, channelTypeVersionId: channelTypeVersion.id,
       contractedQuantity: 100, clientUnitPriceMinor: 1000n, currency: "USD",
-      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "active",
+      startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "live",
     },
   });
   await db.leadFieldSpec.create({
-    data: { campaignId: campaign.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    data: { campaignChannelId: campaignChannel.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
   });
   await db.leadFieldSpec.create({
-    data: { campaignId: campaign.id, fieldKey: "companyDomain", label: "Company Domain", dataType: "string", isRequired: false, rejectIfMissing: false },
+    data: { campaignChannelId: campaignChannel.id, fieldKey: "companyDomain", label: "Company Domain", dataType: "string", isRequired: false, rejectIfMissing: false },
   });
   return { db, manager, clientOrg, campaignChannel };
 }

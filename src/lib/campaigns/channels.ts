@@ -1,10 +1,14 @@
 import type { CampaignChannel, CampaignChannelStatus, PrismaClient } from "@prisma/client";
-import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
-import { withAudit } from "@/lib/audit/audit";
-import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
-import { loadChannelReadiness } from "@/lib/channels/readiness";
-import { toMinorUnits } from "@/lib/money/currency";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import {
+  assertOrganizationAccess,
+  assertPermission,
+  type Actor,
+} from "@/lib/auth/permissions";
+import { withAudit, writeAudit } from "@/lib/audit/audit";
+import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
+import { toMinorUnits } from "@/lib/money/currency";
+import { updateCampaignStatus } from "@/lib/campaigns/state-machine";
 
 export type UpdateCampaignChannelInput = {
   contractedQuantity: number;
@@ -16,14 +20,9 @@ export type UpdateCampaignChannelInput = {
 };
 
 /**
- * Terms are editable only while both the campaign and the channel are drafts —
- * the same constraint `addCampaignChannel` enforces. Editing touches no
- * approval row: the stored snapshot simply stops matching, so the derived
- * status becomes `reapprovalNeeded` on its own.
- *
- * `channelTypeVersionId` is deliberately not editable. It carries the frozen
- * question set and the `requiresAsset` flag; swapping it under a configured
- * channel would silently change which setup steps apply.
+ * Terms are editable only while both the campaign and the channel are drafts.
+ * Editing touches no approval row: the stored snapshot simply stops matching,
+ * so the derived status becomes `reapprovalNeeded` on its own.
  */
 export async function updateCampaignChannel(
   db: PrismaClient,
@@ -55,16 +54,12 @@ export async function updateCampaignChannel(
   if (input.endDate.getTime() < input.startDate.getTime()) {
     throw new ValidationError("Channel end date precedes its start date");
   }
-  if (
-    input.startDate.getTime() < campaign.startDate.getTime() ||
-    input.endDate.getTime() > campaign.endDate.getTime()
-  ) {
-    throw new ValidationError("Channel window must sit inside the campaign flight window");
-  }
 
   const clientUnitPriceMinor = toMinorUnits(input.clientUnitPrice, input.currency);
   const costBudgetMinor =
-    input.costBudget === undefined ? null : toMinorUnits(input.costBudget, input.currency);
+    input.costBudget === undefined || input.costBudget === ""
+      ? null
+      : toMinorUnits(input.costBudget, input.currency);
 
   return withAudit<CampaignChannel>(
     db,
@@ -87,10 +82,7 @@ export async function updateCampaignChannel(
       },
     },
     async (tx) => {
-      // Re-verify draft status inside the transaction (FR-CS-2): a client
-      // approval can commit between the outer check and this write.
       await assertDraftAndAccessible(tx, actor, channel.campaignId);
-
       return tx.campaignChannel.update({
         where: { id: campaignChannelId },
         data: {
@@ -107,68 +99,63 @@ export async function updateCampaignChannel(
   );
 }
 
-/**
- * Manual per-channel activation, for operating channels inside a campaign that
- * has already launched. The campaign state machine stays authoritative for
- * launch itself, so this refuses to activate before the campaign is scheduled.
- *
- * Readiness is checked only on the draft -> active hop. Pausing a channel whose
- * terms were edited after activation must stay possible, and so must resuming
- * it.
- */
+async function loadAccessibleChannel(
+  db: PrismaClient,
+  actor: Actor,
+  channelId: string,
+): Promise<CampaignChannel & { campaign: { status: string; clientOrganizationId: string } }> {
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: channelId },
+    include: { campaign: { select: { status: true, clientOrganizationId: true } } },
+  });
+  if (channel === null) throw new NotFoundError("Channel not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+  return channel;
+}
+
 export async function setChannelStatus(
   db: PrismaClient,
   actor: Actor,
-  input: { campaignChannelId: string; status: CampaignChannelStatus },
+  input: { channelId: string; status: CampaignChannelStatus },
 ): Promise<CampaignChannel> {
   assertPermission(actor, "campaign:write");
 
-  if (input.status !== "active" && input.status !== "paused") {
+  if (input.status !== "live" && input.status !== "paused") {
     throw new ValidationError(
       `Channel status ${input.status} is set by the campaign lifecycle, not this control`,
     );
   }
 
-  const channel = await db.campaignChannel.findUnique({
-    where: { id: input.campaignChannelId },
-    include: { campaign: { select: { status: true, clientOrganizationId: true, deletedAt: true } } },
-  });
-  if (channel === null || channel.campaign.deletedAt !== null) {
-    throw new NotFoundError("Channel not found");
-  }
-  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+  const channel = await loadAccessibleChannel(db, actor, input.channelId);
 
-  if (input.status === "paused" && channel.status !== "active") {
-    throw new ValidationError(`Channel is ${channel.status}; only an active channel can be paused`);
+  if (input.status === "paused" && channel.status !== "live") {
+    throw new ValidationError(`Channel is ${channel.status}; only a live channel can be paused`);
   }
 
-  if (input.status === "active" && channel.status === "draft") {
+  if (input.status === "live" && channel.status === "draft") {
     if (channel.campaign.status !== "scheduled" && channel.campaign.status !== "live") {
       throw new ValidationError(
         `Campaign is ${channel.campaign.status}; channels activate once the campaign is scheduled or live`,
       );
     }
-    const readiness = await loadChannelReadiness(db, input.campaignChannelId);
-    if (!readiness.ready) {
-      const outstanding = readiness.steps.filter((s) => s.required && !s.done).map((s) => s.title);
-      throw new ValidationError(`Channel setup is incomplete: ${outstanding.join(", ")}`);
-    }
   }
 
-  return withAudit<CampaignChannel>(
-    db,
-    actor,
-    {
+  return db.$transaction(async (tx) => {
+    const updated = await tx.campaignChannel.update({
+      where: { id: input.channelId },
+      data: { status: input.status, updatedById: actor.userId },
+    });
+
+    await writeAudit(tx, actor, {
       entityType: "CampaignChannel",
-      entityId: input.campaignChannelId,
-      action: "setStatus",
+      entityId: input.channelId,
+      action: `setStatus:${input.status}`,
       before: { status: channel.status },
       after: { status: input.status },
-    },
-    async (tx) =>
-      tx.campaignChannel.update({
-        where: { id: input.campaignChannelId },
-        data: { status: input.status, updatedById: actor.userId },
-      }),
-  );
+    });
+
+    await updateCampaignStatus(tx, channel.campaignId, actor);
+
+    return updated;
+  });
 }

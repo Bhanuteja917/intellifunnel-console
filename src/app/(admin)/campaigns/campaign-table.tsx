@@ -37,7 +37,7 @@ export type CampaignRow = {
 };
 
 const STATUSES: CampaignStatusFilter[] = [
-  "all", "draft", "pendingInternalApproval", "pendingClientApproval",
+  "all", "draft", "pending",
   "scheduled", "live", "paused", "completed", "cancelled", "deleted",
 ];
 

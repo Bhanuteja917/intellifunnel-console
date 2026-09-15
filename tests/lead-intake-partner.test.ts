@@ -45,8 +45,6 @@ async function setupChannel() {
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
       currency: "USD",
-      advisoryIcpMatch: false,
-      advisoryTalMatch: false,
     },
   });
   const campaignChannel = await db.campaignChannel.create({
@@ -58,11 +56,13 @@ async function setupChannel() {
       currency: "USD",
       startDate: new Date("2026-01-01"),
       endDate: new Date("2026-12-31"),
-      status: "active",
+      status: "live",
+      advisoryIcpMatch: false,
+      advisoryTalMatch: false,
     },
   });
   await db.leadFieldSpec.create({
-    data: { campaignId: campaign.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
+    data: { campaignChannelId: campaignChannel.id, fieldKey: "email", label: "Email", dataType: "email", isRequired: true, rejectIfMissing: true },
   });
 
   return { db, actor, campaignChannel, partnerOrg };

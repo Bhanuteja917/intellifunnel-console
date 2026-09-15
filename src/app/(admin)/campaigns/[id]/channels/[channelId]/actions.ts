@@ -32,19 +32,16 @@ export async function updateChannelAction(input: {
   });
 }
 
-export async function setChannelStatusAction(input: {
-  campaignId: string; // only for revalidatePath
-  campaignChannelId: string;
-  status: CampaignChannelStatus;
-}): Promise<ActionResult<null>> {
+export async function setChannelStatusAction(
+  campaignId: string, // only for revalidatePath
+  channelId: string,
+  status: CampaignChannelStatus,
+): Promise<ActionResult<null>> {
   return toActionResult(async () => {
     const actor = await requireActor();
-    await setChannelStatus(db, actor, {
-      campaignChannelId: input.campaignChannelId,
-      status: input.status,
-    });
-    revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}`);
-    revalidatePath(`/campaigns/${input.campaignId}`);
+    await setChannelStatus(db, actor, { channelId, status });
+    revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
+    revalidatePath(`/campaigns/${campaignId}`);
     return null;
   });
 }

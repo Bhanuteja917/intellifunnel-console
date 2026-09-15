@@ -1,6 +1,6 @@
 import type {
   ApprovalDecision,
-  ChannelTermsApproval,
+  ChannelApproval,
   PlacementApproval,
   Prisma,
   PrismaClient,
@@ -8,7 +8,12 @@ import type {
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit/audit";
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { buildChannelTermsSnapshot, buildPlacementSnapshot } from "@/lib/approvals/status";
+import {
+  buildChannelTermsSnapshot,
+  buildIcpSnapshot,
+  buildLeadSpecSnapshot,
+  buildPlacementSnapshot,
+} from "@/lib/approvals/status";
 
 /** A rejection the agency cannot act on is useless; an approval needs no note. */
 function normaliseComments(decision: ApprovalDecision, comments: string | undefined): string | null {
@@ -20,14 +25,15 @@ function normaliseComments(decision: ApprovalDecision, comments: string | undefi
 }
 
 /**
- * The client's decision on a channel's commercial terms. Append-only: a client
- * changing their mind writes another row, and the latest row wins.
+ * The client's decision on a channel's commercial terms, ICP, and lead spec.
+ * Append-only: a client changing their mind writes another row, and the latest
+ * row wins.
  */
-export async function decideChannelTerms(
+export async function decideChannelApproval(
   db: PrismaClient,
   actor: Actor,
   input: { campaignChannelId: string; decision: ApprovalDecision; comments?: string },
-): Promise<ChannelTermsApproval> {
+): Promise<ChannelApproval> {
   assertPermission(actor, "campaign:approveClient");
 
   const channel = await db.campaignChannel.findUnique({
@@ -49,20 +55,30 @@ export async function decideChannelTerms(
       where: { id: input.campaignChannelId },
     });
 
-    const approval = await tx.channelTermsApproval.create({
+    const icpCriteria = await tx.icpCriterion.findMany({
+      where: { campaignChannelId: fresh.id },
+    });
+    const leadFieldSpecs = await tx.leadFieldSpec.findMany({
+      where: { campaignChannelId: fresh.id },
+    });
+
+    const approval = await tx.channelApproval.create({
       data: {
         campaignChannelId: fresh.id,
+        type: "client",
         decision: input.decision,
         decidedByUserId: actor.userId,
         comments,
         termsSnapshotJson: buildChannelTermsSnapshot(fresh) as unknown as Prisma.InputJsonValue,
+        icpSnapshotJson: buildIcpSnapshot(icpCriteria) as unknown as Prisma.InputJsonValue,
+        leadSpecSnapshotJson: buildLeadSpecSnapshot(leadFieldSpecs) as unknown as Prisma.InputJsonValue,
         createdById: actor.userId,
         updatedById: actor.userId,
       },
     });
 
     await writeAudit(tx, actor, {
-      entityType: "ChannelTermsApproval",
+      entityType: "ChannelApproval",
       entityId: approval.id,
       action: input.decision,
       after: { campaignChannelId: fresh.id, decision: input.decision, comments },

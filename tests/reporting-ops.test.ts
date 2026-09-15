@@ -39,7 +39,7 @@ describe("getOpsDashboardReport", () => {
       data: {
         campaignId: campaign.id, channelTypeVersionId: channelTypeVersion.id,
         contractedQuantity: 10, clientUnitPriceMinor: 1000n, currency: "USD",
-        startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "active",
+        startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "live",
       },
     });
     const rejectReason = await db.rejectReason.create({

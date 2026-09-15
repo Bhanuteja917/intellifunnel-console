@@ -37,14 +37,14 @@ describe("getAllocationsForPartner — pacing", () => {
       data: {
         clientOrganizationId: clientOrg.id, name: "Test Campaign", code: `CAM-${Date.now()}`,
         status: "live", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"),
-        currency: "USD", advisoryIcpMatch: false, advisoryTalMatch: false,
+        currency: "USD",
       },
     });
     const channel = await db.campaignChannel.create({
       data: {
         campaignId: campaign.id, channelTypeVersionId: channelTypeVersion.id,
         contractedQuantity: 100, clientUnitPriceMinor: 1000n, currency: "USD",
-        startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "active",
+        startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"), status: "live",
       },
     });
     await db.partnerAllocation.create({

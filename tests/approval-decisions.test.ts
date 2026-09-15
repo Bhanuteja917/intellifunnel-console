@@ -5,11 +5,11 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { decideChannelTerms } from "@/lib/approvals/decisions";
-import { getChannelTermsApprovalStatus } from "@/lib/approvals/status";
+import { decideChannelApproval } from "@/lib/approvals/decisions";
+import { getChannelApprovalStatus } from "@/lib/approvals/status";
 import { ForbiddenError, ValidationError } from "@/lib/errors";
 
-describe("decideChannelTerms", () => {
+describe("decideChannelApproval", () => {
   beforeEach(async () => {
     await resetDb();
     await seedRoles(testDb());
@@ -20,28 +20,91 @@ describe("decideChannelTerms", () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
 
-    await decideChannelTerms(db, fx.clientAdminActor, {
+    await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
     });
 
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
-    expect(await getChannelTermsApprovalStatus(db, channel)).toBe("approved");
+    expect(await getChannelApprovalStatus(db, channel)).toBe("approved");
   });
 
-  it("writes an audit row for the decision", async () => {
+  it("writes ICP and lead spec snapshots into the approval row", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
 
-    const approval = await decideChannelTerms(db, fx.clientAdminActor, {
+    // Add an ICP criterion and lead field spec before deciding
+    await db.icpCriterion.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        dimension: "country",
+        operator: "in",
+        valuesJson: ["US", "CA"],
+        isMandatory: true,
+      },
+    });
+    await db.leadFieldSpec.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        fieldKey: "jobTitle",
+        label: "Job Title",
+        dataType: "string",
+        isRequired: true,
+        rejectIfMissing: true,
+      },
+    });
+
+    const approval = await decideChannelApproval(db, fx.clientAdminActor, {
+      campaignChannelId: fx.channelId,
+      decision: "approved",
+    });
+
+    expect(approval.type).toBe("client");
+    expect(Array.isArray(approval.icpSnapshotJson)).toBe(true);
+    expect(Array.isArray(approval.leadSpecSnapshotJson)).toBe(true);
+
+    const icpSnapshot = approval.icpSnapshotJson as Array<{ dimension: string }>;
+    expect(icpSnapshot).toHaveLength(1);
+    expect(icpSnapshot[0]!.dimension).toBe("country");
+
+    const leadSpecSnapshot = approval.leadSpecSnapshotJson as Array<{ fieldKey: string }>;
+    expect(leadSpecSnapshot).toHaveLength(1);
+    expect(leadSpecSnapshot[0]!.fieldKey).toBe("jobTitle");
+  });
+
+  it("writes an audit row for the decision with ChannelApproval entity type", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+
+    const approval = await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
     });
 
     const audit = await db.auditLog.findFirst({
-      where: { entityType: "ChannelTermsApproval", entityId: approval.id },
+      where: { entityType: "ChannelApproval", entityId: approval.id },
     });
     expect(audit?.action).toBe("approved");
+  });
+
+  it("records a second approval and the status reads 'approved' again", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+
+    // First approval
+    await decideChannelApproval(db, fx.clientAdminActor, {
+      campaignChannelId: fx.channelId,
+      decision: "approved",
+    });
+    // Second approval overwrites the first
+    const approval = await decideChannelApproval(db, fx.clientAdminActor, {
+      campaignChannelId: fx.channelId,
+      decision: "approved",
+    });
+
+    expect(approval.type).toBe("client");
+    const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
+    expect(await getChannelApprovalStatus(db, channel)).toBe("approved");
   });
 
   it("refuses a rejection with no comment", async () => {
@@ -49,7 +112,7 @@ describe("decideChannelTerms", () => {
     const fx = await createChannelFixture(db);
 
     await expect(
-      decideChannelTerms(db, fx.clientAdminActor, {
+      decideChannelApproval(db, fx.clientAdminActor, {
         campaignChannelId: fx.channelId,
         decision: "rejected",
         comments: "   ",
@@ -62,7 +125,7 @@ describe("decideChannelTerms", () => {
     const fx = await createChannelFixture(db);
 
     await expect(
-      decideChannelTerms(db, fx.clientViewerActor, {
+      decideChannelApproval(db, fx.clientViewerActor, {
         campaignChannelId: fx.channelId,
         decision: "approved",
       }),
@@ -77,7 +140,7 @@ describe("decideChannelTerms", () => {
     const otherActor = await loadActor(db, otherUser.id);
 
     await expect(
-      decideChannelTerms(db, otherActor, { campaignChannelId: fx.channelId, decision: "approved" }),
+      decideChannelApproval(db, otherActor, { campaignChannelId: fx.channelId, decision: "approved" }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
