@@ -9,6 +9,13 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
+// Every route here reads the session via headers() and hits the DB per-actor;
+// none of it is safe to prerender. Some pages (assets, campaigns, ...) have
+// no searchParams to force dynamic rendering on their own, so Next tries to
+// statically export them at build time and hits "Not authenticated" (no
+// request context available during build).
+export const dynamic = "force-dynamic";
+
 const ADMIN_NAV = [
   { href: "/campaigns", label: "Campaigns", permission: "campaign:read" },
   { href: "/channel-types", label: "Channel types", permission: "channelType:read" },

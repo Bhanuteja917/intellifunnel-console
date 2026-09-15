@@ -10,6 +10,10 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
+// Reads the session via headers() per-request; not safe to prerender. See
+// the same fix on (admin)/layout.tsx for why this matters at build time.
+export const dynamic = "force-dynamic";
+
 const PARTNER_NAV = [
   { href: "/partner/allocations", label: "Allocations" },
   { href: "/partner/scorecard", label: "Scorecard" },
