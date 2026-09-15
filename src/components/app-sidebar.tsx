@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   Building2,
   Circle,
@@ -15,14 +16,18 @@ import {
   Lock,
   LogOut,
   Megaphone,
+  Monitor,
+  Moon,
   Radio,
   ShieldCheck,
+  Sun,
   User,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +75,12 @@ function iconFor(href: string): LucideIcon {
   return NAV_ICONS[href] ?? Circle;
 }
 
+const THEME_OPTIONS = [
+  { value: "light", label: "Light theme", icon: Sun },
+  { value: "dark", label: "Dark theme", icon: Moon },
+  { value: "system", label: "System theme", icon: Monitor },
+] as const;
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -91,6 +102,7 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
   const [signingOut, setSigningOut] = useState(false);
 
   async function logout() {
@@ -178,6 +190,25 @@ export function AppSidebar({
               <User />
               Profile
             </DropdownMenuItem>
+            <div className="flex items-center justify-between gap-2 px-1.5 py-1">
+              <span className="text-sm">Theme</span>
+              <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+                {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="icon-xs"
+                    variant={theme === value ? "secondary" : "ghost"}
+                    aria-label={label}
+                    aria-pressed={theme === value}
+                    onClick={() => setTheme(value)}
+                  >
+                    <Icon />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void logout()}>
               <LogOut />
               Log out
