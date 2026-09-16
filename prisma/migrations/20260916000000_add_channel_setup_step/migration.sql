@@ -22,8 +22,10 @@ CREATE INDEX "ChannelSetupStep_campaignChannelId_idx" ON "ChannelSetupStep"("cam
 ALTER TABLE "ChannelSetupStep" ADD CONSTRAINT "ChannelSetupStep_campaignChannelId_fkey" FOREIGN KEY ("campaignChannelId") REFERENCES "CampaignChannel"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- Step 3: backfill every existing channel from stepConfigJson and its frozen
--- channel type definition. Idempotent: the NOT EXISTS guard means re-running
--- this statement is a no-op, which is what lets the test exercise it.
+-- channel type definition. Idempotent via the NOT EXISTS guard. TDD-validated
+-- against real stepConfigJson fixtures in commit 538eabb (test file removed in
+-- 17b54ae once stepConfigJson itself was dropped and the source column no
+-- longer existed to test against).
 INSERT INTO "ChannelSetupStep" ("id", "campaignChannelId", "stepKey", "requirement", "sortOrder", "createdAt", "updatedAt")
 SELECT
   gen_random_uuid()::text,
