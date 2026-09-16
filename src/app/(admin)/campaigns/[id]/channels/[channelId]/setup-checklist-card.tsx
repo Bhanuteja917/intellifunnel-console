@@ -3,19 +3,20 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { ChannelSetupStepKey } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import type { ChannelStep } from "@/lib/channels/readiness";
 import { addChannelSetupStepAction, removeChannelSetupStepAction } from "./actions";
@@ -41,9 +42,15 @@ export function SetupChecklistCard({
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [editOpen, setEditOpen] = useState(false);
 
   const required = steps.filter((s) => s.requirement === "required");
   const optional = steps.filter((s) => s.requirement === "optional");
+
+  const editRows = [
+    ...steps.map((s) => ({ key: s.key, title: s.title, hint: s.hint, locked: s.locked, present: true })),
+    ...addableSteps.map((s) => ({ key: s.key, title: s.title, hint: undefined, locked: false, present: false })),
+  ];
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>, success: string) {
     startTransition(async () => {
@@ -79,23 +86,6 @@ export function SetupChecklistCard({
         <div className="text-xs text-muted-foreground">{step.hint}</div>
       </div>
 
-      {editable && !step.locked && (
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={pending}
-          aria-label={`Remove ${step.title}`}
-          onClick={() =>
-            run(
-              () => removeChannelSetupStepAction(campaignId, channelId, step.key),
-              `${step.title} removed`,
-            )
-          }
-        >
-          Remove
-        </Button>
-      )}
-
       <Button asChild size="sm" variant="outline">
         <Link href={step.href as Route}>{step.cta}</Link>
       </Button>
@@ -116,27 +106,10 @@ export function SetupChecklistCard({
                   } in place. Optional steps can be completed at any time, including after launch.`}
             </p>
           </div>
-          {editable && addableSteps.length > 0 && (
-            <Select
-              value=""
-              disabled={pending}
-              onValueChange={(key) =>
-                run(
-                  () =>
-                    addChannelSetupStepAction(campaignId, channelId, key as ChannelSetupStepKey),
-                  "Step added",
-                )
-              }
-            >
-              <SelectTrigger className="w-44" aria-label="Add setup step">
-                <SelectValue placeholder="Add step" />
-              </SelectTrigger>
-              <SelectContent>
-                {addableSteps.map((s) => (
-                  <SelectItem key={s.key} value={s.key}>{s.title}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {editable && editRows.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
           )}
         </div>
         <div className="text-xs text-muted-foreground">
@@ -154,6 +127,56 @@ export function SetupChecklistCard({
           </>
         )}
       </CardContent>
+
+      <Drawer open={editOpen} onOpenChange={setEditOpen} direction="right">
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Edit setup checklist</DrawerTitle>
+            <DrawerDescription>
+              Choose which steps apply to this channel.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="flex flex-col gap-1 overflow-y-auto p-4 pt-0">
+            {editRows.map((row) => (
+              <label
+                key={row.key}
+                className={cn(
+                  "flex items-start gap-3 rounded-md border-b p-2 last:border-b-0",
+                  row.locked ? "opacity-60" : "cursor-pointer",
+                )}
+              >
+                <Checkbox
+                  className="mt-0.5"
+                  checked={row.present}
+                  disabled={pending || row.locked}
+                  onCheckedChange={(checked) =>
+                    run(
+                      () =>
+                        checked
+                          ? addChannelSetupStepAction(campaignId, channelId, row.key)
+                          : removeChannelSetupStepAction(campaignId, channelId, row.key),
+                      checked ? `${row.title} added` : `${row.title} removed`,
+                    )
+                  }
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">
+                    {row.title}
+                    {row.locked && (
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        Locked
+                      </span>
+                    )}
+                  </div>
+                  {row.hint && (
+                    <div className="text-xs text-muted-foreground">{row.hint}</div>
+                  )}
+                </div>
+              </label>
+            ))}
+          </div>
+        </DrawerContent>
+      </Drawer>
     </Card>
   );
 }
