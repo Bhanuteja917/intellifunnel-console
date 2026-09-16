@@ -698,6 +698,7 @@ model CampaignChannel {
   deliveryRuns       DeliveryRun[]
   termsApprovals     ChannelTermsApproval[]
   pacingBuckets      ChannelPacingBucket[]
+  setupSteps         ChannelSetupStep[]
 
   @@index([campaignId])
 }
@@ -1359,5 +1360,37 @@ model ChannelPacingBucket {
 
   campaignChannel   CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
+  @@index([campaignChannelId])
+}
+
+enum ChannelSetupStepKey {
+  channelTerms
+  icp
+  leadSpec
+  placement
+  allocations
+  targetAccountList
+  suppressionList
+}
+
+enum ChannelSetupRequirement {
+  required
+  optional
+}
+
+model ChannelSetupStep {
+  id                String                  @id @default(cuid())
+  campaignChannelId String
+  stepKey           ChannelSetupStepKey
+  requirement       ChannelSetupRequirement @default(required)
+  sortOrder         Int
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+
+  @@unique([campaignChannelId, stepKey])
   @@index([campaignChannelId])
 }

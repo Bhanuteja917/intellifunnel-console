@@ -1,15 +1,7 @@
+import type { ChannelSetupStepKey, ChannelSetupRequirement } from "@prisma/client";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 
-export type ChannelSetupStepKey =
-  | "channelTerms"
-  | "icp"
-  | "leadSpec"
-  | "placement"
-  | "allocations"
-  | "targetAccountList"
-  | "suppressionList";
-
-export type ChannelSetupRequirement = "required" | "optional";
+export type { ChannelSetupStepKey, ChannelSetupRequirement };
 
 export type ChannelFacts = {
   hasTerms: boolean;
