@@ -152,6 +152,40 @@ export async function submitChannelForApproval(
   });
 }
 
+/**
+ * IIF pulls a submitted channel back: pending → draft. No ChannelApproval row
+ * is written because the client never decided.
+ */
+export async function withdrawChannelFromApproval(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<CampaignChannel> {
+  assertPermission(actor, "campaign:submitInternal");
+  const channel = await loadAccessibleChannel(db, actor, campaignChannelId);
+  if (channel.status !== "pending") {
+    throw new InvalidStateTransitionError(
+      `Channel is ${channel.status}; only a pending channel can be withdrawn`,
+    );
+  }
+
+  return db.$transaction(async (tx) => {
+    const updated = await tx.campaignChannel.update({
+      where: { id: campaignChannelId },
+      data: { status: "draft", updatedById: actor.userId },
+    });
+    await writeAudit(tx, actor, {
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
+      action: "transition:draft",
+      before: { status: "pending" },
+      after: { status: "draft", reason: "withdrawn" },
+    });
+    await updateCampaignStatus(tx, channel.campaignId, actor);
+    return updated;
+  });
+}
+
 /** Client approves or rejects a channel. Writes ChannelApproval snapshot + transitions channel status. */
 export async function decideChannelApproval(
   db: PrismaClient,

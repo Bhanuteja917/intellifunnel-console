@@ -5,7 +5,7 @@ import type { CampaignChannelStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
-import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
+import { submitChannelForApproval, withdrawChannelFromApproval } from "@/lib/campaigns/state-machine";
 
 export async function updateChannelAction(input: {
   campaignId: string; // only for revalidatePath
@@ -54,6 +54,19 @@ export async function submitChannelForApprovalAction(
   return toActionResult(async () => {
     const actor = await requireActor();
     await submitChannelForApproval(db, actor, channelId);
+    revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return null;
+  });
+}
+
+export async function withdrawChannelFromApprovalAction(
+  campaignId: string, // only for revalidatePath
+  channelId: string,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await withdrawChannelFromApproval(db, actor, channelId);
     revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
     revalidatePath(`/campaigns/${campaignId}`);
     return null;
