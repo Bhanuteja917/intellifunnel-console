@@ -19,7 +19,7 @@ describe("listClientApprovals", () => {
 
   it("returns channel terms items as pending when no approval exists", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
 
     const items = await listClientApprovals(db, fx.clientAdminActor, { pendingOnly: false });
     const channelItem = items.find((i) => i.subjectId === fx.channelId && i.kind === "channelTerms");
@@ -29,7 +29,7 @@ describe("listClientApprovals", () => {
 
   it("returns approved status after a matching channelApproval exists", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
     await db.channelApproval.create({
@@ -51,7 +51,7 @@ describe("listClientApprovals", () => {
 
   it("filters to pending-only by default", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
     await db.channelApproval.create({
@@ -74,7 +74,7 @@ describe("listClientApprovals", () => {
 
   it("returns reapprovalNeeded when ICP changed after approval", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
     await db.channelApproval.create({
@@ -107,7 +107,7 @@ describe("listClientApprovals", () => {
 
   it("scopes results to the actor's own organisation", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
 
     // The actor is a CLIENT_ADMIN for their org — admin actor is from an internal org
     // and has no client org channels, so their list should be empty
@@ -125,7 +125,7 @@ describe("countPendingClientApprovals", () => {
 
   it("counts pending items for the actor", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
 
     const count = await countPendingClientApprovals(db, fx.clientAdminActor);
     expect(count).toBeGreaterThanOrEqual(1); // at least the channel terms item
@@ -133,7 +133,7 @@ describe("countPendingClientApprovals", () => {
 
   it("returns 0 when all items are approved", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db);
+    const fx = await createChannelFixture(db, { campaignStatus: "pending" });
     const channel = await db.campaignChannel.findUniqueOrThrow({ where: { id: fx.channelId } });
 
     await db.channelApproval.create({

@@ -1,4 +1,4 @@
-import type { CampaignChannel, CampaignChannelStatus, PrismaClient } from "@prisma/client";
+import type { CampaignChannel, CampaignChannelStatus, PrismaClient, Prisma } from "@prisma/client";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
@@ -9,6 +9,7 @@ import { withAudit, writeAudit } from "@/lib/audit/audit";
 import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
 import { toMinorUnits } from "@/lib/money/currency";
 import { updateCampaignStatus } from "@/lib/campaigns/state-machine";
+import type { StepConfig } from "@/lib/channels/readiness";
 
 export type UpdateCampaignChannelInput = {
   contractedQuantity: number;
@@ -17,6 +18,7 @@ export type UpdateCampaignChannelInput = {
   currency: string;
   startDate: Date;
   endDate: Date;
+  stepConfig?: StepConfig;
 };
 
 /**
@@ -92,6 +94,8 @@ export async function updateCampaignChannel(
           currency: input.currency,
           startDate: input.startDate,
           endDate: input.endDate,
+          stepConfigJson:
+            input.stepConfig !== undefined ? (input.stepConfig as Prisma.InputJsonValue) : undefined,
           updatedById: actor.userId,
         },
       });

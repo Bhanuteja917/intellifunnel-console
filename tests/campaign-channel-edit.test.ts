@@ -4,6 +4,7 @@ import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
+import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
 import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getChannelApprovalStatus } from "@/lib/approvals/status";
 import { ValidationError } from "@/lib/errors";
@@ -87,6 +88,37 @@ describe("updateCampaignChannel", () => {
         contractedQuantity: 1.5,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("persists a placement stepConfig override, unblocking submission without an active placement", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db); // requiresAsset: true by default
+
+    await db.icpCriterion.create({
+      data: { campaignChannelId: fx.channelId, dimension: "industry", operator: "in", valuesJson: ["Technology"] },
+    });
+    await db.leadFieldSpec.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        fieldKey: "email",
+        label: "Email",
+        dataType: "email",
+        isRequired: true,
+        rejectIfMissing: true,
+      },
+    });
+
+    await expect(submitChannelForApproval(db, fx.adminActor, fx.channelId)).rejects.toThrow(
+      /requires at least one active asset placement/,
+    );
+
+    await updateCampaignChannel(db, fx.adminActor, fx.channelId, {
+      ...validEdit,
+      stepConfig: { placement: "optional" },
+    });
+
+    const result = await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+    expect(result.status).toBe("pending");
   });
 });
 

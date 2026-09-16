@@ -18,6 +18,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed/index.ts",
+    "db:seed:campaigns": "tsx prisma/seed/demo-campaigns.ts",
     "worker": "tsx src/worker/index.ts"
   },
   "dependencies": {

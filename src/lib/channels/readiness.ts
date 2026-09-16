@@ -37,7 +37,8 @@ export function computeChannelReadiness(input: {
       hint: "Asset version, landing page, form slug, consent text",
       cta: "Add placement",
       done: input.activePlacementCount > 0,
-      required: stepConfig.placement === "enabled",
+      // Mirrors the submit-gate in state-machine.ts: required unless explicitly optional (or skipped, filtered above).
+      required: stepConfig.placement !== "optional",
     });
   }
 
