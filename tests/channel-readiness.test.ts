@@ -1,78 +1,73 @@
 import { describe, expect, it } from "vitest";
 import { computeChannelReadiness } from "@/lib/channels/readiness";
+import type { ChannelFacts } from "@/lib/channels/step-catalog";
 
-const base = { activePlacementCount: 0, allocationCount: 0, requiresAsset: true };
+const ids = { campaignId: "cam1", channelId: "ch1" };
 
-describe("computeChannelReadiness — stepConfig overrides", () => {
-  it("includes all steps with required=true by default when no stepConfig", () => {
-    const result = computeChannelReadiness(base);
-    expect(result.steps.map((s) => s.id)).toEqual(["placement", "allocations"]);
-    // placement mirrors the submit-gate in state-machine.ts: required unless explicitly optional/skipped
-    expect(result.steps.find((s) => s.id === "placement")?.required).toBe(true);
-    expect(result.steps.find((s) => s.id === "allocations")?.required).toBe(false); // allocations default is not required
-    expect(result.totalCount).toBe(2);
+const facts = (overrides: Partial<ChannelFacts> = {}): ChannelFacts => ({
+  hasTerms: true,
+  icpCount: 0,
+  hasEmailSpec: false,
+  activePlacementCount: 0,
+  allocationCount: 0,
+  ...overrides,
+});
+
+const row = (stepKey: string, requirement: "required" | "optional", sortOrder: number) =>
+  ({ stepKey, requirement, sortOrder }) as never;
+
+describe("computeChannelReadiness", () => {
+  it("returns an empty checklist when the channel has no rows", () => {
+    const result = computeChannelReadiness([], facts(), ids);
+    expect(result.steps).toEqual([]);
+    expect(result.requiredTotalCount).toBe(0);
+    expect(result.requiredDoneCount).toBe(0);
   });
 
-  it("marks placement as optional when stepConfig says optional", () => {
-    const result = computeChannelReadiness({
-      ...base,
-      stepConfig: { placement: "optional" },
-    });
-    const placementStep = result.steps.find((s) => s.id === "placement");
-    expect(placementStep?.required).toBe(false);
+  it("orders steps by sortOrder, not insertion order", () => {
+    const result = computeChannelReadiness(
+      [row("allocations", "optional", 4), row("channelTerms", "required", 0)],
+      facts(),
+      ids,
+    );
+    expect(result.steps.map((s) => s.key)).toEqual(["channelTerms", "allocations"]);
   });
 
-  it("omits placement step when requiresAsset is false", () => {
-    const result = computeChannelReadiness({ ...base, requiresAsset: false });
-    expect(result.steps.map((s) => s.id)).toEqual(["allocations"]);
-    expect(result.totalCount).toBe(1);
+  it("resolves done from the facts bag", () => {
+    const result = computeChannelReadiness(
+      [row("icp", "required", 1)],
+      facts({ icpCount: 2 }),
+      ids,
+    );
+    expect(result.steps[0]?.done).toBe(true);
   });
 
-  it("marks placement as required when stepConfig enables it", () => {
-    const result = computeChannelReadiness({
-      ...base,
-      stepConfig: { placement: "enabled" },
-    });
-    const placementStep = result.steps.find((s) => s.id === "placement");
-    expect(placementStep?.required).toBe(true);
+  it("counts only required steps in the progress counters", () => {
+    const result = computeChannelReadiness(
+      [row("channelTerms", "required", 0), row("allocations", "optional", 4)],
+      facts({ hasTerms: true }),
+      ids,
+    );
+    expect(result.requiredTotalCount).toBe(1);
+    expect(result.requiredDoneCount).toBe(1);
   });
 
-  it("marks allocations as optional when stepConfig says optional", () => {
-    const result = computeChannelReadiness({
-      ...base,
-      stepConfig: { allocations: "optional" },
-    });
-    const allocStep = result.steps.find((s) => s.id === "allocations");
-    expect(allocStep?.required).toBe(false);
+  it("carries locked through from the catalog", () => {
+    const result = computeChannelReadiness([row("channelTerms", "required", 0)], facts(), ids);
+    expect(result.steps[0]?.locked).toBe(true);
   });
 
-  it("omits placement step when stepConfig skips it", () => {
-    const result = computeChannelReadiness({
-      ...base,
-      stepConfig: { placement: "skipped" },
-    });
-    expect(result.steps.map((s) => s.id)).not.toContain("placement");
-    expect(result.totalCount).toBe(1);
+  it("builds a working href for each step", () => {
+    const result = computeChannelReadiness([row("placement", "required", 3)], facts(), ids);
+    expect(result.steps[0]?.href).toBe("/campaigns/cam1/channels/ch1?tab=placements");
   });
 
-  it("omits both steps when both skipped", () => {
-    const result = computeChannelReadiness({
-      ...base,
-      stepConfig: { placement: "skipped", allocations: "skipped" },
-    });
-    expect(result.steps).toHaveLength(0);
-    expect(result.totalCount).toBe(0);
-    expect(result.doneCount).toBe(0);
-  });
-
-  it("counts doneCount correctly with mixed config", () => {
-    const result = computeChannelReadiness({
-      activePlacementCount: 1,
-      allocationCount: 0,
-      requiresAsset: true,
-      stepConfig: { placement: "enabled", allocations: "optional" },
-    });
-    expect(result.doneCount).toBe(1); // placement done
-    expect(result.totalCount).toBe(2); // both shown
+  it("ignores a row whose key has no catalog entry", () => {
+    const result = computeChannelReadiness(
+      [row("channelTerms", "required", 0), row("retiredStep", "required", 9)],
+      facts(),
+      ids,
+    );
+    expect(result.steps.map((s) => s.key)).toEqual(["channelTerms"]);
   });
 });

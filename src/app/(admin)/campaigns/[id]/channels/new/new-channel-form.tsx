@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Layers, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -16,8 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import type { StepConfig, StepOverride, ChannelStepId } from "@/lib/channels/readiness";
 import { addCampaignChannelAction } from "../../actions";
 
 type ChannelTypeOption = { id: string; name: string; requiresAsset: boolean };
@@ -29,34 +26,6 @@ type Props = {
   campaignEndDate: string;
   channelTypes: ChannelTypeOption[];
 };
-
-type StepDef = {
-  id: ChannelStepId;
-  title: string;
-  hint: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
-
-const ALL_STEPS: StepDef[] = [
-  {
-    id: "placement",
-    title: "Add a placement",
-    hint: "Asset version, landing page, form slug, and consent text for lead collection.",
-    icon: Layers,
-  },
-  {
-    id: "allocations",
-    title: "Allocate partner quota",
-    hint: "Distribute the contracted quantity across partner organisations. Leave unallocated to run in-house.",
-    icon: Users,
-  },
-];
-
-const OVERRIDE_OPTIONS: { value: StepOverride; label: string }[] = [
-  { value: "enabled", label: "Enable" },
-  { value: "optional", label: "Make Optional" },
-  { value: "skipped", label: "Skip" },
-];
 
 export function NewChannelForm({
   campaignId,
@@ -73,20 +42,6 @@ export function NewChannelForm({
   const [unitPrice, setUnitPrice] = useState("");
   const [startDate, setStartDate] = useState(campaignStartDate);
   const [endDate, setEndDate] = useState(campaignEndDate);
-  const [stepConfig, setStepConfig] = useState<StepConfig>({});
-
-  const selectedType = channelTypes.find((ct) => ct.id === channelTypeId);
-  const visibleSteps = ALL_STEPS.filter(
-    (s) => s.id !== "placement" || selectedType?.requiresAsset === true,
-  );
-
-  function setOverride(stepId: ChannelStepId, override: StepOverride) {
-    setStepConfig((prev) => ({ ...prev, [stepId]: override }));
-  }
-
-  function getOverride(stepId: ChannelStepId): StepOverride {
-    return stepConfig[stepId] ?? "enabled";
-  }
 
   const canSubmit =
     channelTypeId !== "" &&
@@ -104,7 +59,6 @@ export function NewChannelForm({
         clientUnitPrice: unitPrice,
         startDate,
         endDate,
-        stepConfig: Object.keys(stepConfig).length > 0 ? stepConfig : undefined,
       });
       if (result.ok) {
         toast.success("Channel created");
@@ -135,10 +89,7 @@ export function NewChannelForm({
               <FieldLabel htmlFor="channel-type">Channel type</FieldLabel>
               <Select
                 value={channelTypeId}
-                onValueChange={(v) => {
-                  setChannelTypeId(v);
-                  setStepConfig({});
-                }}
+                onValueChange={setChannelTypeId}
               >
                 <SelectTrigger id="channel-type" className="w-full">
                   <SelectValue placeholder="Channel type" />
@@ -203,47 +154,6 @@ export function NewChannelForm({
           </FieldGroup>
         </CardContent>
       </Card>
-
-      {/* Section 2: Step configuration */}
-      <div className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-base font-medium">Setup steps</h2>
-          <p className="text-sm text-muted-foreground">
-            Choose how each step is handled for this channel.
-          </p>
-        </div>
-        {visibleSteps.map((step) => {
-          const current = getOverride(step.id);
-          const Icon = step.icon;
-          return (
-            <div key={step.id} className="rounded-lg border p-4 flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted">
-                  <Icon className="size-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{step.title}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{step.hint}</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {OVERRIDE_OPTIONS.map((opt) => (
-                  <Button
-                    key={opt.value}
-                    type="button"
-                    size="sm"
-                    variant={current === opt.value ? "default" : "outline"}
-                    className={cn(current === opt.value && "shadow-none")}
-                    onClick={() => setOverride(step.id, opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
       {/* Actions */}
       <div className="flex gap-3">

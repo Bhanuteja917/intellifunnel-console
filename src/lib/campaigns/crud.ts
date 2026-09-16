@@ -7,7 +7,9 @@ import type {
   Prisma,
   PrismaClient,
 } from "@prisma/client";
-import type { StepConfig } from "@/lib/channels/readiness";
+import type { StepOverride } from "@/lib/channels/setup-steps";
+import { seedChannelSetupSteps } from "@/lib/channels/setup-steps";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
@@ -301,7 +303,7 @@ export type CampaignChannelInput = {
   startDate: Date;
   endDate: Date;
   qualificationFormId?: string;
-  stepConfig?: StepConfig;
+  setupSteps?: StepOverride[];
 };
 
 export async function addCampaignChannel(
@@ -358,7 +360,7 @@ export async function addCampaignChannel(
       // Re-verify draft status inside the transaction (FR-CS-2).
       await assertDraftAndAccessible(tx, actor, campaignId);
 
-      return tx.campaignChannel.create({
+      const created = await tx.campaignChannel.create({
         data: {
           campaignId,
           channelTypeVersionId: input.channelTypeVersionId,
@@ -369,13 +371,19 @@ export async function addCampaignChannel(
           startDate: input.startDate,
           endDate: input.endDate,
           qualificationFormId: input.qualificationFormId,
-          stepConfigJson: input.stepConfig !== undefined
-            ? (input.stepConfig as Prisma.InputJsonValue)
-            : undefined,
           createdById: actor.userId,
           updatedById: actor.userId,
         },
       });
+
+      await seedChannelSetupSteps(
+        tx,
+        created.id,
+        version.definitionJson as unknown as ChannelTypeDefinition,
+        input.setupSteps,
+      );
+
+      return created;
     },
   );
 }

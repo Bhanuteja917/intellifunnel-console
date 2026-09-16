@@ -5,6 +5,8 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
+import { seedChannelSetupSteps } from "@/lib/channels/setup-steps";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { ValidationError } from "@/lib/errors";
 
 async function createAssetRequiringChannel(db: ReturnType<typeof testDb>, orgId: string, userId: string) {
@@ -73,6 +75,11 @@ async function createAssetRequiringChannel(db: ReturnType<typeof testDb>, orgId:
       updatedById: userId,
     },
   });
+  await seedChannelSetupSteps(
+    db,
+    channel.id,
+    version.definitionJson as unknown as ChannelTypeDefinition,
+  );
   return { campaign, channel, version };
 }
 
@@ -115,7 +122,7 @@ describe("Asset placement requirement in campaign approval", () => {
 
     // Should reject because no active asset placement
     await expect(submitChannelForApproval(db, actor, channel.id)).rejects.toThrow(
-      /requires at least one active asset placement/,
+      /Add a placement.*is not complete/,
     );
   });
 
@@ -150,7 +157,7 @@ describe("Asset placement requirement in campaign approval", () => {
 
     // Confirm it still rejects before any placement exists.
     await expect(submitChannelForApproval(db, actor, channel.id)).rejects.toThrow(
-      /requires at least one active asset placement/,
+      /Add a placement.*is not complete/,
     );
 
     const asset = await db.asset.create({
@@ -263,6 +270,7 @@ describe("Asset placement requirement in campaign approval", () => {
         updatedById: user.id,
       },
     });
+    await seedChannelSetupSteps(db, channel.id, version.definitionJson as unknown as ChannelTypeDefinition);
 
     // Add ICP criterion and email spec on the channel
     await db.icpCriterion.create({
@@ -362,6 +370,7 @@ describe("Asset placement requirement in campaign approval", () => {
         updatedById: user.id,
       },
     });
+    await seedChannelSetupSteps(db, channel.id, version.definitionJson as unknown as ChannelTypeDefinition);
 
     // No ICP criteria on the channel — should fail
     await expect(submitChannelForApproval(db, actor, channel.id)).rejects.toBeInstanceOf(ValidationError);
@@ -438,6 +447,7 @@ describe("Asset placement requirement in campaign approval", () => {
         updatedById: user.id,
       },
     });
+    await seedChannelSetupSteps(db, channel.id, version.definitionJson as unknown as ChannelTypeDefinition);
 
     // ICP criterion present but no email spec
     await db.icpCriterion.create({

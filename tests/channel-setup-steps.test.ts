@@ -36,7 +36,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("writes the catalog default plan", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     expect(await keysFor(fx.channelId)).toEqual([
@@ -49,7 +49,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("applies caller overrides over the defaults", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "placement", requirement: "optional" },
       { stepKey: "allocations", requirement: "required" },
@@ -63,7 +63,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("drops a default step the caller omitted from an explicit override list", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -72,7 +72,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("always seeds a locked step even when the caller omits it", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "icp", requirement: "required" },
     ]);
@@ -81,7 +81,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("refuses an override for a step that does not apply to the channel type", async () => {
-    const fx = await createChannelFixture(testDb(), { requiresAsset: false });
+    const fx = await createChannelFixture(testDb(), { requiresAsset: false, skipSetupSteps: true });
 
     await expect(
       seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
@@ -91,7 +91,7 @@ describe("seedChannelSetupSteps", () => {
   });
 
   it("refuses an override for a deferred step", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
 
     await expect(
       seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
@@ -109,7 +109,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("adds an applicable step that has no row yet", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -120,7 +120,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("defaults a newly added step to required", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -134,7 +134,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("refuses a duplicate", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -143,7 +143,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("refuses a deferred step", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -152,7 +152,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("refuses a step that does not apply to the channel type", async () => {
-    const fx = await createChannelFixture(testDb(), { requiresAsset: false });
+    const fx = await createChannelFixture(testDb(), { requiresAsset: false, skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -161,7 +161,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("refuses once the channel is past draft", async () => {
-    const fx = await createChannelFixture(testDb(), { channelStatus: "pending" });
+    const fx = await createChannelFixture(testDb(), { channelStatus: "pending", skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -172,7 +172,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("refuses a client actor", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -183,7 +183,7 @@ describe("addChannelSetupStep", () => {
   });
 
   it("writes an audit row", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -205,7 +205,7 @@ describe("removeChannelSetupStep", () => {
   });
 
   it("removes an unlocked step", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await removeChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "allocations");
@@ -214,7 +214,7 @@ describe("removeChannelSetupStep", () => {
   });
 
   it("refuses to remove the locked terms step", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -223,7 +223,7 @@ describe("removeChannelSetupStep", () => {
   });
 
   it("refuses when the step has no row", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "channelTerms", requirement: "required" },
     ]);
@@ -234,7 +234,7 @@ describe("removeChannelSetupStep", () => {
   });
 
   it("refuses once the channel is past draft", async () => {
-    const fx = await createChannelFixture(testDb(), { channelStatus: "live" });
+    const fx = await createChannelFixture(testDb(), { channelStatus: "live", skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -251,7 +251,7 @@ describe("setChannelStepRequirement", () => {
   });
 
   it("softens a required step to optional", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "placement", "optional");
@@ -263,7 +263,7 @@ describe("setChannelStepRequirement", () => {
   });
 
   it("hardens an optional step to required", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "allocations", "required");
@@ -275,7 +275,7 @@ describe("setChannelStepRequirement", () => {
   });
 
   it("refuses to soften the locked terms step", async () => {
-    const fx = await createChannelFixture(testDb());
+    const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
@@ -284,7 +284,7 @@ describe("setChannelStepRequirement", () => {
   });
 
   it("refuses once the channel is past draft", async () => {
-    const fx = await createChannelFixture(testDb(), { channelStatus: "scheduled" });
+    const fx = await createChannelFixture(testDb(), { channelStatus: "scheduled", skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(

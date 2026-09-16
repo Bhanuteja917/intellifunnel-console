@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
 import { assertClientOrganization } from "@/lib/campaigns/crud";
+import { copyChannelSetupSteps } from "@/lib/channels/setup-steps";
 
 export type CloneOverrides = {
   code: string;
@@ -110,6 +111,8 @@ export async function cloneCampaign(
             updatedById: actor.userId,
           },
         });
+
+        await copyChannelSetupSteps(tx, channel.id, clonedChannel.id, actor.userId);
 
         for (const criterion of channel.icpCriteria) {
           await tx.icpCriterion.create({

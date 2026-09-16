@@ -14,22 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import type { StepOverride } from "@/lib/channels/readiness";
 import { updateChannelAction } from "./actions";
-
-const PLACEMENT_OVERRIDE_OPTIONS: { value: StepOverride; label: string }[] = [
-  { value: "enabled", label: "Enable" },
-  { value: "optional", label: "Make Optional" },
-  { value: "skipped", label: "Skip" },
-];
 
 type Props = {
   campaignId: string;
@@ -37,15 +22,12 @@ type Props = {
   currency: string;
   /** Empty when the channel's terms are editable; otherwise the reason they are not. */
   blockedReason: string | null;
-  /** Whether the channel type requires an asset placement — hides the override control when false. */
-  requiresAsset: boolean;
   initial: {
     contractedQuantity: number;
     clientUnitPrice: string;
     costBudget: string;
     startDate: string;
     endDate: string;
-    placementOverride: StepOverride;
   };
 };
 
@@ -54,7 +36,6 @@ export function EditChannelDialog({
   campaignChannelId,
   currency,
   blockedReason,
-  requiresAsset,
   initial,
 }: Props) {
   const router = useRouter();
@@ -64,7 +45,6 @@ export function EditChannelDialog({
   const [unitPrice, setUnitPrice] = useState(initial.clientUnitPrice);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [endDate, setEndDate] = useState(initial.endDate);
-  const [placementOverride, setPlacementOverride] = useState<StepOverride>(initial.placementOverride);
 
   if (blockedReason !== null) {
     return (
@@ -85,7 +65,6 @@ export function EditChannelDialog({
         currency,
         startDate,
         endDate,
-        stepConfig: requiresAsset ? { placement: placementOverride } : undefined,
       });
       if (result.ok) {
         toast.success("Channel terms updated");
@@ -148,28 +127,6 @@ export function EditChannelDialog({
               onChange={(event) => setEndDate(event.target.value)}
             />
           </Field>
-          {requiresAsset && (
-            <Field>
-              <FieldLabel htmlFor="channel-placement-override">Asset placement requirement</FieldLabel>
-              <Select
-                value={placementOverride}
-                onValueChange={(v) => setPlacementOverride(v as StepOverride)}
-              >
-                <SelectTrigger id="channel-placement-override" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {PLACEMENT_OVERRIDE_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
         </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>

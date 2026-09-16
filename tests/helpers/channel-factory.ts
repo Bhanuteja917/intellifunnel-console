@@ -1,5 +1,7 @@
 import type { CampaignChannelStatus, CampaignStatus, PrismaClient } from "@prisma/client";
 import { loadActor, type Actor } from "@/lib/auth/permissions";
+import { seedChannelSetupSteps } from "@/lib/channels/setup-steps";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { createOrganization, createUser } from "./factories";
 
 let counter = 0;
@@ -25,8 +27,10 @@ export async function createChannelFixture(
   db: PrismaClient,
   options: {
     requiresAsset?: boolean;
+    producesLeads?: boolean;
     campaignStatus?: CampaignStatus;
     channelStatus?: CampaignChannelStatus;
+    skipSetupSteps?: boolean;
   } = {},
 ): Promise<ChannelFixture> {
   const internalOrg = await createOrganization(db, { isInternal: true, isClient: false });
@@ -55,7 +59,7 @@ export async function createChannelFixture(
         code: channelType.code,
         name: "Test Channel",
         funnelStageCode: "MOFU",
-        producesLeads: true,
+        producesLeads: options.producesLeads ?? true,
         requiresAsset: options.requiresAsset ?? true,
         metricMode: "none",
         allowedMetricFields: [],
@@ -93,6 +97,14 @@ export async function createChannelFixture(
       status: options.channelStatus ?? "draft",
     },
   });
+
+  if (options.skipSetupSteps !== true) {
+    await seedChannelSetupSteps(
+      db,
+      channel.id,
+      channelTypeVersion.definitionJson as unknown as ChannelTypeDefinition,
+    );
+  }
 
   return {
     clientOrgId: clientOrg.id,
@@ -184,6 +196,12 @@ export async function createCampaignWithChannel(
       advisoryTalMatch: overrides.advisoryTalMatch ?? false,
     },
   });
+
+  await seedChannelSetupSteps(
+    db,
+    campaignChannel.id,
+    channelTypeVersion.definitionJson as unknown as ChannelTypeDefinition,
+  );
 
   return { campaign, campaignChannel, channelTypeVersion };
 }

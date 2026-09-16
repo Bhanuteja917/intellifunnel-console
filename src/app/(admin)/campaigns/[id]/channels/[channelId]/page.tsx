@@ -21,7 +21,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { loadChannelReadiness, type ChannelReadiness, type StepOverride } from "@/lib/channels/readiness";
+import { loadChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
 import { getChannelApprovalStatus, getPlacementApprovalStatus } from "@/lib/approvals/status";
 import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
@@ -108,21 +108,15 @@ export default async function ChannelPage({
     requiresAsset?: boolean;
   };
   const channelLabel = channelDefinition.name ?? channelDefinition.code;
-  const requiresAsset = channelDefinition.requiresAsset === true;
-  const placementOverride: StepOverride =
-    (channel.stepConfigJson as { placement?: StepOverride } | null)?.placement ?? "enabled";
 
   // Every surface below reads the same readiness computation the activation
   // guard uses, so the badge, the checklist and what the server will allow can
   // never disagree.
   const readiness = await loadChannelReadiness(db, channelId);
   const termsStatus = await getChannelApprovalStatus(db, channel);
-  const hasPlacementStep = readiness.steps.some((s) => s.id === "placement");
-  const requiredSteps = readiness.steps.filter((s) => s.required);
-  const outstanding = requiredSteps.filter((s) => !s.done).map((s) => s.title);
+  const hasPlacementStep = readiness.steps.some((s) => s.key === "placement");
+  const requiredSteps = readiness.steps.filter((s) => s.requirement === "required");
   const isReady = requiredSteps.every((s) => s.done);
-  const requiredDone = requiredSteps.filter((s) => s.done).length;
-  const requiredTotal = requiredSteps.length;
   const visibleTabs = TABS.filter((t) => t.id !== "placements" || hasPlacementStep);
 
   return (
@@ -164,7 +158,6 @@ export default async function ChannelPage({
                         ? `Channel is ${channel.status} — terms are only editable while it is a draft`
                         : null
                   }
-                  requiresAsset={requiresAsset}
                   initial={{
                     contractedQuantity: channel.contractedQuantity,
                     clientUnitPrice: fromMinorUnits(channel.clientUnitPriceMinor, channel.currency),
@@ -174,7 +167,6 @@ export default async function ChannelPage({
                         : fromMinorUnits(channel.costBudgetMinor, channel.currency),
                     startDate: channel.startDate.toISOString().slice(0, 10),
                     endDate: channel.endDate.toISOString().slice(0, 10),
-                    placementOverride,
                   }}
                 />
                 <ChannelStatusControl
@@ -218,7 +210,6 @@ export default async function ChannelPage({
           allocationsCount={allocationsCount}
           allocatedQuantity={allocatedQuantity}
           readiness={readiness}
-          campaignId={campaign.id}
         />
       )}
 
@@ -285,7 +276,7 @@ export default async function ChannelPage({
 }
 
 function OverviewTab({
-  channel, placementsCount, activePlacementsCount, allocationsCount, allocatedQuantity, readiness, campaignId,
+  channel, placementsCount, activePlacementsCount, allocationsCount, allocatedQuantity, readiness,
 }: {
   channel: { id: string; contractedQuantity: number; deliveredCount: number; reservedCount: number };
   placementsCount: number;
@@ -293,15 +284,14 @@ function OverviewTab({
   allocationsCount: number;
   allocatedQuantity: number;
   readiness: ChannelReadiness;
-  campaignId: string;
 }) {
-  const required = readiness.steps.filter((s) => s.required);
-  const optional = readiness.steps.filter((s) => !s.required);
-  const requiredDone = required.filter((s) => s.done).length;
-  const requiredTotal = required.length;
+  const required = readiness.steps.filter((s) => s.requirement === "required");
+  const optional = readiness.steps.filter((s) => s.requirement === "optional");
+  const requiredDone = readiness.requiredDoneCount;
+  const requiredTotal = readiness.requiredTotalCount;
 
   const stepRow = (step: ChannelReadiness["steps"][number]) => (
-    <div key={step.id} className="flex items-center gap-3 border-b py-3 last:border-b-0">
+    <div key={step.key} className="flex items-center gap-3 border-b py-3 last:border-b-0">
       <div className={cn(
         "flex size-5 shrink-0 items-center justify-center rounded-full border text-xs",
         step.done ? "border-foreground bg-foreground text-background" : "border-muted-foreground/40 text-muted-foreground",
@@ -312,12 +302,12 @@ function OverviewTab({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{step.title}</span>
-          {!step.required && <Badge variant="outline" className="text-xs">Optional</Badge>}
+          {step.requirement === "optional" && <Badge variant="outline" className="text-xs">Optional</Badge>}
         </div>
         <div className="text-xs text-muted-foreground">{step.hint}</div>
       </div>
       <Button asChild size="sm" variant="outline">
-        <Link href={`/campaigns/${campaignId}/channels/${channel.id}?tab=${step.id}` as Route}>{step.cta}</Link>
+        <Link href={step.href as Route}>{step.cta}</Link>
       </Button>
     </div>
   );
@@ -341,10 +331,14 @@ function OverviewTab({
         </CardHeader>
         <CardContent className="flex flex-col">
           {required.map(stepRow)}
-          <div className="mt-4 border-t pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Optional
-          </div>
-          {optional.map(stepRow)}
+          {optional.length > 0 && (
+            <>
+              <div className="mt-4 border-t pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Optional
+              </div>
+              {optional.map(stepRow)}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

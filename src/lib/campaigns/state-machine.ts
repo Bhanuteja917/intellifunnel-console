@@ -22,8 +22,7 @@ import { writeAudit } from "@/lib/audit/audit";
 import { getSetting } from "@/lib/settings/settings";
 import { logger } from "@/lib/logging/logger";
 import { operatingDayStart } from "@/lib/time/operating-day";
-import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
-import type { StepConfig } from "@/lib/channels/readiness";
+import { loadChannelReadiness } from "@/lib/channels/readiness";
 import { decideChannelApproval as recordChannelApproval } from "@/lib/approvals/decisions";
 
 /** SRS §5.1 — campaign-level allowed transitions (manual overrides only; most status changes are derived). */
@@ -98,40 +97,12 @@ export async function updateCampaignStatus(
   });
 }
 
-/** Channel is ready to submit: has ICP, has email lead spec, meets asset requirements. */
+/** Every required setup step must be complete before a channel can be submitted. */
 async function assertChannelReadyForApproval(db: Db, channelId: string): Promise<void> {
-  const channel = await db.campaignChannel.findUniqueOrThrow({
-    where: { id: channelId },
-    include: { channelTypeVersion: true },
-  });
-
-  const icpCount = await db.icpCriterion.count({ where: { campaignChannelId: channelId } });
-  if (icpCount === 0) {
-    throw new ValidationError("Channel needs at least one ICP criterion before approval");
-  }
-
-  const emailSpec = await db.leadFieldSpec.findFirst({
-    where: { campaignChannelId: channelId, fieldKey: "email" },
-  });
-  if (emailSpec === null) {
-    throw new ValidationError("Channel needs an 'email' lead field spec before approval");
-  }
-
-  const definition = channel.channelTypeVersion.definitionJson as ChannelTypeDefinition;
-  const stepConfig = (channel.stepConfigJson ?? {}) as StepConfig;
-  if (
-    definition.requiresAsset &&
-    stepConfig.placement !== "skipped" &&
-    stepConfig.placement !== "optional"
-  ) {
-    const activeCount = await db.assetPlacement.count({
-      where: { campaignChannelId: channelId, status: "active" },
-    });
-    if (activeCount === 0) {
-      throw new ValidationError(
-        `Channel "${definition.name}" requires at least one active asset placement before approval`,
-      );
-    }
+  const readiness = await loadChannelReadiness(db, channelId);
+  const blocking = readiness.steps.find((s) => s.requirement === "required" && !s.done);
+  if (blocking !== undefined) {
+    throw new ValidationError(`Setup step "${blocking.title}" is not complete`);
   }
 }
 

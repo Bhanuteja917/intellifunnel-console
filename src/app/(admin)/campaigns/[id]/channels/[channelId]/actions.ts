@@ -6,7 +6,6 @@ import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
 import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
-import type { StepConfig } from "@/lib/channels/readiness";
 
 export async function updateChannelAction(input: {
   campaignId: string; // only for revalidatePath
@@ -17,7 +16,6 @@ export async function updateChannelAction(input: {
   currency: string;
   startDate: string;
   endDate: string;
-  stepConfig?: StepConfig;
 }): Promise<ActionResult<null>> {
   return toActionResult(async () => {
     const actor = await requireActor();
@@ -28,7 +26,6 @@ export async function updateChannelAction(input: {
       currency: input.currency,
       startDate: new Date(input.startDate),
       endDate: new Date(input.endDate),
-      stepConfig: input.stepConfig,
     });
     revalidatePath(`/campaigns/${input.campaignId}/channels/${input.campaignChannelId}`);
     revalidatePath(`/campaigns/${input.campaignId}`);

@@ -72,7 +72,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
       const allocatedQuantity = allocationsAgg._sum.allocatedQuantity ?? 0;
       const allocationsCount = allocationsAgg._count;
       const channelReadiness = await loadChannelReadiness(db, channel.id);
-      const requiredSteps = channelReadiness.steps.filter((s) => s.required);
+      const requiredSteps = channelReadiness.steps.filter((s) => s.requirement === "required");
       const expected = expectedToDate(channel.contractedQuantity, channel.startDate, channel.endDate, now, timeZone);
       const pace = paceSignal(channel.deliveredCount, expected);
       return {
@@ -86,7 +86,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         outstanding: requiredSteps.filter((s) => !s.done).map((s) => s.title),
         requiredDone: requiredSteps.filter((s) => s.done).length,
         requiredTotal: requiredSteps.length,
-        hasPlacementStep: channelReadiness.steps.some((s) => s.id === "placement"),
+        hasPlacementStep: channelReadiness.steps.some((s) => s.key === "placement"),
         pace,
       };
     }),

@@ -49,7 +49,7 @@ export async function addCampaignChannelAction(
     costBudget?: string;
     startDate: string;
     endDate: string;
-    stepConfig?: import("@/lib/channels/readiness").StepConfig;
+    setupSteps?: import("@/lib/channels/setup-steps").StepOverride[];
   },
 ): Promise<ActionResult<{ id: string }>> {
   return toActionResult(async () => {
@@ -79,7 +79,7 @@ export async function addCampaignChannelAction(
       currency: campaign.currency,
       startDate: new Date(input.startDate),
       endDate: new Date(input.endDate),
-      stepConfig: input.stepConfig,
+      setupSteps: input.setupSteps,
     });
     revalidatePath(`/campaigns/${campaignId}`);
     return { id: channel.id };

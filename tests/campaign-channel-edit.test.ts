@@ -7,6 +7,7 @@ import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channel
 import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
 import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getChannelApprovalStatus } from "@/lib/approvals/status";
+import { setChannelStepRequirement } from "@/lib/channels/setup-steps";
 import { ValidationError } from "@/lib/errors";
 
 const validEdit = {
@@ -90,12 +91,17 @@ describe("updateCampaignChannel", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("persists a placement stepConfig override, unblocking submission without an active placement", async () => {
+  it("unblocks submission when the placement step is softened to optional", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db); // requiresAsset: true by default
-
+    const fx = await createChannelFixture(db);
     await db.icpCriterion.create({
-      data: { campaignChannelId: fx.channelId, dimension: "industry", operator: "in", valuesJson: ["Technology"] },
+      data: {
+        campaignChannelId: fx.channelId,
+        dimension: "country",
+        operator: "in",
+        valuesJson: ["US"],
+        isMandatory: true,
+      },
     });
     await db.leadFieldSpec.create({
       data: {
@@ -108,17 +114,10 @@ describe("updateCampaignChannel", () => {
       },
     });
 
-    await expect(submitChannelForApproval(db, fx.adminActor, fx.channelId)).rejects.toThrow(
-      /requires at least one active asset placement/,
-    );
+    await setChannelStepRequirement(db, fx.adminActor, fx.channelId, "placement", "optional");
 
-    await updateCampaignChannel(db, fx.adminActor, fx.channelId, {
-      ...validEdit,
-      stepConfig: { placement: "optional" },
-    });
-
-    const result = await submitChannelForApproval(db, fx.adminActor, fx.channelId);
-    expect(result.status).toBe("pending");
+    const submitted = await submitChannelForApproval(db, fx.adminActor, fx.channelId);
+    expect(submitted.status).toBe("pending");
   });
 });
 

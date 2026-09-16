@@ -1,80 +1,108 @@
-import type { PrismaClient, Prisma } from "@prisma/client";
+import type {
+  ChannelSetupRequirement,
+  ChannelSetupStepKey,
+  Prisma,
+  PrismaClient,
+} from "@prisma/client";
+import { catalogEntry, type ChannelFacts } from "@/lib/channels/step-catalog";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export type ChannelStepId = "placement" | "allocations";
-export type StepOverride = "enabled" | "optional" | "skipped";
-export type StepConfig = Partial<Record<ChannelStepId, StepOverride>>;
-
 export type ChannelStep = {
-  id: ChannelStepId;
+  key: ChannelSetupStepKey;
   title: string;
   hint: string;
   cta: string;
+  href: string;
+  requirement: ChannelSetupRequirement;
+  locked: boolean;
   done: boolean;
-  required: boolean;
 };
 
 export type ChannelReadiness = {
   steps: ChannelStep[];
-  doneCount: number;
-  totalCount: number;
+  requiredDoneCount: number;
+  requiredTotalCount: number;
 };
 
-export function computeChannelReadiness(input: {
-  activePlacementCount: number;
-  allocationCount: number;
-  requiresAsset: boolean;
-  stepConfig?: StepConfig;
-}): ChannelReadiness {
-  const { stepConfig = {} } = input;
-  const steps: ChannelStep[] = [];
+type StepRow = {
+  stepKey: ChannelSetupStepKey;
+  requirement: ChannelSetupRequirement;
+  sortOrder: number;
+};
 
-  if (input.requiresAsset && stepConfig.placement !== "skipped") {
-    steps.push({
-      id: "placement",
-      title: "Add a placement",
-      hint: "Asset version, landing page, form slug, consent text",
-      cta: "Add placement",
-      done: input.activePlacementCount > 0,
-      // Mirrors the submit-gate in state-machine.ts: required unless explicitly optional (or skipped, filtered above).
-      required: stepConfig.placement !== "optional",
+export function computeChannelReadiness(
+  rows: StepRow[],
+  facts: ChannelFacts,
+  ids: { campaignId: string; channelId: string },
+): ChannelReadiness {
+  const steps = rows
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .flatMap((row): ChannelStep[] => {
+      const entry = catalogEntry(row.stepKey);
+      // A row whose catalog entry was retired must not break the page render.
+      if (entry === undefined) return [];
+      return [{
+        key: entry.key,
+        title: entry.title,
+        hint: entry.hint,
+        cta: entry.cta,
+        href: entry.href(ids.campaignId, ids.channelId),
+        requirement: row.requirement,
+        locked: entry.locked,
+        done: entry.isDone(facts),
+      }];
     });
-  }
 
-  if (stepConfig.allocations !== "skipped") {
-    steps.push({
-      id: "allocations",
-      title: "Allocate partner quota",
-      hint: "Leave unallocated to run this channel in-house",
-      cta: "Allocate",
-      done: input.allocationCount > 0,
-      required: stepConfig.allocations === "enabled",
-    });
-  }
-
-  const doneCount = steps.filter((s) => s.done).length;
-  return { steps, doneCount, totalCount: steps.length };
+  const required = steps.filter((s) => s.requirement === "required");
+  return {
+    steps,
+    requiredDoneCount: required.filter((s) => s.done).length,
+    requiredTotalCount: required.length,
+  };
 }
 
-export async function loadChannelReadiness(db: Db, campaignChannelId: string): Promise<ChannelReadiness> {
+export async function loadChannelFacts(db: Db, campaignChannelId: string): Promise<ChannelFacts> {
   const channel = await db.campaignChannel.findUniqueOrThrow({
     where: { id: campaignChannelId },
-    include: { channelTypeVersion: { select: { definitionJson: true } } },
+    select: { contractedQuantity: true, clientUnitPriceMinor: true },
   });
 
-  const [activePlacementCount, allocationCount] = await Promise.all([
+  const [icpCount, emailSpec, activePlacementCount, allocationCount] = await Promise.all([
+    db.icpCriterion.count({ where: { campaignChannelId } }),
+    db.leadFieldSpec.findFirst({ where: { campaignChannelId, fieldKey: "email" }, select: { id: true } }),
     db.assetPlacement.count({ where: { campaignChannelId, status: "active" } }),
     db.partnerAllocation.count({ where: { campaignChannelId } }),
   ]);
 
-  const def = (channel.channelTypeVersion.definitionJson ?? {}) as { requiresAsset?: boolean };
-  const stepConfig = (channel.stepConfigJson ?? {}) as StepConfig;
-
-  return computeChannelReadiness({
+  return {
+    hasTerms: channel.contractedQuantity > 0 && channel.clientUnitPriceMinor > 0n,
+    icpCount,
+    hasEmailSpec: emailSpec !== null,
     activePlacementCount,
     allocationCount,
-    requiresAsset: def.requiresAsset === true,
-    stepConfig,
+  };
+}
+
+export async function loadChannelReadiness(
+  db: Db,
+  campaignChannelId: string,
+): Promise<ChannelReadiness> {
+  const [channel, rows, facts] = await Promise.all([
+    db.campaignChannel.findUniqueOrThrow({
+      where: { id: campaignChannelId },
+      select: { campaignId: true },
+    }),
+    db.channelSetupStep.findMany({
+      where: { campaignChannelId },
+      select: { stepKey: true, requirement: true, sortOrder: true },
+    }),
+    loadChannelFacts(db, campaignChannelId),
+  ]);
+
+  return computeChannelReadiness(rows, facts, {
+    campaignId: channel.campaignId,
+    channelId: campaignChannelId,
   });
 }
