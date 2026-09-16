@@ -24,6 +24,7 @@ export async function ChannelTermsTab({
   channel,
   channelLabel,
   termsStatus,
+  editAction,
 }: {
   channel: {
     id: string;
@@ -36,6 +37,7 @@ export async function ChannelTermsTab({
   };
   channelLabel: string | undefined;
   termsStatus: ApprovalStatus;
+  editAction?: React.ReactNode;
 }) {
   const decisions = await db.channelApproval.findMany({
     where: { campaignChannelId: channel.id },
@@ -68,7 +70,10 @@ export async function ChannelTermsTab({
               portal — there is no approve button here.
             </p>
           </div>
-          <Badge variant={badge.variant}>{badge.label}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={badge.variant}>{badge.label}</Badge>
+            {editAction}
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col">
           {row("Channel type", channelLabel ?? "—")}

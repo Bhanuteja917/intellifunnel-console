@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import type { ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
+import type { ChannelSetupStepKey } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,11 +18,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { ChannelStep } from "@/lib/channels/readiness";
-import {
-  addChannelSetupStepAction,
-  removeChannelSetupStepAction,
-  setChannelStepRequirementAction,
-} from "./actions";
+import { addChannelSetupStepAction, removeChannelSetupStepAction } from "./actions";
 
 type Props = {
   campaignId: string;
@@ -84,46 +80,20 @@ export function SetupChecklistCard({
       </div>
 
       {editable && !step.locked && (
-        <>
-          <Select
-            value={step.requirement}
-            disabled={pending}
-            onValueChange={(next) =>
-              run(
-                () =>
-                  setChannelStepRequirementAction(
-                    campaignId,
-                    channelId,
-                    step.key,
-                    next as ChannelSetupRequirement,
-                  ),
-                `${step.title} is now ${next}`,
-              )
-            }
-          >
-            <SelectTrigger className="w-28" aria-label={`${step.title} requirement`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="required">Required</SelectItem>
-              <SelectItem value="optional">Optional</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            aria-label={`Remove ${step.title}`}
-            onClick={() =>
-              run(
-                () => removeChannelSetupStepAction(campaignId, channelId, step.key),
-                `${step.title} removed`,
-              )
-            }
-          >
-            Remove
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          aria-label={`Remove ${step.title}`}
+          onClick={() =>
+            run(
+              () => removeChannelSetupStepAction(campaignId, channelId, step.key),
+              `${step.title} removed`,
+            )
+          }
+        >
+          Remove
+        </Button>
       )}
 
       <Button asChild size="sm" variant="outline">

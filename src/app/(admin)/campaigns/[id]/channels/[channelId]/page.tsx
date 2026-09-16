@@ -157,28 +157,6 @@ export default async function ChannelPage({
             </div>
             {canWriteCampaign && (
               <div className="flex flex-none gap-2">
-                <EditChannelDialog
-                  campaignId={campaign.id}
-                  campaignChannelId={channel.id}
-                  currency={channel.currency}
-                  blockedReason={
-                    campaign.status !== "draft"
-                      ? `Campaign is ${campaign.status} — terms are only editable while it is a draft`
-                      : channel.status !== "draft"
-                        ? `Channel is ${channel.status} — terms are only editable while it is a draft`
-                        : null
-                  }
-                  initial={{
-                    contractedQuantity: channel.contractedQuantity,
-                    clientUnitPrice: fromMinorUnits(channel.clientUnitPriceMinor, channel.currency),
-                    costBudget:
-                      channel.costBudgetMinor === null
-                        ? ""
-                        : fromMinorUnits(channel.costBudgetMinor, channel.currency),
-                    startDate: channel.startDate.toISOString().slice(0, 10),
-                    endDate: channel.endDate.toISOString().slice(0, 10),
-                  }}
-                />
                 <ChannelStatusControl
                   campaignId={campaign.id}
                   channelId={channel.id}
@@ -228,7 +206,40 @@ export default async function ChannelPage({
 
       {tab === "terms" && (
         <div className="flex flex-col gap-6">
-          <ChannelTermsTab channel={channel} channelLabel={channelLabel} termsStatus={termsStatus} />
+          <ChannelTermsTab
+            channel={channel}
+            channelLabel={channelLabel}
+            termsStatus={termsStatus}
+            editAction={
+              canWriteCampaign ? (
+                <EditChannelDialog
+                  campaignId={campaign.id}
+                  campaignChannelId={channel.id}
+                  currency={channel.currency}
+                  blockedReason={
+                    campaign.status !== "draft"
+                      ? `Campaign is ${campaign.status} — terms are only editable while it is a draft`
+                      : channel.status !== "draft"
+                        ? `Channel is ${channel.status} — terms are only editable while it is a draft`
+                        : null
+                  }
+                  initial={{
+                    contractedQuantity: channel.contractedQuantity,
+                    clientUnitPrice: fromMinorUnits(channel.clientUnitPriceMinor, channel.currency),
+                    costBudget:
+                      channel.costBudgetMinor === null
+                        ? ""
+                        : fromMinorUnits(channel.costBudgetMinor, channel.currency),
+                    startDate: channel.startDate.toISOString().slice(0, 10),
+                    endDate: channel.endDate.toISOString().slice(0, 10),
+                  }}
+                  steps={readiness.steps
+                    .filter((s) => !s.locked)
+                    .map((s) => ({ key: s.key, title: s.title, requirement: s.requirement }))}
+                />
+              ) : null
+            }
+          />
           <div className="grid gap-6 lg:grid-cols-2">
             <IcpCriteriaEditor
               channelId={channel.id}

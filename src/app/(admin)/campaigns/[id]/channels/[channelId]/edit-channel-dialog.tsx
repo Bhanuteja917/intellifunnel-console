@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import type { ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +15,16 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { updateChannelAction } from "./actions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { setChannelStepRequirementAction, updateChannelAction } from "./actions";
+
+type EditableStep = { key: ChannelSetupStepKey; title: string; requirement: ChannelSetupRequirement };
 
 type Props = {
   campaignId: string;
@@ -29,6 +39,7 @@ type Props = {
     startDate: string;
     endDate: string;
   };
+  steps: EditableStep[];
 };
 
 export function EditChannelDialog({
@@ -37,6 +48,7 @@ export function EditChannelDialog({
   currency,
   blockedReason,
   initial,
+  steps,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -45,6 +57,9 @@ export function EditChannelDialog({
   const [unitPrice, setUnitPrice] = useState(initial.clientUnitPrice);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [endDate, setEndDate] = useState(initial.endDate);
+  const [requirements, setRequirements] = useState<Record<string, ChannelSetupRequirement>>(
+    () => Object.fromEntries(steps.map((s) => [s.key, s.requirement])),
+  );
 
   if (blockedReason !== null) {
     return (
@@ -66,13 +81,28 @@ export function EditChannelDialog({
         startDate,
         endDate,
       });
-      if (result.ok) {
-        toast.success("Channel terms updated");
-        setOpen(false);
-        router.refresh();
-      } else {
+      if (!result.ok) {
         toast.error(result.error);
+        return;
       }
+
+      const changedSteps = steps
+        .map((s) => ({ key: s.key, requirement: requirements[s.key] ?? s.requirement }))
+        .filter((s) => s.requirement !== steps.find((orig) => orig.key === s.key)?.requirement);
+      const stepResults = await Promise.all(
+        changedSteps.map((s) =>
+          setChannelStepRequirementAction(campaignId, campaignChannelId, s.key, s.requirement),
+        ),
+      );
+      const stepError = stepResults.find((r) => !r.ok);
+      if (stepError && !stepError.ok) {
+        toast.error(stepError.error);
+        return;
+      }
+
+      toast.success("Channel terms updated");
+      setOpen(false);
+      router.refresh();
     });
   }
 
@@ -128,6 +158,30 @@ export function EditChannelDialog({
             />
           </Field>
         </FieldGroup>
+        {steps.length > 0 && (
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <FieldLabel>Setup steps</FieldLabel>
+            {steps.map((step) => (
+              <div key={step.key} className="flex items-center justify-between gap-4">
+                <span className="text-sm">{step.title}</span>
+                <Select
+                  value={requirements[step.key] ?? step.requirement}
+                  onValueChange={(next) =>
+                    setRequirements((prev) => ({ ...prev, [step.key]: next as ChannelSetupRequirement }))
+                  }
+                >
+                  <SelectTrigger className="w-28" aria-label={`${step.title} requirement`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="required">Required</SelectItem>
+                    <SelectItem value="optional">Optional</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
             Cancel
