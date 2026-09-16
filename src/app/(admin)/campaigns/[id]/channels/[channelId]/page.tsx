@@ -22,6 +22,9 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { loadChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
+import { STEP_CATALOG } from "@/lib/channels/step-catalog";
+import type { ChannelSetupStepKey } from "@prisma/client";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { getChannelApprovalStatus, getPlacementApprovalStatus } from "@/lib/approvals/status";
 import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
@@ -29,6 +32,7 @@ import { RunLogTable } from "./delivery/run-log-table";
 import { ChannelTermsTab, DecisionHistoryTab, TERMS_BADGE } from "./channel-terms-tab";
 import { EditChannelDialog } from "./edit-channel-dialog";
 import { ChannelStatusControl } from "./channel-status-control";
+import { SetupChecklistCard } from "./setup-checklist-card";
 import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
 import { IcpCriteriaEditor } from "../../icp-criteria-editor";
 import { LeadFieldSpecEditor } from "../../lead-field-spec-editor";
@@ -119,6 +123,12 @@ export default async function ChannelPage({
   const isReady = requiredSteps.every((s) => s.done);
   const visibleTabs = TABS.filter((t) => t.id !== "placements" || hasPlacementStep);
 
+  const definition = channel.channelTypeVersion.definitionJson as unknown as ChannelTypeDefinition;
+  const presentKeys = new Set(readiness.steps.map((s) => s.key));
+  const addableSteps = STEP_CATALOG
+    .filter((e) => e.available && e.applies(definition) && !presentKeys.has(e.key))
+    .map((e) => ({ key: e.key as ChannelSetupStepKey, title: e.title }));
+
   return (
     <div className="flex flex-col gap-6">
       <Link
@@ -204,12 +214,15 @@ export default async function ChannelPage({
 
       {tab === "overview" && (
         <OverviewTab
+          campaignId={campaign.id}
           channel={channel}
           placementsCount={placementsCount}
           activePlacementsCount={activePlacementsCount}
           allocationsCount={allocationsCount}
           allocatedQuantity={allocatedQuantity}
           readiness={readiness}
+          addableSteps={addableSteps}
+          editable={channel.status === "draft" && canWriteCampaign}
         />
       )}
 
@@ -276,41 +289,21 @@ export default async function ChannelPage({
 }
 
 function OverviewTab({
-  channel, placementsCount, activePlacementsCount, allocationsCount, allocatedQuantity, readiness,
+  campaignId, channel, placementsCount, activePlacementsCount, allocationsCount, allocatedQuantity,
+  readiness, addableSteps, editable,
 }: {
+  campaignId: string;
   channel: { id: string; contractedQuantity: number; deliveredCount: number; reservedCount: number };
   placementsCount: number;
   activePlacementsCount: number;
   allocationsCount: number;
   allocatedQuantity: number;
   readiness: ChannelReadiness;
+  addableSteps: { key: ChannelSetupStepKey; title: string }[];
+  editable: boolean;
 }) {
-  const required = readiness.steps.filter((s) => s.requirement === "required");
-  const optional = readiness.steps.filter((s) => s.requirement === "optional");
   const requiredDone = readiness.requiredDoneCount;
   const requiredTotal = readiness.requiredTotalCount;
-
-  const stepRow = (step: ChannelReadiness["steps"][number]) => (
-    <div key={step.key} className="flex items-center gap-3 border-b py-3 last:border-b-0">
-      <div className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-full border text-xs",
-        step.done ? "border-foreground bg-foreground text-background" : "border-muted-foreground/40 text-muted-foreground",
-      )}
-      >
-        {step.done ? "✓" : ""}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{step.title}</span>
-          {step.requirement === "optional" && <Badge variant="outline" className="text-xs">Optional</Badge>}
-        </div>
-        <div className="text-xs text-muted-foreground">{step.hint}</div>
-      </div>
-      <Button asChild size="sm" variant="outline">
-        <Link href={step.href as Route}>{step.cta}</Link>
-      </Button>
-    </div>
-  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -320,27 +313,15 @@ function OverviewTab({
         {statCard("Partner quota", `${allocatedQuantity} / ${channel.contractedQuantity}`, `${allocationsCount} allocation(s)`)}
         {statCard("Setup steps", `${requiredDone} / ${requiredTotal}`, "required steps complete")}
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Setup checklist</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            A channel is ready once its {requiredTotal} required{" "}
-            {requiredTotal === 1 ? "step is" : "steps are"} in place. Optional steps can be
-            completed at any time, including after launch.
-          </p>
-        </CardHeader>
-        <CardContent className="flex flex-col">
-          {required.map(stepRow)}
-          {optional.length > 0 && (
-            <>
-              <div className="mt-4 border-t pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Optional
-              </div>
-              {optional.map(stepRow)}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <SetupChecklistCard
+        campaignId={campaignId}
+        channelId={channel.id}
+        steps={readiness.steps}
+        requiredDoneCount={readiness.requiredDoneCount}
+        requiredTotalCount={readiness.requiredTotalCount}
+        addableSteps={addableSteps}
+        editable={editable}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { CampaignChannelStatus } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { setChannelStatusAction, submitChannelForApprovalAction } from "./actions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  setChannelStatusAction,
+  submitChannelForApprovalAction,
+  withdrawChannelFromApprovalAction,
+} from "./actions";
 
 // setChannelStatus only ever accepts "live" or "paused" — every other status
 // is derived by the campaign lifecycle (submit-for-approval, client decision,
@@ -30,6 +43,7 @@ type Props = {
 export function ChannelStatusControl({ campaignId, channelId, status }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   function onChange(next: string) {
     startTransition(async () => {
@@ -59,6 +73,19 @@ export function ChannelStatusControl({ campaignId, channelId, status }: Props) {
     });
   }
 
+  function onWithdraw() {
+    startTransition(async () => {
+      const result = await withdrawChannelFromApprovalAction(campaignId, channelId);
+      setConfirmOpen(false);
+      if (result.ok) {
+        toast.success("Channel returned to draft");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
   if (status === "draft") {
     return (
       <Button onClick={onSubmitForApproval} disabled={pending} size="sm">
@@ -67,7 +94,35 @@ export function ChannelStatusControl({ campaignId, channelId, status }: Props) {
     );
   }
 
-  if (status === "pending" || status === "scheduled" || status === "completed" || status === "cancelled") {
+  if (status === "pending") {
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant="outline">pending</Badge>
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline" disabled={pending}>Withdraw to draft</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Withdraw this channel?</DialogTitle>
+              <DialogDescription>
+                It leaves the client&apos;s approval queue and returns to draft, and the campaign
+                returns to draft with it. Channels already approved are unaffected.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={pending}>
+                Cancel
+              </Button>
+              <Button onClick={onWithdraw} disabled={pending}>Withdraw</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  if (status === "scheduled" || status === "completed" || status === "cancelled") {
     return <Badge variant="outline">{status}</Badge>;
   }
 

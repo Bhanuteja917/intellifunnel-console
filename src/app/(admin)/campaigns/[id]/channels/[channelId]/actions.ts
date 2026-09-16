@@ -1,11 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { CampaignChannelStatus } from "@prisma/client";
+import type { CampaignChannelStatus, ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
 import { submitChannelForApproval, withdrawChannelFromApproval } from "@/lib/campaigns/state-machine";
+import {
+  addChannelSetupStep,
+  removeChannelSetupStep,
+  setChannelStepRequirement,
+} from "@/lib/channels/setup-steps";
 
 export async function updateChannelAction(input: {
   campaignId: string; // only for revalidatePath
@@ -69,6 +74,46 @@ export async function withdrawChannelFromApprovalAction(
     await withdrawChannelFromApproval(db, actor, channelId);
     revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
     revalidatePath(`/campaigns/${campaignId}`);
+    return null;
+  });
+}
+
+export async function addChannelSetupStepAction(
+  campaignId: string,
+  channelId: string,
+  stepKey: ChannelSetupStepKey,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await addChannelSetupStep(db, actor, channelId, stepKey);
+    revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
+    return null;
+  });
+}
+
+export async function removeChannelSetupStepAction(
+  campaignId: string,
+  channelId: string,
+  stepKey: ChannelSetupStepKey,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await removeChannelSetupStep(db, actor, channelId, stepKey);
+    revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
+    return null;
+  });
+}
+
+export async function setChannelStepRequirementAction(
+  campaignId: string,
+  channelId: string,
+  stepKey: ChannelSetupStepKey,
+  requirement: ChannelSetupRequirement,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await setChannelStepRequirement(db, actor, channelId, stepKey, requirement);
+    revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
     return null;
   });
 }

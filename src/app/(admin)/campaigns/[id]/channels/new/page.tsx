@@ -4,6 +4,7 @@ import { requireActor } from "@/lib/auth/require";
 import { getCampaignForActor } from "@/lib/campaigns/crud";
 import { hasPermission } from "@/lib/auth/permissions";
 import { NotFoundError } from "@/lib/errors";
+import { buildDefinition } from "@/lib/channel-types/versions";
 import { NewChannelForm } from "./new-channel-form";
 
 export default async function NewChannelPage({
@@ -26,13 +27,20 @@ export default async function NewChannelPage({
     redirect(`/campaigns/${id}`);
   }
 
-  const channelTypes = await db.channelType.findMany({
+  const channelTypeRows = await db.channelType.findMany({
     where: { isActive: true, currentVersion: { gt: 0 } },
     select: { id: true, name: true, requiresAsset: true },
     orderBy: { name: "asc" },
   });
 
-  if (channelTypes.length === 0) redirect(`/campaigns/${id}`);
+  if (channelTypeRows.length === 0) redirect(`/campaigns/${id}`);
+
+  const channelTypes = await Promise.all(
+    channelTypeRows.map(async (ct) => ({
+      ...ct,
+      definition: await buildDefinition(db, ct.id),
+    })),
+  );
 
   return (
     <NewChannelForm

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import type { ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -15,9 +16,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { STEP_CATALOG } from "@/lib/channels/step-catalog";
+import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { addCampaignChannelAction } from "../../actions";
 
-type ChannelTypeOption = { id: string; name: string; requiresAsset: boolean };
+type ChannelTypeOption = {
+  id: string;
+  name: string;
+  requiresAsset: boolean;
+  definition: ChannelTypeDefinition;
+};
+
+type PickedRequirement = ChannelSetupRequirement | "none";
 
 type Props = {
   campaignId: string;
@@ -42,6 +52,24 @@ export function NewChannelForm({
   const [unitPrice, setUnitPrice] = useState("");
   const [startDate, setStartDate] = useState(campaignStartDate);
   const [endDate, setEndDate] = useState(campaignEndDate);
+  const [chosen, setChosen] = useState<Partial<Record<ChannelSetupStepKey, PickedRequirement>>>({});
+
+  const definition = channelTypes.find((ct) => ct.id === channelTypeId)?.definition;
+  const applicable = definition
+    ? STEP_CATALOG.filter((e) => e.available && e.applies(definition))
+    : [];
+  const pickable = applicable.filter((e) => !e.locked);
+
+  function requirementFor(entry: (typeof pickable)[number]): PickedRequirement {
+    const picked = chosen[entry.key];
+    if (picked !== undefined) return picked;
+    return definition ? entry.seedDefault(definition) ?? "none" : "none";
+  }
+
+  function onChannelTypeChange(next: string) {
+    setChannelTypeId(next);
+    setChosen({});
+  }
 
   const canSubmit =
     channelTypeId !== "" &&
@@ -53,12 +81,19 @@ export function NewChannelForm({
 
   function submit() {
     startTransition(async () => {
+      const setupSteps = pickable.flatMap((entry) => {
+        const requirement = requirementFor(entry);
+        if (requirement === "none") return [];
+        return [{ stepKey: entry.key, requirement }];
+      });
+
       const result = await addCampaignChannelAction(campaignId, {
         channelTypeId,
         contractedQuantity: Number(quantity),
         clientUnitPrice: unitPrice,
         startDate,
         endDate,
+        setupSteps,
       });
       if (result.ok) {
         toast.success("Channel created");
@@ -89,7 +124,7 @@ export function NewChannelForm({
               <FieldLabel htmlFor="channel-type">Channel type</FieldLabel>
               <Select
                 value={channelTypeId}
-                onValueChange={setChannelTypeId}
+                onValueChange={onChannelTypeChange}
               >
                 <SelectTrigger id="channel-type" className="w-full">
                   <SelectValue placeholder="Channel type" />
@@ -154,6 +189,47 @@ export function NewChannelForm({
           </FieldGroup>
         </CardContent>
       </Card>
+
+      {/* Section 2: Setup steps */}
+      {pickable.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Setup steps</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Choose which steps this channel needs before it can go live. This can be changed later
+              from the channel&apos;s checklist.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col">
+            {pickable.map((entry) => (
+              <div
+                key={entry.key}
+                className="flex items-center justify-between gap-3 border-b py-3 last:border-b-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{entry.title}</div>
+                  <div className="text-xs text-muted-foreground">{entry.hint}</div>
+                </div>
+                <Select
+                  value={requirementFor(entry)}
+                  onValueChange={(next) =>
+                    setChosen((prev) => ({ ...prev, [entry.key]: next as PickedRequirement }))
+                  }
+                >
+                  <SelectTrigger className="w-32" aria-label={`${entry.title} requirement`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="required">Required</SelectItem>
+                    <SelectItem value="optional">Optional</SelectItem>
+                    <SelectItem value="none">Not needed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Actions */}
       <div className="flex gap-3">
