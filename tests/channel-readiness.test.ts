@@ -7,9 +7,19 @@ describe("computeChannelReadiness — stepConfig overrides", () => {
   it("includes all steps with required=true by default when no stepConfig", () => {
     const result = computeChannelReadiness(base);
     expect(result.steps.map((s) => s.id)).toEqual(["placement", "allocations"]);
-    expect(result.steps.find((s) => s.id === "placement")?.required).toBe(false); // placement default is not required
+    // placement mirrors the submit-gate in state-machine.ts: required unless explicitly optional/skipped
+    expect(result.steps.find((s) => s.id === "placement")?.required).toBe(true);
     expect(result.steps.find((s) => s.id === "allocations")?.required).toBe(false); // allocations default is not required
     expect(result.totalCount).toBe(2);
+  });
+
+  it("marks placement as optional when stepConfig says optional", () => {
+    const result = computeChannelReadiness({
+      ...base,
+      stepConfig: { placement: "optional" },
+    });
+    const placementStep = result.steps.find((s) => s.id === "placement");
+    expect(placementStep?.required).toBe(false);
   });
 
   it("omits placement step when requiresAsset is false", () => {

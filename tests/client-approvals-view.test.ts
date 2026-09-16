@@ -22,7 +22,7 @@ describe("client approval read models", () => {
 
   it("lists the channel's terms as pending for its own client", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { requiresAsset: false });
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
 
     const items = await listClientApprovals(db, fx.clientAdminActor);
 
@@ -35,7 +35,7 @@ describe("client approval read models", () => {
 
   it("stops counting an item once it is approved", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { requiresAsset: false });
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
     await decideChannelApproval(db, fx.clientAdminActor, {
       campaignChannelId: fx.channelId,
       decision: "approved",
@@ -44,6 +44,15 @@ describe("client approval read models", () => {
     expect(await countPendingClientApprovals(db, fx.clientAdminActor)).toBe(0);
     const items = await listClientApprovals(db, fx.clientAdminActor, { pendingOnly: false });
     expect(items[0]?.status).toBe("approved");
+  });
+
+  it("excludes draft campaigns from the approvals list", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false });
+
+    expect(await listClientApprovals(db, fx.clientAdminActor)).toHaveLength(0);
+    expect(await listClientApprovals(db, fx.clientAdminActor, { pendingOnly: false })).toHaveLength(0);
+    expect(await countPendingClientApprovals(db, fx.clientAdminActor)).toBe(0);
   });
 
   it("never leaks another organisation's approvals", async () => {

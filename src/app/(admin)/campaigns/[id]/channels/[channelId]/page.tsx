@@ -21,7 +21,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { loadChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
+import { loadChannelReadiness, type ChannelReadiness, type StepOverride } from "@/lib/channels/readiness";
 import { getChannelApprovalStatus, getPlacementApprovalStatus } from "@/lib/approvals/status";
 import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
@@ -102,8 +102,15 @@ export default async function ChannelPage({
   const allocatedQuantity = allocationsAgg._sum.allocatedQuantity ?? 0;
   const allocationsCount = allocationsAgg._count;
 
-  const channelLabel = (channel.channelTypeVersion.definitionJson as { name?: string; code?: string }).name
-    ?? (channel.channelTypeVersion.definitionJson as { code?: string }).code;
+  const channelDefinition = channel.channelTypeVersion.definitionJson as {
+    name?: string;
+    code?: string;
+    requiresAsset?: boolean;
+  };
+  const channelLabel = channelDefinition.name ?? channelDefinition.code;
+  const requiresAsset = channelDefinition.requiresAsset === true;
+  const placementOverride: StepOverride =
+    (channel.stepConfigJson as { placement?: StepOverride } | null)?.placement ?? "enabled";
 
   // Every surface below reads the same readiness computation the activation
   // guard uses, so the badge, the checklist and what the server will allow can
@@ -157,6 +164,7 @@ export default async function ChannelPage({
                         ? `Channel is ${channel.status} — terms are only editable while it is a draft`
                         : null
                   }
+                  requiresAsset={requiresAsset}
                   initial={{
                     contractedQuantity: channel.contractedQuantity,
                     clientUnitPrice: fromMinorUnits(channel.clientUnitPriceMinor, channel.currency),
@@ -166,6 +174,7 @@ export default async function ChannelPage({
                         : fromMinorUnits(channel.costBudgetMinor, channel.currency),
                     startDate: channel.startDate.toISOString().slice(0, 10),
                     endDate: channel.endDate.toISOString().slice(0, 10),
+                    placementOverride,
                   }}
                 />
                 <ChannelStatusControl

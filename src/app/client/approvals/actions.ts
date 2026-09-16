@@ -5,7 +5,8 @@ import type { ApprovalDecision } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { assertPortal } from "@/lib/auth/permissions";
-import { decideChannelApproval, decidePlacement } from "@/lib/approvals/decisions";
+import { decidePlacement } from "@/lib/approvals/decisions";
+import { decideChannelApproval } from "@/lib/campaigns/state-machine";
 
 export async function decideChannelTermsAction(input: {
   campaignChannelId: string;
@@ -19,11 +20,7 @@ export async function decideChannelTermsAction(input: {
     // portal and permission checks live here, not only in the page that
     // renders the button.
     assertPortal(actor, "client");
-    await decideChannelApproval(db, actor, {
-      campaignChannelId: input.campaignChannelId,
-      decision: input.decision,
-      comments: input.comments,
-    });
+    await decideChannelApproval(db, actor, input.campaignChannelId, input.decision, input.comments);
     revalidatePath("/client/approvals");
     revalidatePath(`/client/campaigns/${input.campaignId}`);
     return null;

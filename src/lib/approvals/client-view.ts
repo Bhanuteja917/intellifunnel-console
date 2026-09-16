@@ -85,6 +85,7 @@ export async function listClientApprovals(
       campaign: {
         clientOrganizationId: actor.organizationId,
         deletedAt: null,
+        status: { not: "draft" },
         ...(filter.campaignId === undefined ? {} : { id: filter.campaignId }),
       },
     },
