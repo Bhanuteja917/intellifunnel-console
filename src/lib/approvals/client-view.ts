@@ -3,24 +3,102 @@ import { assertPermission, type Actor } from "@/lib/auth/permissions";
 import { NotFoundError } from "@/lib/errors";
 import {
   getChannelApprovalStatus,
+  getPlacementApprovalStatus,
   type ApprovalStatus,
 } from "@/lib/approvals/status";
-import { computeChannelReadiness, type ChannelReadiness } from "@/lib/channels/readiness";
 import type { ChannelTypeDefinition } from "@/lib/channel-types/versions";
 import { fromMinorUnits } from "@/lib/money/currency";
+import { getSetting } from "@/lib/settings/settings";
+import { expectedToDate, paceSignal, type PaceSignal } from "@/lib/allocations/pacing";
 
-export type ClientApprovalItem = {
-  kind: "channelTerms";
+/** Who needs to act next; `null` once a decision is settled (`approved`). */
+export type ApprovalOwner = "you" | "agency" | null;
+
+function ownerFor(status: ApprovalStatus): ApprovalOwner {
+  if (status === "changesRequested") return "agency";
+  if (status === "pending" || status === "reapprovalNeeded") return "you";
+  return null;
+}
+
+export type IcpSummaryRow = { label: string; value: string };
+export type LeadFieldSummaryRow = { label: string; detail: string };
+
+const ICP_DIMENSION_LABELS: Record<string, string> = {
+  industry: "Industry",
+  employeeRange: "Employee range",
+  revenueRange: "Revenue range",
+  country: "Country",
+  region: "Region",
+  jobFunction: "Job function",
+  seniority: "Seniority",
+  jobTitle: "Job title",
+  custom: "Custom",
+};
+
+function icpOperatorPhrase(operator: string): string {
+  if (operator === "notIn") return "excludes";
+  if (operator === "between") return "greater than";
+  if (operator === "contains") return "contains";
+  return "includes";
+}
+
+export function formatIcpRow(criterion: {
+  dimension: string;
+  operator: string;
+  valuesJson: unknown;
+  isMandatory: boolean;
+}): IcpSummaryRow {
+  const values = Array.isArray(criterion.valuesJson)
+    ? criterion.valuesJson.map(String).join(", ")
+    : String(criterion.valuesJson);
+  const label = ICP_DIMENSION_LABELS[criterion.dimension] ?? criterion.dimension;
+  return {
+    label: criterion.isMandatory ? label : `${label} (nice to have)`,
+    value: `${icpOperatorPhrase(criterion.operator)}: ${values}`,
+  };
+}
+
+export function formatLeadFieldRow(field: {
+  fieldKey: string;
+  label: string;
+  dataType: string;
+  isRequired: boolean;
+  allowedValuesJson: unknown;
+  validationPattern: string | null;
+}): LeadFieldSummaryRow {
+  const parts = [field.isRequired ? "required" : "optional", field.dataType];
+  if (Array.isArray(field.allowedValuesJson)) {
+    parts.push(`one of: ${field.allowedValuesJson.map(String).join(", ")}`);
+  }
+  if (field.validationPattern !== null) parts.push(`pattern: ${field.validationPattern}`);
+  return { label: field.label || field.fieldKey, detail: parts.join(" · ") };
+}
+
+type ClientApprovalItemBase = {
   subjectId: string;
   campaignId: string;
   campaignName: string;
   campaignCode: string;
+  channelId: string;
   channelLabel: string;
+  title: string;
   status: ApprovalStatus;
+  owner: ApprovalOwner;
   summary: { label: string; value: string }[];
   lastComments: string | null;
   lastDecidedAt: Date | null;
 };
+
+export type ClientApprovalItem =
+  | (ClientApprovalItemBase & {
+      kind: "channelTerms";
+      icp: IcpSummaryRow[];
+      leadFields: LeadFieldSummaryRow[];
+    })
+  | (ClientApprovalItemBase & {
+      kind: "placement";
+      consentText: { name: string; version: number; body: string } | null;
+    });
 
 export type ClientCampaignRow = {
   campaignId: string;
@@ -44,7 +122,9 @@ export type ClientCampaignChannel = {
   endDate: Date;
   deliveredCount: number;
   termsStatus: ApprovalStatus;
-  readiness: ChannelReadiness;
+  icp: IcpSummaryRow[];
+  leadFields: LeadFieldSummaryRow[];
+  pace: PaceSignal;
 };
 
 export type ClientCampaignDetail = {
@@ -99,6 +179,17 @@ export async function listClientApprovals(
       channelTypeVersionId: true,
       campaign: { select: { id: true, name: true, code: true } },
       channelTypeVersion: { select: { definitionJson: true } },
+      icpCriteria: { select: { dimension: true, operator: true, valuesJson: true, isMandatory: true } },
+      leadFieldSpecs: {
+        select: {
+          fieldKey: true,
+          label: true,
+          dataType: true,
+          isRequired: true,
+          allowedValuesJson: true,
+          validationPattern: true,
+        },
+      },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -109,6 +200,13 @@ export async function listClientApprovals(
     const definition = (channel.channelTypeVersion.definitionJson ??
       {}) as Partial<ChannelTypeDefinition>;
     const channelLabel = definition.name ?? definition.code ?? "Channel";
+    const campaignRef = {
+      campaignId: channel.campaign.id,
+      campaignName: channel.campaign.name,
+      campaignCode: channel.campaign.code,
+      channelId: channel.id,
+      channelLabel,
+    };
 
     const termsStatus = await getChannelApprovalStatus(db, channel);
     const lastTerms = await db.channelApproval.findFirst({
@@ -120,11 +218,10 @@ export async function listClientApprovals(
     items.push({
       kind: "channelTerms",
       subjectId: channel.id,
-      campaignId: channel.campaign.id,
-      campaignName: channel.campaign.name,
-      campaignCode: channel.campaign.code,
-      channelLabel,
+      ...campaignRef,
+      title: "Channel terms",
       status: termsStatus,
+      owner: ownerFor(termsStatus),
       summary: [
         { label: "Volume", value: `${channel.contractedQuantity} leads` },
         {
@@ -133,9 +230,54 @@ export async function listClientApprovals(
         },
         { label: "Window", value: `${day(channel.startDate)} – ${day(channel.endDate)}` },
       ],
+      icp: channel.icpCriteria.map(formatIcpRow),
+      leadFields: channel.leadFieldSpecs.map(formatLeadFieldRow),
       lastComments: lastTerms?.comments ?? null,
       lastDecidedAt: lastTerms?.decidedAt ?? null,
     });
+
+    if (definition.requiresAsset !== true) continue;
+
+    const placements = await db.assetPlacement.findMany({
+      where: { campaignChannelId: channel.id },
+      select: {
+        id: true,
+        landingPageUrl: true,
+        assetVersionId: true,
+        formSlug: true,
+        consentTextVersionId: true,
+        asset: { select: { name: true } },
+        assetVersion: { select: { version: true } },
+        consentTextVersion: { select: { name: true, version: true, body: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    for (const placement of placements) {
+      const placementStatus = await getPlacementApprovalStatus(db, placement);
+      const lastPlacement = await db.placementApproval.findFirst({
+        where: { assetPlacementId: placement.id },
+        orderBy: { decidedAt: "desc" },
+        select: { comments: true, decidedAt: true },
+      });
+
+      items.push({
+        kind: "placement",
+        subjectId: placement.id,
+        ...campaignRef,
+        title: `Placement — ${placement.asset.name}`,
+        status: placementStatus,
+        owner: ownerFor(placementStatus),
+        summary: [
+          { label: "Asset", value: `${placement.asset.name} v${placement.assetVersion.version}` },
+          { label: "Landing page", value: placement.landingPageUrl },
+          { label: "Form slug", value: placement.formSlug },
+        ],
+        consentText: placement.consentTextVersion,
+        lastComments: lastPlacement?.comments ?? null,
+        lastDecidedAt: lastPlacement?.decidedAt ?? null,
+      });
+    }
   }
 
   return filter.pendingOnly === false ? items : items.filter((i) => PENDING.includes(i.status));
@@ -213,11 +355,17 @@ export async function getClientCampaignDetail(
           deliveredCount: true,
           channelTypeVersionId: true,
           channelTypeVersion: { select: { definitionJson: true } },
-          assets: {
-            select: { id: true, status: true },
-            orderBy: { createdAt: "desc" },
+          icpCriteria: { select: { dimension: true, operator: true, valuesJson: true, isMandatory: true } },
+          leadFieldSpecs: {
+            select: {
+              fieldKey: true,
+              label: true,
+              dataType: true,
+              isRequired: true,
+              allowedValuesJson: true,
+              validationPattern: true,
+            },
           },
-          _count: { select: { allocations: true } },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -225,12 +373,15 @@ export async function getClientCampaignDetail(
   });
   if (campaign === null) throw new NotFoundError("Campaign not found");
 
+  const timeZone = await getSetting(db, "operatingTimezone");
+  const now = new Date();
   const channels: ClientCampaignChannel[] = [];
 
   for (const channel of campaign.channels) {
     const definition = (channel.channelTypeVersion.definitionJson ??
       {}) as Partial<ChannelTypeDefinition>;
     const termsStatus = await getChannelApprovalStatus(db, channel);
+    const expected = expectedToDate(channel.contractedQuantity, channel.startDate, channel.endDate, now, timeZone);
 
     channels.push({
       channelId: channel.id,
@@ -242,16 +393,9 @@ export async function getClientCampaignDetail(
       endDate: channel.endDate,
       deliveredCount: channel.deliveredCount,
       termsStatus,
-      // stepConfig.allocations is forced to "skipped" regardless of the
-      // channel's own admin-facing config: whether a channel is fulfilled
-      // in-house or through a partner allocation is an internal delivery
-      // decision, never something the client should see or act on.
-      readiness: computeChannelReadiness({
-        activePlacementCount: channel.assets.filter((a) => a.status === "active").length,
-        allocationCount: channel._count.allocations,
-        stepConfig: { allocations: "skipped" },
-        requiresAsset: (definition as { requiresAsset?: boolean }).requiresAsset === true,
-      }),
+      icp: channel.icpCriteria.map(formatIcpRow),
+      leadFields: channel.leadFieldSpecs.map(formatLeadFieldRow),
+      pace: paceSignal(channel.deliveredCount, expected),
     });
   }
 

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { ApprovalDecision } from "@prisma/client";
-import type { ClientApprovalItem } from "@/lib/approvals/client-view";
+import type { ApprovalOwner, ClientApprovalItem } from "@/lib/approvals/client-view";
 import type { ApprovalStatus } from "@/lib/approvals/status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { decideChannelTermsAction } from "./actions";
+import { decideChannelTermsAction, decidePlacementAction } from "./actions";
 
 const STATUS_BADGE: Record<ApprovalStatus, { variant: "default" | "secondary" | "destructive"; label: string }> = {
   approved: { variant: "default", label: "approved" },
   pending: { variant: "secondary", label: "needs your review" },
   changesRequested: { variant: "destructive", label: "changes requested" },
   reapprovalNeeded: { variant: "destructive", label: "changed — review again" },
+};
+
+const OWNER_LABEL: Record<Exclude<ApprovalOwner, null>, string> = {
+  you: "Waiting on you",
+  agency: "Waiting on agency",
 };
 
 const DECIDABLE: ApprovalStatus[] = ["pending", "changesRequested", "reapprovalNeeded"];
@@ -46,12 +51,20 @@ export function ApprovalsList({
     if (open === null) return;
     const { item, decision } = open;
     startTransition(async () => {
-      const result = await decideChannelTermsAction({
-        campaignChannelId: item.subjectId,
-        campaignId: item.campaignId,
-        decision,
-        comments,
-      });
+      const result =
+        item.kind === "channelTerms"
+          ? await decideChannelTermsAction({
+              campaignChannelId: item.subjectId,
+              campaignId: item.campaignId,
+              decision,
+              comments,
+            })
+          : await decidePlacementAction({
+              assetPlacementId: item.subjectId,
+              campaignId: item.campaignId,
+              decision,
+              comments,
+            });
 
       if (result.ok) {
         toast.success(decision === "approved" ? "Approved" : "Change request sent");
@@ -86,10 +99,11 @@ export function ApprovalsList({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">{item.campaignName}</span>
-                  <Badge variant="outline" className="font-mono text-xs">{item.campaignCode}</Badge>
-                  <span className="text-sm text-muted-foreground">· {item.channelLabel}</span>
+                  <span className="text-sm font-medium">{item.title}</span>
                   <Badge variant={badge.variant}>{badge.label}</Badge>
+                  {item.owner !== null && (
+                    <span className="text-xs text-muted-foreground">{OWNER_LABEL[item.owner]}</span>
+                  )}
                 </div>
                 <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
                   {item.summary.map((row) => (
@@ -99,6 +113,46 @@ export function ApprovalsList({
                     </div>
                   ))}
                 </dl>
+                {item.kind === "placement" && item.consentText !== null && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Consent text — {item.consentText.name} v{item.consentText.version}
+                    </summary>
+                    <p className="mt-1 whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-foreground">
+                      {item.consentText.body}
+                    </p>
+                  </details>
+                )}
+                {item.kind === "channelTerms" && item.icp.length > 0 && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Ideal customer profile ({item.icp.length})
+                    </summary>
+                    <dl className="mt-1 rounded-md border bg-muted/40 p-2">
+                      {item.icp.map((row) => (
+                        <div key={row.label} className="flex justify-between gap-4 py-0.5">
+                          <dt className="text-muted-foreground">{row.label}</dt>
+                          <dd className="text-right font-medium text-foreground">{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                )}
+                {item.kind === "channelTerms" && item.leadFields.length > 0 && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Lead requirements ({item.leadFields.length})
+                    </summary>
+                    <dl className="mt-1 rounded-md border bg-muted/40 p-2">
+                      {item.leadFields.map((row) => (
+                        <div key={row.label} className="flex justify-between gap-4 py-0.5">
+                          <dt className="text-muted-foreground">{row.label}</dt>
+                          <dd className="text-right font-medium text-foreground">{row.detail}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                )}
                 {item.lastComments !== null && (
                   <p className="mt-2 text-xs text-muted-foreground">
                     Your note: {item.lastComments}
@@ -138,7 +192,8 @@ export function ApprovalsList({
           <DialogHeader>
             <DialogTitle>
               {open?.decision === "approved" ? "Approve" : "Request a change"}
-              {" — channel terms"}
+              {" — "}
+              {open?.item.title.toLowerCase()}
             </DialogTitle>
           </DialogHeader>
           <div className="rounded-md border">
@@ -152,6 +207,44 @@ export function ApprovalsList({
               </div>
             ))}
           </div>
+          {open?.item.kind === "placement" && open.item.consentText !== null && (
+            <details className="rounded-md border p-3 text-sm">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Consent text — {open.item.consentText.name} v{open.item.consentText.version}
+              </summary>
+              <p className="mt-2 whitespace-pre-wrap">{open.item.consentText.body}</p>
+            </details>
+          )}
+          {open?.item.kind === "channelTerms" && open.item.icp.length > 0 && (
+            <details className="rounded-md border p-3 text-sm">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Ideal customer profile ({open.item.icp.length})
+              </summary>
+              <dl className="mt-2">
+                {open.item.icp.map((row) => (
+                  <div key={row.label} className="flex justify-between gap-4 py-0.5 text-xs">
+                    <dt className="text-muted-foreground">{row.label}</dt>
+                    <dd className="text-right font-medium">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
+          {open?.item.kind === "channelTerms" && open.item.leadFields.length > 0 && (
+            <details className="rounded-md border p-3 text-sm">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Lead requirements ({open.item.leadFields.length})
+              </summary>
+              <dl className="mt-2">
+                {open.item.leadFields.map((row) => (
+                  <div key={row.label} className="flex justify-between gap-4 py-0.5 text-xs">
+                    <dt className="text-muted-foreground">{row.label}</dt>
+                    <dd className="text-right font-medium">{row.detail}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )}
           <div>
             <label htmlFor="approval-comments" className="text-sm font-medium">
               {open?.decision === "approved" ? "Note to the agency (optional)" : "What needs to change?"}

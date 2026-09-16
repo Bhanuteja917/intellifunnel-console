@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
+import { seedSettings } from "../prisma/seed/settings";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
@@ -18,6 +19,7 @@ describe("client approval read models", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
+    await seedSettings(testDb());
   });
 
   it("lists the channel's terms as pending for its own client", async () => {
@@ -96,7 +98,44 @@ describe("client approval read models", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("returns per-channel readiness on the campaign detail", async () => {
+  it("surfaces ICP criteria and lead field specs alongside channel terms", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
+    await db.icpCriterion.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        dimension: "industry",
+        operator: "in",
+        valuesJson: ["SaaS", "Fintech"],
+        isMandatory: true,
+      },
+    });
+    await db.leadFieldSpec.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        fieldKey: "companySize",
+        label: "Company size",
+        dataType: "number",
+        isRequired: true,
+        rejectIfMissing: true,
+      },
+    });
+
+    const items = await listClientApprovals(db, fx.clientAdminActor);
+    const termsItem = items.find((i) => i.kind === "channelTerms");
+    expect(termsItem?.kind === "channelTerms" && termsItem.icp).toEqual([
+      { label: "Industry", value: "includes: SaaS, Fintech" },
+    ]);
+    expect(termsItem?.kind === "channelTerms" && termsItem.leadFields).toEqual([
+      { label: "Company size", detail: "required · number" },
+    ]);
+
+    const detail = await getClientCampaignDetail(db, fx.clientAdminActor, fx.campaignId);
+    expect(detail.channels[0]?.icp).toEqual([{ label: "Industry", value: "includes: SaaS, Fintech" }]);
+    expect(detail.channels[0]?.leadFields).toEqual([{ label: "Company size", detail: "required · number" }]);
+  });
+
+  it("returns the campaign detail without exposing internal setup-step data", async () => {
     const db = testDb();
     const fx = await createChannelFixture(db, { requiresAsset: false });
 
@@ -104,17 +143,51 @@ describe("client approval read models", () => {
 
     expect(detail.channels).toHaveLength(1);
     expect(detail.channels[0]?.termsStatus).toBe("pending");
-    expect(detail.channels[0]?.readiness.doneCount).toBe(0);
+    expect(detail.channels[0]).not.toHaveProperty("readiness");
   });
 
-  it("never exposes the partner-allocation readiness step to the client", async () => {
+  it("lists a placement awaiting approval alongside its channel's terms", async () => {
     const db = testDb();
-    const fx = await createChannelFixture(db, { requiresAsset: false });
+    const fx = await createChannelFixture(db, { requiresAsset: true, campaignStatus: "pending" });
+    const asset = await db.asset.create({
+      data: { ownerOrganizationId: fx.clientOrgId, name: "Whitepaper", type: "whitepaper", language: "en" },
+    });
+    const assetVersion = await db.assetVersion.create({
+      data: { assetId: asset.id, version: 1, fileName: "a.pdf", storageKey: "k", mimeType: "application/pdf", sizeBytes: 10 },
+    });
+    const consentTextVersion = await db.consentTextVersion.create({
+      data: { name: "Standard consent", body: "By submitting, you agree...", version: 1, language: "en", effectiveFrom: new Date("2026-01-01") },
+    });
+    await db.assetPlacement.create({
+      data: {
+        campaignChannelId: fx.channelId,
+        assetId: asset.id,
+        assetVersionId: assetVersion.id,
+        landingPageUrl: "https://example.com/lp",
+        formSlug: `slug-${Date.now()}`,
+        consentTextVersionId: consentTextVersion.id,
+      },
+    });
 
-    const detail = await getClientCampaignDetail(db, fx.clientAdminActor, fx.campaignId);
+    const items = await listClientApprovals(db, fx.clientAdminActor, { pendingOnly: false });
 
-    const stepIds = detail.channels[0]?.readiness.steps.map((s) => s.id) ?? [];
-    expect(stepIds).not.toContain("allocations");
+    expect(items).toHaveLength(2);
+    const placementItem = items.find((i) => i.kind === "placement");
+    expect(placementItem?.channelId).toBe(fx.channelId);
+    expect(placementItem?.status).toBe("pending");
+    expect(placementItem?.owner).toBe("you");
+    expect(placementItem?.kind === "placement" && placementItem.consentText?.body).toBe(
+      "By submitting, you agree...",
+    );
+  });
+
+  it("does not list a placement for a channel that does not require an asset", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
+
+    const items = await listClientApprovals(db, fx.clientAdminActor, { pendingOnly: false });
+
+    expect(items.every((i) => i.kind !== "placement")).toBe(true);
   });
 
   it("refuses a campaign belonging to another organisation", async () => {
