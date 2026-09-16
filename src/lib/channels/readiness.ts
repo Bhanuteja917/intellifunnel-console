@@ -69,11 +69,10 @@ export async function loadChannelFacts(db: Db, campaignChannelId: string): Promi
     select: { contractedQuantity: true, clientUnitPriceMinor: true },
   });
 
-  const [icpCount, emailSpec, activePlacementCount, allocationCount] = await Promise.all([
+  const [icpCount, emailSpec, activePlacementCount] = await Promise.all([
     db.icpCriterion.count({ where: { campaignChannelId } }),
     db.leadFieldSpec.findFirst({ where: { campaignChannelId, fieldKey: "email" }, select: { id: true } }),
     db.assetPlacement.count({ where: { campaignChannelId, status: "active" } }),
-    db.partnerAllocation.count({ where: { campaignChannelId } }),
   ]);
 
   return {
@@ -81,7 +80,6 @@ export async function loadChannelFacts(db: Db, campaignChannelId: string): Promi
     icpCount,
     hasEmailSpec: emailSpec !== null,
     activePlacementCount,
-    allocationCount,
   };
 }
 

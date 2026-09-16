@@ -8,7 +8,6 @@ export type ChannelFacts = {
   icpCount: number;
   hasEmailSpec: boolean;
   activePlacementCount: number;
-  allocationCount: number;
 };
 
 export type CatalogEntry = {
@@ -75,18 +74,6 @@ export const STEP_CATALOG: readonly CatalogEntry[] = [
     applies: (def) => def.requiresAsset,
     seedDefault: (def) => (def.requiresAsset ? "required" : null),
     isDone: (f) => f.activePlacementCount > 0,
-  },
-  {
-    key: "allocations",
-    title: "Allocate partner quota",
-    hint: "Leave unallocated to run this channel in-house",
-    cta: "Allocate",
-    href: tab("allocations"),
-    locked: false,
-    available: true,
-    applies: () => true,
-    seedDefault: () => "optional",
-    isDone: (f) => f.allocationCount > 0,
   },
   {
     key: "targetAccountList",

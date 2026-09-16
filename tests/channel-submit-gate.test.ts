@@ -75,11 +75,13 @@ describe("submitChannelForApproval — step-driven gate", () => {
   it("blocks on an incomplete step the operator hardened to required", async () => {
     const fx = await createChannelFixture(testDb(), { requiresAsset: false });
     await satisfyLeadSteps(fx.channelId);
-    await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "allocations", "required");
+    await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "leadSpec", "optional");
+    await testDb().leadFieldSpec.deleteMany({ where: { campaignChannelId: fx.channelId } });
+    await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "leadSpec", "required");
 
     await expect(
       submitChannelForApproval(testDb(), fx.adminActor, fx.channelId),
-    ).rejects.toThrow(/Allocate partner quota/);
+    ).rejects.toThrow(/Define the lead spec/);
   });
 
   it("submits a lead channel whose ICP step the operator removed", async () => {

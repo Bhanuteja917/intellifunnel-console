@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { CampaignChannelStatus, ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
-import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
+import { deleteCampaignChannel, setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
 import { submitChannelForApproval, withdrawChannelFromApproval } from "@/lib/campaigns/state-machine";
 import {
   addChannelSetupStep,
@@ -47,6 +47,18 @@ export async function setChannelStatusAction(
     const actor = await requireActor();
     await setChannelStatus(db, actor, { channelId, status });
     revalidatePath(`/campaigns/${campaignId}/channels/${channelId}`);
+    revalidatePath(`/campaigns/${campaignId}`);
+    return null;
+  });
+}
+
+export async function deleteChannelAction(
+  campaignId: string,
+  channelId: string,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await deleteCampaignChannel(db, actor, channelId);
     revalidatePath(`/campaigns/${campaignId}`);
     return null;
   });

@@ -9,7 +9,6 @@ const facts = (overrides: Partial<ChannelFacts> = {}): ChannelFacts => ({
   icpCount: 0,
   hasEmailSpec: false,
   activePlacementCount: 0,
-  allocationCount: 0,
   ...overrides,
 });
 
@@ -26,11 +25,11 @@ describe("computeChannelReadiness", () => {
 
   it("orders steps by sortOrder, not insertion order", () => {
     const result = computeChannelReadiness(
-      [row("allocations", "optional", 4), row("channelTerms", "required", 0)],
+      [row("placement", "required", 3), row("channelTerms", "required", 0)],
       facts(),
       ids,
     );
-    expect(result.steps.map((s) => s.key)).toEqual(["channelTerms", "allocations"]);
+    expect(result.steps.map((s) => s.key)).toEqual(["channelTerms", "placement"]);
   });
 
   it("resolves done from the facts bag", () => {
@@ -44,7 +43,7 @@ describe("computeChannelReadiness", () => {
 
   it("counts only required steps in the progress counters", () => {
     const result = computeChannelReadiness(
-      [row("channelTerms", "required", 0), row("allocations", "optional", 4)],
+      [row("channelTerms", "required", 0), row("placement", "optional", 3)],
       facts({ hasTerms: true }),
       ids,
     );

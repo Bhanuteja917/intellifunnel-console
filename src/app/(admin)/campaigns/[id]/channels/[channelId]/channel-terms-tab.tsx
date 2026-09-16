@@ -3,29 +3,19 @@ import type { ApprovalStatus } from "@/lib/approvals/status";
 import { fromMinorUnits } from "@/lib/money/currency";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChannelTermsCard, TERMS_BADGE } from "./channel-terms-card";
 
-export const TERMS_BADGE: Record<ApprovalStatus, { variant: "default" | "secondary" | "destructive"; label: string }> = {
-  approved: { variant: "default", label: "approved by client" },
-  pending: { variant: "secondary", label: "awaiting client approval" },
-  changesRequested: { variant: "destructive", label: "changes requested" },
-  reapprovalNeeded: { variant: "destructive", label: "changed since approval" },
-};
-
-function row(label: string, value: string) {
-  return (
-    <div key={label} className="flex items-baseline justify-between gap-4 border-b py-2.5 last:border-b-0">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium tabular-nums">{value}</span>
-    </div>
-  );
-}
+export { TERMS_BADGE };
 
 export async function ChannelTermsTab({
+  campaignId,
   channel,
   channelLabel,
   termsStatus,
-  editAction,
+  canEdit,
+  blockedReason,
 }: {
+  campaignId: string;
   channel: {
     id: string;
     contractedQuantity: number;
@@ -37,18 +27,14 @@ export async function ChannelTermsTab({
   };
   channelLabel: string | undefined;
   termsStatus: ApprovalStatus;
-  editAction?: React.ReactNode;
+  canEdit: boolean;
+  /** Empty when the channel's terms are editable; otherwise the reason they are not. */
+  blockedReason: string | null;
 }) {
   const decisions = await db.channelApproval.findMany({
     where: { campaignChannelId: channel.id },
     orderBy: { decidedAt: "desc" },
   });
-
-  const badge = TERMS_BADGE[termsStatus];
-  const total = fromMinorUnits(
-    channel.clientUnitPriceMinor * BigInt(channel.contractedQuantity),
-    channel.currency,
-  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -61,34 +47,23 @@ export async function ChannelTermsTab({
           </div>
         );
       })()}
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div>
-            <CardTitle>Channel terms</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              What the client is asked to approve. Decisions are made by the client in their own
-              portal — there is no approve button here.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={badge.variant}>{badge.label}</Badge>
-            {editAction}
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col">
-          {row("Channel type", channelLabel ?? "—")}
-          {row("Contracted quantity", `${channel.contractedQuantity} leads`)}
-          {row(
-            "Client unit price",
-            `${channel.currency} ${fromMinorUnits(channel.clientUnitPriceMinor, channel.currency)}`,
-          )}
-          {row("Contracted value", `${channel.currency} ${total}`)}
-          {row(
-            "Flight window",
-            `${channel.startDate.toISOString().slice(0, 10)} – ${channel.endDate.toISOString().slice(0, 10)}`,
-          )}
-        </CardContent>
-      </Card>
+      <ChannelTermsCard
+        campaignId={campaignId}
+        campaignChannelId={channel.id}
+        channelLabel={channelLabel}
+        termsStatus={termsStatus}
+        currency={channel.currency}
+        canEdit={canEdit}
+        blockedReason={blockedReason}
+        initial={{
+          contractedQuantity: channel.contractedQuantity,
+          clientUnitPriceMinor: channel.clientUnitPriceMinor,
+          costBudget:
+            channel.costBudgetMinor === null ? "" : fromMinorUnits(channel.costBudgetMinor, channel.currency),
+          startDate: channel.startDate.toISOString().slice(0, 10),
+          endDate: channel.endDate.toISOString().slice(0, 10),
+        }}
+      />
     </div>
   );
 }

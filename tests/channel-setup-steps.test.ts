@@ -44,7 +44,6 @@ describe("seedChannelSetupSteps", () => {
       "icp",
       "leadSpec",
       "placement",
-      "allocations",
     ]);
   });
 
@@ -52,14 +51,14 @@ describe("seedChannelSetupSteps", () => {
     const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
       { stepKey: "placement", requirement: "optional" },
-      { stepKey: "allocations", requirement: "required" },
+      { stepKey: "icp", requirement: "required" },
     ]);
 
     const rows = await testDb().channelSetupStep.findMany({
       where: { campaignChannelId: fx.channelId },
     });
     expect(rows.find((r) => r.stepKey === "placement")?.requirement).toBe("optional");
-    expect(rows.find((r) => r.stepKey === "allocations")?.requirement).toBe("required");
+    expect(rows.find((r) => r.stepKey === "icp")?.requirement).toBe("required");
   });
 
   it("drops a default step the caller omitted from an explicit override list", async () => {
@@ -125,10 +124,10 @@ describe("addChannelSetupStep", () => {
       { stepKey: "channelTerms", requirement: "required" },
     ]);
 
-    await addChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "allocations");
+    await addChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "icp");
 
     const row = await testDb().channelSetupStep.findFirstOrThrow({
-      where: { campaignChannelId: fx.channelId, stepKey: "allocations" },
+      where: { campaignChannelId: fx.channelId, stepKey: "icp" },
     });
     expect(row.requirement).toBe("required");
   });
@@ -208,9 +207,9 @@ describe("removeChannelSetupStep", () => {
     const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
-    await removeChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "allocations");
+    await removeChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "placement");
 
-    expect(await keysFor(fx.channelId)).not.toContain("allocations");
+    expect(await keysFor(fx.channelId)).not.toContain("placement");
   });
 
   it("refuses to remove the locked terms step", async () => {
@@ -238,7 +237,7 @@ describe("removeChannelSetupStep", () => {
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
     await expect(
-      removeChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "allocations"),
+      removeChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "placement"),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });
@@ -264,12 +263,15 @@ describe("setChannelStepRequirement", () => {
 
   it("hardens an optional step to required", async () => {
     const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
-    await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
+    await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
+      { stepKey: "channelTerms", requirement: "required" },
+      { stepKey: "placement", requirement: "optional" },
+    ]);
 
-    await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "allocations", "required");
+    await setChannelStepRequirement(testDb(), fx.adminActor, fx.channelId, "placement", "required");
 
     const row = await testDb().channelSetupStep.findFirstOrThrow({
-      where: { campaignChannelId: fx.channelId, stepKey: "allocations" },
+      where: { campaignChannelId: fx.channelId, stepKey: "placement" },
     });
     expect(row.requirement).toBe("required");
   });

@@ -30,7 +30,6 @@ import { PlacementStatusControl } from "./placements/placement-status-control";
 import { DeliveryConfigForm } from "./delivery/delivery-config-form";
 import { RunLogTable } from "./delivery/run-log-table";
 import { ChannelTermsTab, DecisionHistoryTab, TERMS_BADGE } from "./channel-terms-tab";
-import { EditChannelDialog } from "./edit-channel-dialog";
 import { ChannelStatusControl } from "./channel-status-control";
 import { SetupChecklistCard } from "./setup-checklist-card";
 import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
@@ -49,7 +48,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 function statCard(label: string, value: string, hint: string) {
   return (
-    <Card key={label}>
+    <Card key={label} className="flex-1 basis-40">
       <CardContent className="pt-6">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
@@ -119,9 +118,14 @@ export default async function ChannelPage({
   const readiness = await loadChannelReadiness(db, channelId);
   const termsStatus = await getChannelApprovalStatus(db, channel);
   const hasPlacementStep = readiness.steps.some((s) => s.key === "placement");
+  const hasIcpStep = readiness.steps.some((s) => s.key === "icp");
+  const hasLeadSpecStep = readiness.steps.some((s) => s.key === "leadSpec");
   const requiredSteps = readiness.steps.filter((s) => s.requirement === "required");
   const isReady = requiredSteps.every((s) => s.done);
-  const visibleTabs = TABS.filter((t) => t.id !== "placements" || hasPlacementStep);
+  const visibleTabs = TABS.filter((t) => {
+    if (t.id === "placements") return hasPlacementStep;
+    return true;
+  });
 
   const definition = channel.channelTypeVersion.definitionJson as unknown as ChannelTypeDefinition;
   const presentKeys = new Set(readiness.steps.map((s) => s.key));
@@ -200,6 +204,8 @@ export default async function ChannelPage({
           allocatedQuantity={allocatedQuantity}
           readiness={readiness}
           addableSteps={addableSteps}
+          showPlacements={hasPlacementStep && canReadAssets}
+          showAllocations={canReadAllocations}
           editable={channel.status === "draft" && canWriteCampaign}
         />
       )}
@@ -207,64 +213,54 @@ export default async function ChannelPage({
       {tab === "terms" && (
         <div className="flex flex-col gap-6">
           <ChannelTermsTab
+            campaignId={campaign.id}
             channel={channel}
             channelLabel={channelLabel}
             termsStatus={termsStatus}
-            editAction={
-              canWriteCampaign ? (
-                <EditChannelDialog
-                  campaignId={campaign.id}
-                  campaignChannelId={channel.id}
-                  currency={channel.currency}
-                  blockedReason={
-                    campaign.status !== "draft"
-                      ? `Campaign is ${campaign.status} — terms are only editable while it is a draft`
-                      : channel.status !== "draft"
-                        ? `Channel is ${channel.status} — terms are only editable while it is a draft`
-                        : null
-                  }
-                  initial={{
-                    contractedQuantity: channel.contractedQuantity,
-                    clientUnitPrice: fromMinorUnits(channel.clientUnitPriceMinor, channel.currency),
-                    costBudget:
-                      channel.costBudgetMinor === null
-                        ? ""
-                        : fromMinorUnits(channel.costBudgetMinor, channel.currency),
-                    startDate: channel.startDate.toISOString().slice(0, 10),
-                    endDate: channel.endDate.toISOString().slice(0, 10),
-                  }}
-                  steps={readiness.steps
-                    .filter((s) => !s.locked)
-                    .map((s) => ({ key: s.key, title: s.title, requirement: s.requirement }))}
-                />
-              ) : null
+            canEdit={canWriteCampaign}
+            blockedReason={
+              campaign.status !== "draft"
+                ? `Campaign is ${campaign.status} — terms are only editable while it is a draft`
+                : channel.status !== "draft"
+                  ? `Channel is ${channel.status} — terms are only editable while it is a draft`
+                  : null
             }
           />
-          <div className="grid gap-6 lg:grid-cols-2">
-            <IcpCriteriaEditor
-              channelId={channel.id}
-              initialCriteria={channel.icpCriteria.map((c) => ({
-                dimension: c.dimension,
-                operator: c.operator,
-                values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
-                isMandatory: c.isMandatory,
-              }))}
-              canEdit={canWriteCampaign}
-            />
-            <LeadFieldSpecEditor
-              channelId={channel.id}
-              initialFields={channel.leadFieldSpecs.map((f) => ({
-                fieldKey: f.fieldKey,
-                label: f.label,
-                dataType: f.dataType,
-                isRequired: f.isRequired,
-                rejectIfMissing: f.rejectIfMissing,
-                allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
-                validationPattern: f.validationPattern ?? undefined,
-              }))}
-              canEdit={canWriteCampaign}
-            />
-          </div>
+          {(hasIcpStep || hasLeadSpecStep) && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              {hasIcpStep && (
+                <div className={hasLeadSpecStep ? undefined : "lg:col-span-2"}>
+                  <IcpCriteriaEditor
+                    channelId={channel.id}
+                    initialCriteria={channel.icpCriteria.map((c) => ({
+                      dimension: c.dimension,
+                      operator: c.operator,
+                      values: Array.isArray(c.valuesJson) ? c.valuesJson : [],
+                      isMandatory: c.isMandatory,
+                    }))}
+                    canEdit={canWriteCampaign}
+                  />
+                </div>
+              )}
+              {hasLeadSpecStep && (
+                <div className={hasIcpStep ? undefined : "lg:col-span-2"}>
+                  <LeadFieldSpecEditor
+                    channelId={channel.id}
+                    initialFields={channel.leadFieldSpecs.map((f) => ({
+                      fieldKey: f.fieldKey,
+                      label: f.label,
+                      dataType: f.dataType,
+                      isRequired: f.isRequired,
+                      rejectIfMissing: f.rejectIfMissing,
+                      allowedValues: Array.isArray(f.allowedValuesJson) ? f.allowedValuesJson : undefined,
+                      validationPattern: f.validationPattern ?? undefined,
+                    }))}
+                    canEdit={canWriteCampaign}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <DecisionHistoryTab channelId={channel.id} />
         </div>
       )}
@@ -301,7 +297,7 @@ export default async function ChannelPage({
 
 function OverviewTab({
   campaignId, channel, placementsCount, activePlacementsCount, allocationsCount, allocatedQuantity,
-  readiness, addableSteps, editable,
+  readiness, addableSteps, showPlacements, showAllocations, editable,
 }: {
   campaignId: string;
   channel: { id: string; contractedQuantity: number; deliveredCount: number; reservedCount: number };
@@ -311,6 +307,8 @@ function OverviewTab({
   allocatedQuantity: number;
   readiness: ChannelReadiness;
   addableSteps: { key: ChannelSetupStepKey; title: string }[];
+  showPlacements: boolean;
+  showAllocations: boolean;
   editable: boolean;
 }) {
   const requiredDone = readiness.requiredDoneCount;
@@ -318,10 +316,10 @@ function OverviewTab({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="flex flex-wrap gap-3">
         {statCard("Delivered", `${channel.deliveredCount} / ${channel.contractedQuantity}`, `${channel.reservedCount} reserved`)}
-        {statCard("Placements live", String(activePlacementsCount), `${placementsCount} total`)}
-        {statCard("Partner quota", `${allocatedQuantity} / ${channel.contractedQuantity}`, `${allocationsCount} allocation(s)`)}
+        {showPlacements && statCard("Placements live", String(activePlacementsCount), `${placementsCount} total`)}
+        {showAllocations && statCard("Partner quota", `${allocatedQuantity} / ${channel.contractedQuantity}`, `${allocationsCount} allocation(s)`)}
         {statCard("Setup steps", `${requiredDone} / ${requiredTotal}`, "required steps complete")}
       </div>
       <SetupChecklistCard

@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import type { ChannelSetupStepKey } from "@prisma/client";
+import type { ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,9 +17,20 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { ChannelStep } from "@/lib/channels/readiness";
-import { addChannelSetupStepAction, removeChannelSetupStepAction } from "./actions";
+import {
+  addChannelSetupStepAction,
+  removeChannelSetupStepAction,
+  setChannelStepRequirementAction,
+} from "./actions";
 
 type Props = {
   campaignId: string;
@@ -48,8 +59,22 @@ export function SetupChecklistCard({
   const optional = steps.filter((s) => s.requirement === "optional");
 
   const editRows = [
-    ...steps.map((s) => ({ key: s.key, title: s.title, hint: s.hint, locked: s.locked, present: true })),
-    ...addableSteps.map((s) => ({ key: s.key, title: s.title, hint: undefined, locked: false, present: false })),
+    ...steps.map((s) => ({
+      key: s.key,
+      title: s.title,
+      hint: s.hint,
+      locked: s.locked,
+      present: true,
+      requirement: s.requirement as ChannelSetupRequirement | undefined,
+    })),
+    ...addableSteps.map((s) => ({
+      key: s.key,
+      title: s.title,
+      hint: undefined,
+      locked: false,
+      present: false,
+      requirement: undefined,
+    })),
   ];
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>, success: string) {
@@ -138,11 +163,11 @@ export function SetupChecklistCard({
           </DrawerHeader>
           <div className="flex flex-col gap-1 overflow-y-auto p-4 pt-0">
             {editRows.map((row) => (
-              <label
+              <div
                 key={row.key}
                 className={cn(
                   "flex items-start gap-3 rounded-md border-b p-2 last:border-b-0",
-                  row.locked ? "opacity-60" : "cursor-pointer",
+                  row.locked && "opacity-60",
                 )}
               >
                 <Checkbox
@@ -172,7 +197,33 @@ export function SetupChecklistCard({
                     <div className="text-xs text-muted-foreground">{row.hint}</div>
                   )}
                 </div>
-              </label>
+                {row.present && !row.locked && row.requirement && (
+                  <Select
+                    value={row.requirement}
+                    disabled={pending}
+                    onValueChange={(next) =>
+                      run(
+                        () =>
+                          setChannelStepRequirementAction(
+                            campaignId,
+                            channelId,
+                            row.key,
+                            next as ChannelSetupRequirement,
+                          ),
+                        `${row.title} set to ${next}`,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-28" aria-label={`${row.title} requirement`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="required">Required</SelectItem>
+                      <SelectItem value="optional">Optional</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             ))}
           </div>
         </DrawerContent>

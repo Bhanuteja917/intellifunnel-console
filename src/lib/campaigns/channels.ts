@@ -6,7 +6,7 @@ import {
   type Actor,
 } from "@/lib/auth/permissions";
 import { withAudit, writeAudit } from "@/lib/audit/audit";
-import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
+import { assertChannelDraftAndAccessible, assertDraftAndAccessible } from "@/lib/campaigns/crud";
 import { toMinorUnits } from "@/lib/money/currency";
 import { updateCampaignStatus } from "@/lib/campaigns/state-machine";
 
@@ -95,6 +95,65 @@ export async function updateCampaignChannel(
           updatedById: actor.userId,
         },
       });
+    },
+  );
+}
+
+/**
+ * Hard delete, and only while still a draft. Nothing gates PartnerAllocation
+ * or AssetPlacement creation to a non-draft channel, so a draft channel can
+ * already carry dependent rows — every campaignChannelId FK is cleared
+ * explicitly (children before parents, in one transaction) since the schema
+ * has no onDelete: Cascade anywhere on this relation.
+ */
+export async function deleteCampaignChannel(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<void> {
+  assertPermission(actor, "campaign:write");
+
+  const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  await withAudit<void>(
+    db,
+    actor,
+    {
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
+      action: "delete",
+      before: { status: channel.status },
+    },
+    async (tx) => {
+      // Re-verify inside the transaction: a status change can commit between
+      // the outer check and this write (same rationale as deleteCampaign).
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+
+      await tx.leadSubmissionError.deleteMany({ where: { submission: { campaignChannelId } } });
+      await tx.deliveryRunLead.deleteMany({
+        where: {
+          OR: [{ deliveryRun: { campaignChannelId } }, { lead: { campaignChannelId } }],
+        },
+      });
+      await tx.leadStatusHistory.deleteMany({ where: { lead: { campaignChannelId } } });
+      await tx.leadConsent.deleteMany({ where: { lead: { campaignChannelId } } });
+      await tx.verificationRecord.deleteMany({ where: { lead: { campaignChannelId } } });
+      await tx.engagementEvent.deleteMany({ where: { assetPlacement: { campaignChannelId } } });
+      await tx.placementApproval.deleteMany({ where: { assetPlacement: { campaignChannelId } } });
+      await tx.lead.deleteMany({ where: { campaignChannelId } });
+      await tx.leadSubmission.deleteMany({ where: { campaignChannelId } });
+      await tx.assetPlacement.deleteMany({ where: { campaignChannelId } });
+      await tx.deliveryRun.deleteMany({ where: { campaignChannelId } });
+      await tx.deliveryConfig.deleteMany({ where: { campaignChannelId } });
+      await tx.partnerAllocation.deleteMany({ where: { campaignChannelId } });
+      await tx.channelApproval.deleteMany({ where: { campaignChannelId } });
+      await tx.channelTermsApproval.deleteMany({ where: { campaignChannelId } });
+      await tx.icpCriterion.deleteMany({ where: { campaignChannelId } });
+      await tx.leadFieldSpec.deleteMany({ where: { campaignChannelId } });
+      await tx.channelPacingBucket.deleteMany({ where: { campaignChannelId } });
+      await tx.channelSetupStep.deleteMany({ where: { campaignChannelId } });
+
+      await tx.campaignChannel.delete({ where: { id: campaignChannelId } });
     },
   );
 }

@@ -24,7 +24,6 @@ const facts = {
   icpCount: 0,
   hasEmailSpec: false,
   activePlacementCount: 0,
-  allocationCount: 0,
 };
 
 describe("STEP_CATALOG", () => {
@@ -45,19 +44,18 @@ describe("STEP_CATALOG", () => {
 });
 
 describe("seedPlan", () => {
-  it("seeds terms, icp, lead spec, placement and allocations for a lead channel with an asset", () => {
+  it("seeds terms, icp, lead spec and placement for a lead channel with an asset", () => {
     expect(seedPlan(definition())).toEqual([
       { stepKey: "channelTerms", requirement: "required", sortOrder: 0 },
       { stepKey: "icp", requirement: "required", sortOrder: 1 },
       { stepKey: "leadSpec", requirement: "required", sortOrder: 2 },
       { stepKey: "placement", requirement: "required", sortOrder: 3 },
-      { stepKey: "allocations", requirement: "optional", sortOrder: 4 },
     ]);
   });
 
   it("seeds no icp or lead spec for an impression-only channel", () => {
     const plan = seedPlan(definition({ producesLeads: false, requiresAsset: false }));
-    expect(plan.map((s) => s.stepKey)).toEqual(["channelTerms", "allocations"]);
+    expect(plan.map((s) => s.stepKey)).toEqual(["channelTerms"]);
   });
 
   it("seeds no placement when the channel type needs no asset", () => {
@@ -102,10 +100,6 @@ describe("isDone", () => {
 
   it("completes placement on the first active placement", () => {
     expect(catalogEntry("placement")?.isDone({ ...facts, activePlacementCount: 1 })).toBe(true);
-  });
-
-  it("completes allocations on the first allocation", () => {
-    expect(catalogEntry("allocations")?.isDone({ ...facts, allocationCount: 1 })).toBe(true);
   });
 
   it("never completes a deferred step", () => {
