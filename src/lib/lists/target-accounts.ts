@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { NotFoundError } from "@/lib/errors";
+import Papa from "papaparse";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import {
   assertOrganizationAccess,
   assertPermission,
@@ -166,6 +167,194 @@ export async function attachTargetAccountList(
       });
     },
   );
+}
+
+export async function detachTargetAccountList(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<void> {
+  assertPermission(actor, "campaign:write");
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  await withAudit(
+    db,
+    actor,
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "detachTargetAccountList" },
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+      await tx.channelTargetAccountList.deleteMany({ where: { campaignChannelId } });
+    },
+  );
+}
+
+export type AddTargetAccountEntryInput = {
+  rawName?: string;
+  rawDomain?: string;
+  country?: string;
+  maxLeadsPerAccountOverride?: number;
+};
+
+/**
+ * Manual counterpart to `importTargetAccountList`'s per-row loop. Requires
+ * both `list:write` (it may create a list) and `campaign:write` (it mutates
+ * channel-scoped state), same split of concerns as import + attach.
+ */
+export async function addTargetAccountEntry(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  input: AddTargetAccountEntryInput,
+): Promise<{ entryId: string }> {
+  assertPermission(actor, "list:write");
+  assertPermission(actor, "campaign:write");
+  const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  const rawName = input.rawName?.trim();
+  const rawDomain = input.rawDomain?.trim();
+  if ((rawName === undefined || rawName === "") && (rawDomain === undefined || rawDomain === "")) {
+    throw new ValidationError("Row needs a name or domain");
+  }
+  if (
+    input.maxLeadsPerAccountOverride !== undefined &&
+    (!Number.isInteger(input.maxLeadsPerAccountOverride) || input.maxLeadsPerAccountOverride <= 0)
+  ) {
+    throw new ValidationError("Cap override must be a positive integer");
+  }
+
+  const normalizedDomain = rawDomain === undefined || rawDomain === "" ? null : normalizeDomain(rawDomain);
+  const match = await resolveAccount(db, { name: rawName, domain: rawDomain, country: input.country?.trim() });
+
+  return withAudit(
+    db,
+    actor,
+    (result: { entryId: string }) => ({
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
+      action: "addTargetAccountEntry",
+      after: { entryId: result.entryId },
+    }),
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+
+      let link = await tx.channelTargetAccountList.findFirst({ where: { campaignChannelId } });
+      if (link === null) {
+        const list = await tx.targetAccountList.create({
+          data: {
+            ownerOrganizationId: channel.campaign.clientOrganizationId,
+            name: "Manual entries",
+            createdById: actor.userId,
+            updatedById: actor.userId,
+          },
+        });
+        link = await tx.channelTargetAccountList.create({
+          data: { campaignChannelId, listId: list.id, createdById: actor.userId, updatedById: actor.userId },
+        });
+      }
+
+      const entry = await tx.targetAccountEntry.create({
+        data: {
+          listId: link.listId,
+          rawName: rawName ?? null,
+          rawDomain: rawDomain ?? null,
+          normalizedDomain,
+          accountId: match.status === "matched" ? match.accountId : null,
+          matchStatus: match.status,
+          candidateAccountIdsJson:
+            match.status === "ambiguous" ? (match.candidateIds as Prisma.InputJsonValue) : undefined,
+          maxLeadsPerAccountOverride: input.maxLeadsPerAccountOverride ?? null,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        },
+      });
+      return { entryId: entry.id };
+    },
+  );
+}
+
+export async function removeTargetAccountEntry(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  entryId: string,
+): Promise<void> {
+  assertPermission(actor, "campaign:write");
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  await withAudit(
+    db,
+    actor,
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "removeTargetAccountEntry", after: { entryId } },
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+      const link = await tx.channelTargetAccountList.findFirst({ where: { campaignChannelId } });
+      if (link === null) throw new NotFoundError("No target account list attached to this channel");
+      const entry = await tx.targetAccountEntry.findUnique({ where: { id: entryId } });
+      if (entry === null || entry.listId !== link.listId) {
+        throw new NotFoundError("Target account entry not found on this channel");
+      }
+      await tx.targetAccountEntry.delete({ where: { id: entryId } });
+    },
+  );
+}
+
+export async function exportTargetAccountListCsv(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<string | null> {
+  assertPermission(actor, "campaign:read");
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: campaignChannelId },
+    select: { campaign: { select: { clientOrganizationId: true } } },
+  });
+  if (channel === null) throw new NotFoundError("Channel not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+
+  const link = await db.channelTargetAccountList.findFirst({ where: { campaignChannelId } });
+  if (link === null) return null;
+
+  const entries = await db.targetAccountEntry.findMany({
+    where: { listId: link.listId },
+    orderBy: { createdAt: "asc" },
+  });
+  return Papa.unparse(
+    entries.map((e) => ({
+      name: e.rawName ?? "",
+      domain: e.rawDomain ?? "",
+      matchStatus: e.matchStatus,
+      maxLeadsPerAccountOverride: e.maxLeadsPerAccountOverride ?? "",
+    })),
+  );
+}
+
+export type ImportAndAttachInput = {
+  name: string;
+  content: string;
+  mapping: Record<string, string>;
+};
+
+/**
+ * Combines `importTargetAccountList` (creates the list; needs `list:write`)
+ * and `attachTargetAccountList` (links it to the channel; needs
+ * `campaign:write`) so the upload server action stays a single call, the same
+ * way the CSV upload dialog is a single user action.
+ */
+export async function importAndAttachTargetAccountList(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  input: ImportAndAttachInput,
+): Promise<ImportResult> {
+  const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+  const result = await importTargetAccountList(db, actor, {
+    ownerOrganizationId: channel.campaign.clientOrganizationId,
+    name: input.name,
+    content: input.content,
+    mapping: input.mapping,
+  });
+  await attachTargetAccountList(db, actor, campaignChannelId, result.listId);
+  return result;
 }
 
 /**
