@@ -9,6 +9,7 @@ import { getClientChannelDetail, type ClientChannelDetail } from "@/lib/approval
 import type { ApprovalStatus } from "@/lib/approvals/status";
 import { NotFoundError } from "@/lib/errors";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -160,6 +161,35 @@ export default async function ClientChannelPage({
           {statCard("Expected to date", channel.expectedToDate.toFixed(1), "based on flight window")}
           {paceCard(channel.pace)}
         </div>
+      )}
+
+      {(channel.targetAccountList !== null || channel.suppressionList !== null) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Lists</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col">
+            {channel.targetAccountList !== null &&
+              row(
+                "Target account list",
+                `${channel.targetAccountList.rowCount} accounts`,
+              )}
+            {channel.suppressionList !== null &&
+              row("Suppression list", `${channel.suppressionList.rowCount} entries`)}
+            <div className="mt-3 flex gap-2">
+              {channel.targetAccountList !== null && (
+                <Button asChild size="sm" variant="outline">
+                  <a href={channel.targetAccountList.downloadUrl}>Download target accounts</a>
+                </Button>
+              )}
+              {channel.suppressionList !== null && (
+                <Button asChild size="sm" variant="outline">
+                  <a href={channel.suppressionList.downloadUrl}>Download suppression list</a>
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {tab === "terms" && (
