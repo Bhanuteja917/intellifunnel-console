@@ -1,0 +1,37 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { requireActor } from "@/lib/auth/require";
+import { exportSuppressionListCsv } from "@/lib/lists/suppression";
+import { ApplicationError, NotFoundError } from "@/lib/errors";
+
+function statusForError(error: ApplicationError): number {
+  if (error.code === "FORBIDDEN") return 403;
+  if (error.code === "NOT_FOUND") return 404;
+  return 400;
+}
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string; channelId: string }> },
+): Promise<Response> {
+  const { channelId } = await params;
+
+  try {
+    const actor = await requireActor();
+    const csv = await exportSuppressionListCsv(db, actor, channelId);
+    if (csv === null) throw new NotFoundError("No suppression list attached to this channel");
+
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="suppression-list-${channelId}.csv"`,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ApplicationError) {
+      return NextResponse.json({ error: error.message }, { status: statusForError(error) });
+    }
+    throw error;
+  }
+}
