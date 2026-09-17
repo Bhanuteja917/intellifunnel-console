@@ -1,0 +1,79 @@
+# Render Blueprint for intellifunnel-console.
+#
+# Two services from one Dockerfile pair, matching docs/deployment.md:
+#   - web:    Dockerfile        (slim standalone runtime, serves HTTP)
+#   - worker: Dockerfile.worker (full build tree; runs migrations via
+#             preDeployCommand, then the scheduled-transition loop)
+#
+# Render's Docker runtime has no `--target` flag, so the worker image is a
+# separate Dockerfile rather than Dockerfile's `worker` stage. Keep the two
+# in sync (see Dockerfile.worker's header comment).
+#
+# First-time setup: creating this Blueprint prompts for every `sync: false`
+# value in the console-secrets group below. Fill DATABASE_URL/DIRECT_URL
+# with the Neon connection strings (pooled/unpooled). Leave APP_BASE_URL
+# blank on first deploy, then come back and set it once Render assigns the
+# web service's URL (Settings -> the onrender.com URL, or your custom
+# domain), and redeploy.
+#
+# STORAGE_DRIVER defaults to "local", which writes to the container's
+# ephemeral filesystem — uploaded assets are lost on every deploy/restart.
+# Set STORAGE_DRIVER=s3 and fill the S3_* variables before relying on the
+# asset library in production.
+
+envVarGroups:
+  - name: console-secrets
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: SUPPRESSION_HASH_SALT
+        generateValue: true
+      - key: EMAIL_FROM
+        value: "no-reply@example.com"
+      - key: EMAIL_PROVIDER_URL
+        value: ""
+      - key: EMAIL_PROVIDER_API_KEY
+        sync: false
+      - key: STORAGE_DRIVER
+        value: "local"
+      - key: S3_BUCKET
+        value: ""
+      - key: S3_REGION
+        value: ""
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_ENDPOINT
+        value: ""
+
+services:
+  - type: web
+    name: intellifunnel-console-web
+    runtime: docker
+    plan: 0.5c-512mb
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health/ready
+    autoDeployTrigger: commit
+    envVars:
+      - fromGroup: console-secrets
+
+  - type: worker
+    name: intellifunnel-console-worker
+    runtime: docker
+    plan: 0.5c-512mb
+    region: oregon
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    preDeployCommand: "pnpm prisma migrate deploy"
+    autoDeployTrigger: commit
+    envVars:
+      - fromGroup: console-secrets

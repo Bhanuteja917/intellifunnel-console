@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+#
+# Render's Docker runtime has no `docker build --target` equivalent, so the
+# worker/migrate image (Dockerfile's `worker` stage) can't be selected from
+# the main Dockerfile there — this file duplicates the deps+build stages to
+# produce that same image as a standalone build. Keep it in sync with
+# Dockerfile's `deps`/`build`/`worker` stages; see docs/deployment.md.
+FROM node:24-alpine AS deps
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM node:24-alpine AS build
+WORKDIR /app
+RUN corepack enable
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" \
+    DIRECT_URL="postgresql://build:build@localhost:5432/build" \
+    APP_BASE_URL="http://build.invalid" \
+    BETTER_AUTH_SECRET="build-only-never-signs-anything" \
+    sh -c "pnpm prisma generate && pnpm build"
+
+FROM build AS worker
+ENV NODE_ENV=production
+CMD ["pnpm", "worker"]
