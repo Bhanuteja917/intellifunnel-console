@@ -33,12 +33,14 @@ import { ChannelTermsTab, DecisionHistoryTab, TERMS_BADGE } from "./channel-term
 import { ChannelStatusControl } from "./channel-status-control";
 import { SetupChecklistCard } from "./setup-checklist-card";
 import { PacingScheduleCard } from "./pacing/pacing-schedule-card";
+import { ChannelListsTab } from "./channel-lists-tab";
 import { IcpCriteriaEditor } from "../../icp-criteria-editor";
 import { LeadFieldSpecEditor } from "../../lead-field-spec-editor";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "terms", label: "Terms" },
+  { id: "lists", label: "Lists" },
   { id: "placements", label: "Placements" },
   { id: "allocations", label: "Allocations" },
   { id: "pacing", label: "Pacing" },
@@ -120,10 +122,13 @@ export default async function ChannelPage({
   const hasPlacementStep = readiness.steps.some((s) => s.key === "placement");
   const hasIcpStep = readiness.steps.some((s) => s.key === "icp");
   const hasLeadSpecStep = readiness.steps.some((s) => s.key === "leadSpec");
+  const hasTalStep = readiness.steps.some((s) => s.key === "targetAccountList");
+  const hasSuppressionStep = readiness.steps.some((s) => s.key === "suppressionList");
   const requiredSteps = readiness.steps.filter((s) => s.requirement === "required");
   const isReady = requiredSteps.every((s) => s.done);
   const visibleTabs = TABS.filter((t) => {
     if (t.id === "placements") return hasPlacementStep;
+    if (t.id === "lists") return hasTalStep || hasSuppressionStep;
     return true;
   });
 
@@ -267,6 +272,16 @@ export default async function ChannelPage({
 
       {tab === "placements" && hasPlacementStep && canReadAssets && (
         <PlacementsTab campaignId={campaign.id} channelId={channel.id} canWrite={canWriteAssets} />
+      )}
+
+      {tab === "lists" && (hasTalStep || hasSuppressionStep) && (
+        <ChannelListsTab
+          campaignId={campaign.id}
+          channelId={channel.id}
+          editable={channel.status === "draft" && canWriteCampaign}
+          hasTalStep={hasTalStep}
+          hasSuppressionStep={hasSuppressionStep}
+        />
       )}
 
       {tab === "allocations" && canReadAllocations && (
