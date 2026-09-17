@@ -32,6 +32,35 @@ export function hashSuppressionValue(value: string): string {
   return createHmac("sha256", salt).update(value).digest("hex");
 }
 
+type SuppressionValueResolution =
+  | { ok: true; value: string; accountId?: string }
+  | { ok: false; message: string };
+
+async function resolveSuppressionValue(
+  db: PrismaClient,
+  type: SuppressionEntryType,
+  rawValue: string,
+): Promise<SuppressionValueResolution> {
+  if (type === "account") {
+    const match = await resolveAccount(db, { domain: rawValue });
+    if (match.status !== "matched") {
+      return { ok: false, message: `Could not resolve account for suppression: ${rawValue}` };
+    }
+    return { ok: true, value: normalizeDomain(rawValue) ?? rawValue, accountId: match.accountId };
+  }
+
+  let value: string | null = null;
+  try {
+    value = type === "email" || type === "contact" ? normalizeEmail(rawValue) : normalizeDomain(rawValue);
+  } catch {
+    value = null;
+  }
+  if (value === null) {
+    return { ok: false, message: `Could not normalise value: ${rawValue}` };
+  }
+  return { ok: true, value };
+}
+
 export type ImportSuppressionInput = {
   ownerOrganizationId: string;
   name: string;
@@ -87,55 +116,22 @@ export async function importSuppressionList(
       continue;
     }
 
-    if (rawType === "account") {
-      // For account type, resolve via domain and require a match
-      const match = await resolveAccount(db, { domain: rawValue });
-      if (match.status !== "matched") {
-        errors.push({
-          rowNumber, field: "value", rawValue,
-          message: `Could not resolve account for suppression: ${rawValue}`,
-        });
-        continue;
-      }
-
-      const normalizedValue = normalizeDomain(rawValue) ?? rawValue;
-      await db.suppressionEntry.upsert({
-        where: { listId_type_value: { listId: list.id, type: "account", value: normalizedValue } },
-        update: {},
-        create: {
-          listId: list.id,
-          type: "account" as const,
-          value: normalizedValue,
-          valueHash: hashSuppressionValue(normalizedValue),
-          accountId: match.accountId,
-          createdById: actor.userId,
-          updatedById: actor.userId,
-        },
-      });
-      accepted += 1;
-      continue;
-    }
-
-    let value: string | null = null;
-    try {
-      value = rawType === "email" || rawType === "contact" ? normalizeEmail(rawValue) : normalizeDomain(rawValue);
-    } catch {
-      value = null;
-    }
-
-    if (value === null) {
-      errors.push({ rowNumber, field: "value", rawValue, message: `Could not normalise value: ${rawValue}` });
+    const type = rawType as SuppressionEntryType;
+    const resolution = await resolveSuppressionValue(db, type, rawValue);
+    if (!resolution.ok) {
+      errors.push({ rowNumber, field: "value", rawValue, message: resolution.message });
       continue;
     }
 
     await db.suppressionEntry.upsert({
-      where: { listId_type_value: { listId: list.id, type: rawType as SuppressionEntryType, value } },
+      where: { listId_type_value: { listId: list.id, type, value: resolution.value } },
       update: {},
       create: {
         listId: list.id,
-        type: rawType as SuppressionEntryType,
-        value,
-        valueHash: hashSuppressionValue(value),
+        type,
+        value: resolution.value,
+        valueHash: hashSuppressionValue(resolution.value),
+        accountId: resolution.accountId,
         createdById: actor.userId,
         updatedById: actor.userId,
       },
@@ -227,22 +223,10 @@ export async function addSuppressionEntry(
   const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
 
   const rawValue = input.value.trim();
-  let value: string;
-  let accountId: string | undefined;
-
-  if (input.type === "account") {
-    const match = await resolveAccount(db, { domain: rawValue });
-    if (match.status !== "matched") {
-      throw new ValidationError(`Could not resolve account for suppression: ${rawValue}`);
-    }
-    value = normalizeDomain(rawValue) ?? rawValue;
-    accountId = match.accountId;
-  } else {
-    const normalized =
-      input.type === "email" || input.type === "contact" ? normalizeEmail(rawValue) : normalizeDomain(rawValue);
-    if (normalized === null) throw new ValidationError(`Could not normalise value: ${rawValue}`);
-    value = normalized;
-  }
+  const resolution = await resolveSuppressionValue(db, input.type, rawValue);
+  if (!resolution.ok) throw new ValidationError(resolution.message);
+  const value = resolution.value;
+  const accountId = resolution.accountId;
 
   return withAudit(
     db,

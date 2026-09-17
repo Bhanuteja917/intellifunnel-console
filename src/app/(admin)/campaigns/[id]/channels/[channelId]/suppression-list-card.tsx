@@ -174,7 +174,7 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
             <Input placeholder="Value" value={manualValue} onChange={(e) => setManualValue(e.target.value)} className="w-48" />
             <Button size="sm" onClick={submitManual} disabled={pending || manualValue.trim() === ""}>Add</Button>
 
-            {rowCount > 0 && (
+            {listName !== null && (
               <Button
                 size="sm"
                 variant="ghost"

@@ -184,7 +184,7 @@ export function TargetAccountListCard({ campaignId, channelId, listName, rowCoun
               Add
             </Button>
 
-            {rowCount > 0 && (
+            {listName !== null && (
               <Button
                 size="sm"
                 variant="ghost"

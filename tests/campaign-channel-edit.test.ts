@@ -3,11 +3,13 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createChannelFixture } from "./helpers/channel-factory";
-import { setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
+import { deleteCampaignChannel, setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
 import { submitChannelForApproval } from "@/lib/campaigns/state-machine";
 import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getChannelApprovalStatus } from "@/lib/approvals/status";
 import { setChannelStepRequirement } from "@/lib/channels/setup-steps";
+import { addTargetAccountEntry } from "@/lib/lists/target-accounts";
+import { addSuppressionEntry } from "@/lib/lists/suppression";
 import { ValidationError } from "@/lib/errors";
 
 const validEdit = {
@@ -185,5 +187,25 @@ describe("setChannelStatus", () => {
     await expect(
       setChannelStatus(db, fx.adminActor, { channelId: fx.channelId, status: "completed" }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("deleteCampaignChannel", () => {
+  beforeEach(async () => {
+    await resetDb();
+    await seedRoles(testDb());
+    await seedFunnelStages(testDb());
+  });
+
+  it("deletes a draft channel that has a target-account list and a suppression list attached", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db);
+
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+
+    await expect(deleteCampaignChannel(db, fx.adminActor, fx.channelId)).resolves.toBeUndefined();
+
+    expect(await db.campaignChannel.findUnique({ where: { id: fx.channelId } })).toBeNull();
   });
 });

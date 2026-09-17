@@ -10,6 +10,7 @@ import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getClientChannelDetail } from "@/lib/approvals/client-channel-view";
 import { addTargetAccountEntry } from "@/lib/lists/target-accounts";
 import { addSuppressionEntry } from "@/lib/lists/suppression";
+import { addChannelSetupStep, removeChannelSetupStep } from "@/lib/channels/setup-steps";
 
 describe("client channel detail read model", () => {
   beforeEach(async () => {
@@ -107,6 +108,11 @@ describe("client channel detail read model", () => {
     expect(withoutLists.targetAccountList).toBeNull();
     expect(withoutLists.suppressionList).toBeNull();
 
+    // Both fields also require the corresponding step to still be on the
+    // channel's checklist (see the "hides a list summary..." test below), so
+    // add the steps here to exercise the normal, fully-configured path.
+    await addChannelSetupStep(db, fx.adminActor, fx.channelId, "targetAccountList");
+    await addChannelSetupStep(db, fx.adminActor, fx.channelId, "suppressionList");
     await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
     await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
 
@@ -119,5 +125,31 @@ describe("client channel detail read model", () => {
       rowCount: 1,
       downloadUrl: `/api/client/campaigns/${fx.campaignId}/channels/${fx.channelId}/suppression-list/export`,
     });
+  });
+
+  it("hides a list summary once its checklist step is removed, even though the list link still exists", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
+
+    await addChannelSetupStep(db, fx.adminActor, fx.channelId, "targetAccountList");
+    await addChannelSetupStep(db, fx.adminActor, fx.channelId, "suppressionList");
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+
+    // Sanity check: both fields are visible before the steps are removed.
+    const before = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
+    expect(before.targetAccountList).not.toBeNull();
+    expect(before.suppressionList).not.toBeNull();
+
+    await removeChannelSetupStep(db, fx.adminActor, fx.channelId, "targetAccountList");
+    await removeChannelSetupStep(db, fx.adminActor, fx.channelId, "suppressionList");
+
+    const after = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
+    expect(after.targetAccountList).toBeNull();
+    expect(after.suppressionList).toBeNull();
+
+    // The underlying list links are untouched — only the checklist step was removed.
+    expect(await db.channelTargetAccountList.findFirst({ where: { campaignChannelId: fx.channelId } })).not.toBeNull();
+    expect(await db.channelSuppressionList.findFirst({ where: { campaignChannelId: fx.channelId } })).not.toBeNull();
   });
 });

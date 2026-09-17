@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
+import { assertPortal } from "@/lib/auth/permissions";
 import { exportSuppressionListCsv } from "@/lib/lists/suppression";
 import { ApplicationError, NotFoundError } from "@/lib/errors";
 
@@ -18,6 +19,7 @@ export async function GET(
 
   try {
     const actor = await requireActor();
+    assertPortal(actor, "admin");
     const csv = await exportSuppressionListCsv(db, actor, channelId);
     if (csv === null) throw new NotFoundError("No suppression list attached to this channel");
 

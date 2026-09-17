@@ -104,10 +104,23 @@ describe("isDone", () => {
   });
 
   it("completes targetAccountList and suppressionList from their own facts", () => {
-    expect(catalogEntry("targetAccountList")?.isDone({ ...facts, hasTargetAccountList: true })).toBe(true);
+    expect(
+      catalogEntry("targetAccountList")?.isDone({ ...facts, hasTargetAccountList: true, targetAccountCount: 1 }),
+    ).toBe(true);
     expect(catalogEntry("targetAccountList")?.isDone(facts)).toBe(false);
-    expect(catalogEntry("suppressionList")?.isDone({ ...facts, hasSuppressionList: true })).toBe(true);
+    expect(catalogEntry("suppressionList")?.isDone({ ...facts, hasSuppressionList: true, suppressionCount: 1 })).toBe(
+      true,
+    );
     expect(catalogEntry("suppressionList")?.isDone(facts)).toBe(false);
+  });
+
+  it("does not complete a list step when the attached list is empty", () => {
+    expect(
+      catalogEntry("targetAccountList")?.isDone({ ...facts, hasTargetAccountList: true, targetAccountCount: 0 }),
+    ).toBe(false);
+    expect(
+      catalogEntry("suppressionList")?.isDone({ ...facts, hasSuppressionList: true, suppressionCount: 0 }),
+    ).toBe(false);
   });
 });
 

@@ -12,6 +12,10 @@ import { normalizeDomain } from "@/lib/normalise/domain";
 import { resolveAccount } from "@/lib/identity/account-resolution";
 import { assertChannelDraftAndAccessible } from "@/lib/campaigns/crud";
 
+function hasNameOrDomain(rawName: string | undefined, rawDomain: string | undefined): boolean {
+  return !((rawName === undefined || rawName === "") && (rawDomain === undefined || rawDomain === ""));
+}
+
 export type ImportTargetAccountsInput = {
   ownerOrganizationId: string;
   name: string;
@@ -69,7 +73,7 @@ export async function importTargetAccountList(
     const rawName = row.rawName?.trim();
     const rawDomain = row.rawDomain?.trim();
 
-    if ((rawName === undefined || rawName === "") && (rawDomain === undefined || rawDomain === "")) {
+    if (!hasNameOrDomain(rawName, rawDomain)) {
       errors.push({ rowNumber, field: null, rawValue: null, message: "Row needs a name or domain" });
       continue;
     }
@@ -212,7 +216,7 @@ export async function addTargetAccountEntry(
 
   const rawName = input.rawName?.trim();
   const rawDomain = input.rawDomain?.trim();
-  if ((rawName === undefined || rawName === "") && (rawDomain === undefined || rawDomain === "")) {
+  if (!hasNameOrDomain(rawName, rawDomain)) {
     throw new ValidationError("Row needs a name or domain");
   }
   if (

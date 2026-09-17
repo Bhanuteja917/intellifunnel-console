@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
+import { assertPortal } from "@/lib/auth/permissions";
 import { exportTargetAccountListCsv } from "@/lib/lists/target-accounts";
 import { ApplicationError, NotFoundError } from "@/lib/errors";
 
@@ -18,6 +19,7 @@ export async function GET(
 
   try {
     const actor = await requireActor();
+    assertPortal(actor, "admin");
     const csv = await exportTargetAccountListCsv(db, actor, channelId);
     if (csv === null) throw new NotFoundError("No target account list attached to this channel");
 

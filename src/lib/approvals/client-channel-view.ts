@@ -140,9 +140,11 @@ export async function getClientChannelDetail(
     comments: d.comments,
   }));
 
-  const [talLink, suppressionLink] = await Promise.all([
+  const [talLink, suppressionLink, talStep, suppressionStep] = await Promise.all([
     db.channelTargetAccountList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
     db.channelSuppressionList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+    db.channelSetupStep.findFirst({ where: { campaignChannelId: channel.id, stepKey: "targetAccountList" }, select: { id: true } }),
+    db.channelSetupStep.findFirst({ where: { campaignChannelId: channel.id, stepKey: "suppressionList" }, select: { id: true } }),
   ]);
   const [targetAccountCount, suppressionCount] = await Promise.all([
     talLink === null ? Promise.resolve(0) : db.targetAccountEntry.count({ where: { listId: talLink.listId } }),
@@ -214,11 +216,11 @@ export async function getClientChannelDetail(
           },
     deliveryRuns: deliveryRunRows,
     targetAccountList:
-      talLink === null
+      talLink === null || talStep === null
         ? null
         : { rowCount: targetAccountCount, downloadUrl: `/api/client/campaigns/${campaignId}/channels/${channelId}/target-accounts/export` },
     suppressionList:
-      suppressionLink === null
+      suppressionLink === null || suppressionStep === null
         ? null
         : { rowCount: suppressionCount, downloadUrl: `/api/client/campaigns/${campaignId}/channels/${channelId}/suppression-list/export` },
   };

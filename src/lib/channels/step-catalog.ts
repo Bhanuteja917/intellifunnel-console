@@ -89,7 +89,7 @@ export const STEP_CATALOG: readonly CatalogEntry[] = [
     available: true,
     applies: () => true,
     seedDefault: () => null,
-    isDone: (f) => f.hasTargetAccountList,
+    isDone: (f) => f.hasTargetAccountList && f.targetAccountCount > 0,
   },
   {
     key: "suppressionList",
@@ -101,7 +101,7 @@ export const STEP_CATALOG: readonly CatalogEntry[] = [
     available: true,
     applies: () => true,
     seedDefault: () => null,
-    isDone: (f) => f.hasSuppressionList,
+    isDone: (f) => f.hasSuppressionList && f.suppressionCount > 0,
   },
 ];
 
