@@ -11,7 +11,7 @@ import { applyMapping, parseDelimited, type RowError } from "@/lib/lists/csv";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
 import type { ImportResult } from "@/lib/lists/target-accounts";
-import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
+import { assertChannelDraftAndAccessible } from "@/lib/campaigns/crud";
 import { resolveAccount } from "@/lib/identity/account-resolution";
 
 const ENTRY_TYPES: readonly string[] = ["account", "domain", "email", "contact"];
@@ -163,24 +163,22 @@ export async function importSuppressionList(
 export async function attachSuppressionList(
   db: PrismaClient,
   actor: Actor,
-  campaignId: string,
+  campaignChannelId: string,
   listId: string,
 ): Promise<void> {
   assertPermission(actor, "campaign:write");
-  await assertDraftAndAccessible(db, actor, campaignId);
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
 
   await withAudit(
     db,
     actor,
-    { entityType: "Campaign", entityId: campaignId, action: "attachSuppressionList", after: { listId } },
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "attachSuppressionList", after: { listId } },
     async (tx) => {
-      // Re-verify draft status inside the transaction: the outer check can go
-      // stale if a client approval commits in the gap (FR-CS-2).
-      await assertDraftAndAccessible(tx, actor, campaignId);
-
-      await tx.campaignSuppressionList.create({
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+      await tx.channelSuppressionList.deleteMany({ where: { campaignChannelId } });
+      await tx.channelSuppressionList.create({
         data: {
-          campaignId,
+          campaignChannelId,
           listId,
           createdById: actor.userId,
           updatedById: actor.userId,
@@ -192,11 +190,11 @@ export async function attachSuppressionList(
 
 export async function isSuppressed(
   db: PrismaClient,
-  campaignId: string,
+  campaignChannelId: string,
   candidate: { email?: string; domain?: string; accountId?: string },
 ): Promise<boolean> {
-  const links = await db.campaignSuppressionList.findMany({
-    where: { campaignId },
+  const links = await db.channelSuppressionList.findMany({
+    where: { campaignChannelId },
     select: { listId: true },
   });
   if (links.length === 0) return false;

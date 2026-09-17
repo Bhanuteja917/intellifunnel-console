@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
+import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { createCampaign } from "@/lib/campaigns/crud";
 import { ValidationError } from "@/lib/errors";
 import {
   attachSuppressionList,
@@ -11,6 +11,7 @@ import {
   isSuppressed,
 } from "@/lib/lists/suppression";
 import { createAccount } from "@/lib/identity/account-resolution";
+import { createCampaignWithChannel } from "./helpers/channel-factory";
 
 async function setup() {
   const db = testDb();
@@ -18,11 +19,12 @@ async function setup() {
   const ops = await loadActor(db, (await createUser(db, internal.id, "OPERATIONS")).id);
   const manager = await loadActor(db, (await createUser(db, internal.id, "CAMPAIGN_MANAGER")).id);
   const client = await createOrganization(db, { isClient: true });
-  const campaign = await createCampaign(db, manager, {
-    clientOrganizationId: client.id, name: "C", code: `SUP-${Math.random().toString(36).slice(2, 8)}`,
-    startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+  const { campaign, campaignChannel } = await createCampaignWithChannel(db, {
+    clientOrganizationId: client.id,
+    campaignStatus: "draft",
+    channelStatus: "draft",
   });
-  return { db, ops, manager, client, campaign };
+  return { db, ops, manager, client, campaign, channel: campaignChannel };
 }
 
 const CSV = ["Type,Value", "domain,https://www.Competitor.com", "email,Jane@Blocked.com", "domain,bad domain"].join("\n");
@@ -31,7 +33,9 @@ const MAPPING = { Type: "type", Value: "value" };
 describe("suppression list import", () => {
   beforeEach(async () => {
     await resetDb();
-    await seedRoles(testDb());
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
   });
 
   it("normalises domains and emails on import", async () => {
@@ -85,7 +89,7 @@ describe("suppression list import", () => {
   });
 
   it("resolves account type entries and sets accountId on matched accounts", async () => {
-    const { db, ops, manager, client, campaign } = await setup();
+    const { db, ops, manager, client, channel } = await setup();
 
     // Create an account with a domain
     const account = await createAccount(db, ops, {
@@ -106,59 +110,102 @@ describe("suppression list import", () => {
     });
     expect(entry.accountId).toBe(account.id);
 
-    // Attach list to campaign and verify isSuppressed matches
-    await attachSuppressionList(db, manager, campaign.id, listId);
-    expect(await isSuppressed(db, campaign.id, { accountId: account.id })).toBe(true);
+    // Attach list to channel and verify isSuppressed matches
+    await attachSuppressionList(db, manager, channel.id, listId);
+    expect(await isSuppressed(db, channel.id, { accountId: account.id })).toBe(true);
   });
 });
 
 describe("isSuppressed", () => {
   beforeEach(async () => {
     await resetDb();
-    await seedRoles(testDb());
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
   });
 
   it("matches a suppressed domain for an attached list", async () => {
-    const { db, ops, manager, client, campaign } = await setup();
+    const { db, ops, manager, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
       ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
       content: CSV, mapping: MAPPING,
     });
-    await attachSuppressionList(db, manager, campaign.id, listId);
+    await attachSuppressionList(db, manager, channel.id, listId);
 
-    expect(await isSuppressed(db, campaign.id, { domain: "www.competitor.com" })).toBe(true);
-    expect(await isSuppressed(db, campaign.id, { email: "someone@competitor.com" })).toBe(true);
-    expect(await isSuppressed(db, campaign.id, { email: "JANE@blocked.com" })).toBe(true);
-    expect(await isSuppressed(db, campaign.id, { domain: "allowed.com" })).toBe(false);
+    expect(await isSuppressed(db, channel.id, { domain: "www.competitor.com" })).toBe(true);
+    expect(await isSuppressed(db, channel.id, { email: "someone@competitor.com" })).toBe(true);
+    expect(await isSuppressed(db, channel.id, { email: "JANE@blocked.com" })).toBe(true);
+    expect(await isSuppressed(db, channel.id, { domain: "allowed.com" })).toBe(false);
   });
 
   it("ignores lists not attached to the campaign", async () => {
-    const { db, ops, campaign, client } = await setup();
+    const { db, ops, channel, client } = await setup();
     await importSuppressionList(db, ops, {
       ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
       content: CSV, mapping: MAPPING,
     });
 
-    expect(await isSuppressed(db, campaign.id, { domain: "competitor.com" })).toBe(false);
+    expect(await isSuppressed(db, channel.id, { domain: "competitor.com" })).toBe(false);
   });
 });
 
 describe("attachSuppressionList", () => {
   beforeEach(async () => {
     await resetDb();
-    await seedRoles(testDb());
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
   });
 
-  it("rejects attachment to a non-draft campaign", async () => {
-    const { db, ops, manager, client, campaign } = await setup();
+  it("rejects attachment to a non-draft channel", async () => {
+    const { db, ops, manager, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
       ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
       content: CSV, mapping: MAPPING,
     });
 
-    // Force campaign out of draft
-    await db.campaign.update({ where: { id: campaign.id }, data: { status: "live" } });
+    await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
 
-    await expect(() => attachSuppressionList(db, manager, campaign.id, listId)).rejects.toThrow(ValidationError);
+    await expect(() => attachSuppressionList(db, manager, channel.id, listId)).rejects.toThrow(ValidationError);
+  });
+});
+
+describe("channel scoping (regression guard)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
+  });
+
+  it("does not leak a suppression list attached to one channel onto a sibling channel", async () => {
+    const { db, ops, manager, client, channel } = await setup();
+    const { campaignChannel: channelB } = await createCampaignWithChannel(db, {
+      clientOrganizationId: client.id, campaignStatus: "draft", channelStatus: "draft",
+    });
+    const { listId } = await importSuppressionList(db, ops, {
+      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      content: CSV, mapping: MAPPING,
+    });
+    await attachSuppressionList(db, manager, channel.id, listId);
+
+    expect(await isSuppressed(db, channel.id, { domain: "competitor.com" })).toBe(true);
+    expect(await isSuppressed(db, channelB.id, { domain: "competitor.com" })).toBe(false);
+  });
+
+  it("replaces the channel's list rather than accumulating a second one on re-attach", async () => {
+    const { db, ops, manager, client, channel } = await setup();
+    const first = await importSuppressionList(db, ops, {
+      ownerOrganizationId: client.id, name: "First", type: "competitor", content: CSV, mapping: MAPPING,
+    });
+    await attachSuppressionList(db, manager, channel.id, first.listId);
+    const second = await importSuppressionList(db, ops, {
+      ownerOrganizationId: client.id, name: "Second", type: "competitor", content: CSV, mapping: MAPPING,
+    });
+    await attachSuppressionList(db, manager, channel.id, second.listId);
+
+    const links = await db.channelSuppressionList.findMany({ where: { campaignChannelId: channel.id } });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.listId).toBe(second.listId);
   });
 });

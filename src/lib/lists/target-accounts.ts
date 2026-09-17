@@ -9,7 +9,7 @@ import { withAudit } from "@/lib/audit/audit";
 import { applyMapping, parseDelimited, type RowError } from "@/lib/lists/csv";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { resolveAccount } from "@/lib/identity/account-resolution";
-import { assertDraftAndAccessible } from "@/lib/campaigns/crud";
+import { assertChannelDraftAndAccessible } from "@/lib/campaigns/crud";
 
 export type ImportTargetAccountsInput = {
   ownerOrganizationId: string;
@@ -139,24 +139,26 @@ export async function importTargetAccountList(
 export async function attachTargetAccountList(
   db: PrismaClient,
   actor: Actor,
-  campaignId: string,
+  campaignChannelId: string,
   listId: string,
 ): Promise<void> {
   assertPermission(actor, "campaign:write");
-  await assertDraftAndAccessible(db, actor, campaignId);
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
 
   await withAudit(
     db,
     actor,
-    { entityType: "Campaign", entityId: campaignId, action: "attachTargetAccountList", after: { listId } },
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "attachTargetAccountList", after: { listId } },
     async (tx) => {
       // Re-verify draft status inside the transaction: the outer check can go
       // stale if a client approval commits in the gap (FR-CS-2).
-      await assertDraftAndAccessible(tx, actor, campaignId);
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
 
-      await tx.campaignTargetAccountList.create({
+      // One active list per channel: replace, don't accumulate.
+      await tx.channelTargetAccountList.deleteMany({ where: { campaignChannelId } });
+      await tx.channelTargetAccountList.create({
         data: {
-          campaignId,
+          campaignChannelId,
           listId,
           createdById: actor.userId,
           updatedById: actor.userId,
@@ -177,19 +179,15 @@ export async function resolveAccountCap(
 ): Promise<number | null> {
   const channel = await db.campaignChannel.findUnique({
     where: { id: campaignChannelId },
-    select: { campaignId: true, defaultMaxLeadsPerAccount: true },
+    select: { defaultMaxLeadsPerAccount: true },
   });
   if (channel === null) throw new NotFoundError("Campaign channel not found");
 
-  const links = await db.campaignTargetAccountList.findMany({
-    where: { campaignId: channel.campaignId },
-    select: { listId: true },
-  });
-
-  if (links.length > 0) {
+  const link = await db.channelTargetAccountList.findFirst({ where: { campaignChannelId } });
+  if (link !== null) {
     const entry = await db.targetAccountEntry.findFirst({
       where: {
-        listId: { in: links.map((l) => l.listId) },
+        listId: link.listId,
         accountId,
         maxLeadsPerAccountOverride: { not: null },
       },

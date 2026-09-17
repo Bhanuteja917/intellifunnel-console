@@ -55,10 +55,10 @@ export async function checkDoNotContact(
  */
 export async function checkSuppression(
   db: PrismaClient,
-  campaignId: string,
+  campaignChannelId: string,
   candidate: { email?: string; domain?: string; accountId?: string },
 ): Promise<boolean> {
-  return isSuppressed(db, campaignId, candidate);
+  return isSuppressed(db, campaignChannelId, candidate);
 }
 
 /**
@@ -72,17 +72,17 @@ export async function resolveLeadCap(db: PrismaClient, campaignChannelId: string
 /**
  * FR-IN-4 step 7: target-account-list match.
  *
- * `"noList"` means the campaign has zero `CampaignTargetAccountList` rows —
- * i.e. the TAL check doesn't apply to this campaign at all. The caller
+ * `"noList"` means the channel has zero `ChannelTargetAccountList` rows —
+ * i.e. the TAL check doesn't apply to this channel at all. The caller
  * (Task 4) must treat `"noList"` as "check doesn't apply, don't fail or
  * flag," not as a match failure.
  */
-export async function matchesTal(db: Db, campaignId: string, accountId: string): Promise<"noList" | "matched" | "unmatched"> {
-  const listCount = await db.campaignTargetAccountList.count({ where: { campaignId } });
+export async function matchesTal(db: Db, campaignChannelId: string, accountId: string): Promise<"noList" | "matched" | "unmatched"> {
+  const listCount = await db.channelTargetAccountList.count({ where: { campaignChannelId } });
   if (listCount === 0) return "noList";
 
   const entry = await db.targetAccountEntry.findFirst({
-    where: { accountId, list: { campaigns: { some: { campaignId } } } },
+    where: { accountId, list: { channels: { some: { campaignChannelId } } } },
   });
   return entry === null ? "unmatched" : "matched";
 }

@@ -349,7 +349,7 @@ export async function submitLeadFile(
         rejectReasonCode = "DO_NOT_CONTACT";
       }
 
-      const suppressed = await checkSuppression(db, campaign.id, {
+      const suppressed = await checkSuppression(db, campaignChannel.id, {
         email,
         domain: account.primaryDomain ?? undefined,
         accountId: account.id,
@@ -387,7 +387,7 @@ export async function submitLeadFile(
       }
 
       if (outcome !== "failed") {
-        const talResult = await matchesTal(db, campaign.id, account.id);
+        const talResult = await matchesTal(db, campaignChannel.id, account.id);
         if (talResult === "unmatched") {
           if (campaignChannel.advisoryTalMatch) {
             if (outcome === "passed") outcome = "needsReview";

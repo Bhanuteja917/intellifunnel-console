@@ -172,7 +172,7 @@ describe("submitLeadFile — cap enforcement", () => {
   });
 
   it("does not consume any capacity for a row that fails for an unrelated reason (e.g. suppression)", async () => {
-    const { db, actor, campaignChannel, campaign, clientOrg } = await setupChannel(10);
+    const { db, actor, campaignChannel, clientOrg } = await setupChannel(10);
     const normalizedEmail = normalizeEmail("a@example.com");
     const list = await db.suppressionList.create({
       data: { ownerOrganizationId: clientOrg.id, name: "Suppress", isReusable: false, type: "custom" },
@@ -180,7 +180,7 @@ describe("submitLeadFile — cap enforcement", () => {
     await db.suppressionEntry.create({
       data: { listId: list.id, type: "email", value: normalizedEmail, valueHash: hashSuppressionValue(normalizedEmail) },
     });
-    await db.campaignSuppressionList.create({ data: { campaignId: campaign.id, listId: list.id } });
+    await db.channelSuppressionList.create({ data: { campaignChannelId: campaignChannel.id, listId: list.id } });
 
     await submitLeadFile(db, actor, {
       campaignChannelId: campaignChannel.id, sourceType: "internal",
@@ -245,7 +245,7 @@ describe("submitLeadFile — cap enforcement", () => {
     // lead's lifecycle could bind to *different* rows, driving the live row's
     // reservedCount to -1, leaking a reservation on the ended row that
     // nothing releases, and testing the wrong (old, smaller) cap at intake.
-    const { db, actor, allocActor, campaignChannel, partnerOrg, campaign, clientOrg, internalOrg } =
+    const { db, actor, allocActor, campaignChannel, partnerOrg, clientOrg, internalOrg } =
       await setupChannel(100);
 
     // Force the row to `needsReview` rather than auto-`passed`: an advisory
@@ -257,7 +257,7 @@ describe("submitLeadFile — cap enforcement", () => {
     const talList = await db.targetAccountList.create({
       data: { ownerOrganizationId: clientOrg.id, name: "TAL", isReusable: false },
     });
-    await db.campaignTargetAccountList.create({ data: { campaignId: campaign.id, listId: talList.id } });
+    await db.channelTargetAccountList.create({ data: { campaignChannelId: campaignChannel.id, listId: talList.id } });
 
     const reviewer = await createUser(db, internalOrg.id, "QUALITY");
     const reviewerActor = await loadActor(db, reviewer.id);

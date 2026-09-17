@@ -55,11 +55,6 @@ export async function cloneCampaign(
     throw new ValidationError("Clone end date precedes its start date");
   }
 
-  const [talLinks, suppressionLinks] = await Promise.all([
-    db.campaignTargetAccountList.findMany({ where: { campaignId: sourceCampaignId }, select: { listId: true } }),
-    db.campaignSuppressionList.findMany({ where: { campaignId: sourceCampaignId }, select: { listId: true } }),
-  ]);
-
   return withAudit<Campaign>(
     db,
     actor,
@@ -114,6 +109,34 @@ export async function cloneCampaign(
 
         await copyChannelSetupSteps(tx, channel.id, clonedChannel.id, actor.userId);
 
+        // Target-account/suppression list links are channel-scoped, so each
+        // cloned channel copies only the links attached to its own source
+        // channel rather than every link on the source campaign.
+        const [talLinks, suppressionLinks] = await Promise.all([
+          tx.channelTargetAccountList.findMany({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+          tx.channelSuppressionList.findMany({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+        ]);
+        for (const link of talLinks) {
+          await tx.channelTargetAccountList.create({
+            data: {
+              campaignChannelId: clonedChannel.id,
+              listId: link.listId,
+              createdById: actor.userId,
+              updatedById: actor.userId,
+            },
+          });
+        }
+        for (const link of suppressionLinks) {
+          await tx.channelSuppressionList.create({
+            data: {
+              campaignChannelId: clonedChannel.id,
+              listId: link.listId,
+              createdById: actor.userId,
+              updatedById: actor.userId,
+            },
+          });
+        }
+
         for (const criterion of channel.icpCriteria) {
           await tx.icpCriterion.create({
             data: {
@@ -144,27 +167,6 @@ export async function cloneCampaign(
             },
           });
         }
-      }
-
-      for (const link of talLinks) {
-        await tx.campaignTargetAccountList.create({
-          data: {
-            campaignId: clone.id,
-            listId: link.listId,
-            createdById: actor.userId,
-            updatedById: actor.userId,
-          },
-        });
-      }
-      for (const link of suppressionLinks) {
-        await tx.campaignSuppressionList.create({
-          data: {
-            campaignId: clone.id,
-            listId: link.listId,
-            createdById: actor.userId,
-            updatedById: actor.userId,
-          },
-        });
       }
 
       await tx.campaignStatusHistory.create({

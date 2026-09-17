@@ -617,8 +617,6 @@ model Campaign {
   clones             Campaign[]            @relation("CampaignClone")
   channels           CampaignChannel[]
   statusHistory      CampaignStatusHistory[]
-  targetAccountLists CampaignTargetAccountList[]
-  suppressionLists   CampaignSuppressionList[]
 
   @@index([clientOrganizationId, status])
   @@index([status, startDate])
@@ -698,6 +696,8 @@ model CampaignChannel {
   termsApprovals     ChannelTermsApproval[]
   pacingBuckets      ChannelPacingBucket[]
   setupSteps         ChannelSetupStep[]
+  targetAccountLists ChannelTargetAccountList[]
+  suppressionLists   ChannelSuppressionList[]
 
   @@index([campaignId])
 }
@@ -882,8 +882,8 @@ model TargetAccountList {
   createdById         String?
   updatedById         String?
 
-  entries   TargetAccountEntry[]
-  campaigns CampaignTargetAccountList[]
+  entries  TargetAccountEntry[]
+  channels ChannelTargetAccountList[]
 
   @@index([ownerOrganizationId])
 }
@@ -909,19 +909,20 @@ model TargetAccountEntry {
   @@index([accountId])
 }
 
-model CampaignTargetAccountList {
-  id          String   @id @default(cuid())
-  campaignId  String
-  listId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdById String?
-  updatedById String?
+model ChannelTargetAccountList {
+  id                String   @id @default(cuid())
+  campaignChannelId String
+  listId            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdById       String?
+  updatedById       String?
 
-  campaign Campaign          @relation(fields: [campaignId], references: [id])
-  list     TargetAccountList @relation(fields: [listId], references: [id])
+  campaignChannel CampaignChannel   @relation(fields: [campaignChannelId], references: [id])
+  list            TargetAccountList @relation(fields: [listId], references: [id])
 
-  @@unique([campaignId, listId])
+  @@unique([campaignChannelId, listId])
+  @@index([campaignChannelId])
 }
 
 enum SuppressionListType {
@@ -950,8 +951,8 @@ model SuppressionList {
   createdById         String?
   updatedById         String?
 
-  entries   SuppressionEntry[]
-  campaigns CampaignSuppressionList[]
+  entries  SuppressionEntry[]
+  channels ChannelSuppressionList[]
 
   @@index([ownerOrganizationId])
 }
@@ -975,19 +976,20 @@ model SuppressionEntry {
   @@index([listId, type, valueHash])
 }
 
-model CampaignSuppressionList {
-  id          String   @id @default(cuid())
-  campaignId  String
-  listId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdById String?
-  updatedById String?
+model ChannelSuppressionList {
+  id                String   @id @default(cuid())
+  campaignChannelId String
+  listId            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdById       String?
+  updatedById       String?
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
-  list     SuppressionList @relation(fields: [listId], references: [id])
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+  list            SuppressionList @relation(fields: [listId], references: [id])
 
-  @@unique([campaignId, listId])
+  @@unique([campaignChannelId, listId])
+  @@index([campaignChannelId])
 }
 
 enum LeadSourceType {

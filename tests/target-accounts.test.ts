@@ -173,7 +173,7 @@ describe("resolveAccountCap (PRD decisions 3 and 4)", () => {
     const { listId } = await importTargetAccountList(db, ops, {
       ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
     });
-    await attachTargetAccountList(db, manager, campaign.id, listId);
+    await attachTargetAccountList(db, manager, channel.id, listId);
 
     expect(await resolveAccountCap(db, channel.id, acme.id)).toBe(3);
   });
@@ -190,7 +190,7 @@ describe("resolveAccountCap (PRD decisions 3 and 4)", () => {
     const { listId } = await importTargetAccountList(db, ops, {
       ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
     });
-    await attachTargetAccountList(db, manager, campaign.id, listId);
+    await attachTargetAccountList(db, manager, channel.id, listId);
 
     expect(await resolveAccountCap(db, channel.id, globex.id)).toBe(5);
   });
@@ -217,23 +217,68 @@ describe("attachTargetAccountList (FR-CS-2: draft-only mutations)", () => {
     await seedChannelTypes(db);
   });
 
-  it("rejects attachment when campaign is not in draft status", async () => {
+  it("rejects attachment when the channel is not in draft status", async () => {
     const { db, ops, manager, client } = await setup();
     const campaign = await createCampaign(db, manager, {
       clientOrganizationId: client.id, name: "C", code: "DRAFT-CHECK",
       startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
     });
+    const channel = await createChannelForCampaign(db, campaign.id);
     const { listId } = await importTargetAccountList(db, ops, {
       ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
     });
 
-    // Move campaign out of draft status
-    await db.campaign.update({
-      where: { id: campaign.id },
-      data: { status: "live" },
-    });
+    await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
 
-    // Attempt to attach should fail
-    await expect(attachTargetAccountList(db, manager, campaign.id, listId)).rejects.toThrow(ValidationError);
+    await expect(attachTargetAccountList(db, manager, channel.id, listId)).rejects.toThrow(ValidationError);
+  });
+});
+
+describe("channel scoping (regression guard)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    const db = testDb();
+    await seedRoles(db);
+    await seedFunnelStages(db);
+    await seedChannelTypes(db);
+  });
+
+  it("does not leak a list attached to one channel onto a sibling channel", async () => {
+    const { db, ops, manager, client } = await setup();
+    const acme = await createAccount(db, ops, { name: "Acme", domain: "acme.com", country: "US" });
+    const campaign = await createCampaign(db, manager, {
+      clientOrganizationId: client.id, name: "C", code: "ISO-1",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+    });
+    const channelA = await createChannelForCampaign(db, campaign.id);
+    const channelB = await createChannelForCampaign(db, campaign.id);
+    const { listId } = await importTargetAccountList(db, ops, {
+      ownerOrganizationId: client.id, name: "TAL", content: CSV, mapping: MAPPING,
+    });
+    await attachTargetAccountList(db, manager, channelA.id, listId);
+
+    expect(await resolveAccountCap(db, channelA.id, acme.id)).toBe(3);
+    expect(await resolveAccountCap(db, channelB.id, acme.id)).toBeNull();
+  });
+
+  it("replaces the channel's list rather than accumulating a second one on re-upload", async () => {
+    const { db, ops, manager, client } = await setup();
+    const campaign = await createCampaign(db, manager, {
+      clientOrganizationId: client.id, name: "C", code: "ISO-2",
+      startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"), currency: "USD",
+    });
+    const channel = await createChannelForCampaign(db, campaign.id);
+    const first = await importTargetAccountList(db, ops, {
+      ownerOrganizationId: client.id, name: "First", content: CSV, mapping: MAPPING,
+    });
+    await attachTargetAccountList(db, manager, channel.id, first.listId);
+    const second = await importTargetAccountList(db, ops, {
+      ownerOrganizationId: client.id, name: "Second", content: CSV, mapping: MAPPING,
+    });
+    await attachTargetAccountList(db, manager, channel.id, second.listId);
+
+    const links = await db.channelTargetAccountList.findMany({ where: { campaignChannelId: channel.id } });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.listId).toBe(second.listId);
   });
 });
