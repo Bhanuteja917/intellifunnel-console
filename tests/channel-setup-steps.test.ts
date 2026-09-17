@@ -89,14 +89,14 @@ describe("seedChannelSetupSteps", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("refuses an override for a deferred step", async () => {
+  it("allows an override for suppressionList", async () => {
     const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
 
-    await expect(
-      seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
-        { stepKey: "suppressionList", requirement: "required" },
-      ]),
-    ).rejects.toBeInstanceOf(ValidationError);
+    await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId), [
+      { stepKey: "suppressionList", requirement: "required" },
+    ]);
+
+    expect(await keysFor(fx.channelId)).toContain("suppressionList");
   });
 });
 
@@ -141,13 +141,13 @@ describe("addChannelSetupStep", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("refuses a deferred step", async () => {
+  it("allows adding targetAccountList", async () => {
     const fx = await createChannelFixture(testDb(), { skipSetupSteps: true });
     await seedChannelSetupSteps(testDb(), fx.channelId, await definitionFor(fx.channelId));
 
-    await expect(
-      addChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "targetAccountList"),
-    ).rejects.toBeInstanceOf(ValidationError);
+    await addChannelSetupStep(testDb(), fx.adminActor, fx.channelId, "targetAccountList");
+
+    expect(await keysFor(fx.channelId)).toContain("targetAccountList");
   });
 
   it("refuses a step that does not apply to the channel type", async () => {

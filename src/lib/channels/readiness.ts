@@ -69,10 +69,17 @@ export async function loadChannelFacts(db: Db, campaignChannelId: string): Promi
     select: { contractedQuantity: true, clientUnitPriceMinor: true },
   });
 
-  const [icpCount, emailSpec, activePlacementCount] = await Promise.all([
+  const [icpCount, emailSpec, activePlacementCount, talLink, suppressionLink] = await Promise.all([
     db.icpCriterion.count({ where: { campaignChannelId } }),
     db.leadFieldSpec.findFirst({ where: { campaignChannelId, fieldKey: "email" }, select: { id: true } }),
     db.assetPlacement.count({ where: { campaignChannelId, status: "active" } }),
+    db.channelTargetAccountList.findFirst({ where: { campaignChannelId }, select: { listId: true } }),
+    db.channelSuppressionList.findFirst({ where: { campaignChannelId }, select: { listId: true } }),
+  ]);
+
+  const [targetAccountCount, suppressionCount] = await Promise.all([
+    talLink === null ? Promise.resolve(0) : db.targetAccountEntry.count({ where: { listId: talLink.listId } }),
+    suppressionLink === null ? Promise.resolve(0) : db.suppressionEntry.count({ where: { listId: suppressionLink.listId } }),
   ]);
 
   return {
@@ -80,6 +87,10 @@ export async function loadChannelFacts(db: Db, campaignChannelId: string): Promi
     icpCount,
     hasEmailSpec: emailSpec !== null,
     activePlacementCount,
+    hasTargetAccountList: talLink !== null,
+    targetAccountCount,
+    hasSuppressionList: suppressionLink !== null,
+    suppressionCount,
   };
 }
 

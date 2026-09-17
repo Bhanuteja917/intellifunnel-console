@@ -24,6 +24,10 @@ const facts = {
   icpCount: 0,
   hasEmailSpec: false,
   activePlacementCount: 0,
+  hasTargetAccountList: false,
+  targetAccountCount: 0,
+  hasSuppressionList: false,
+  suppressionCount: 0,
 };
 
 describe("STEP_CATALOG", () => {
@@ -31,11 +35,8 @@ describe("STEP_CATALOG", () => {
     expect(STEP_CATALOG.filter((e) => e.locked).map((e) => e.key)).toEqual(["channelTerms"]);
   });
 
-  it("marks the two deferred list steps unavailable", () => {
-    expect(STEP_CATALOG.filter((e) => !e.available).map((e) => e.key)).toEqual([
-      "targetAccountList",
-      "suppressionList",
-    ]);
+  it("has no unavailable entries", () => {
+    expect(STEP_CATALOG.filter((e) => !e.available)).toEqual([]);
   });
 
   it("gives every entry a unique key", () => {
@@ -63,7 +64,7 @@ describe("seedPlan", () => {
     expect(plan.map((s) => s.stepKey)).not.toContain("placement");
   });
 
-  it("never seeds a deferred step", () => {
+  it("never auto-seeds the target account or suppression list steps", () => {
     const plan = seedPlan(definition());
     expect(plan.map((s) => s.stepKey)).not.toContain("targetAccountList");
     expect(plan.map((s) => s.stepKey)).not.toContain("suppressionList");
@@ -102,8 +103,11 @@ describe("isDone", () => {
     expect(catalogEntry("placement")?.isDone({ ...facts, activePlacementCount: 1 })).toBe(true);
   });
 
-  it("never completes a deferred step", () => {
-    expect(catalogEntry("suppressionList")?.isDone({ ...facts, icpCount: 9 })).toBe(false);
+  it("completes targetAccountList and suppressionList from their own facts", () => {
+    expect(catalogEntry("targetAccountList")?.isDone({ ...facts, hasTargetAccountList: true })).toBe(true);
+    expect(catalogEntry("targetAccountList")?.isDone(facts)).toBe(false);
+    expect(catalogEntry("suppressionList")?.isDone({ ...facts, hasSuppressionList: true })).toBe(true);
+    expect(catalogEntry("suppressionList")?.isDone(facts)).toBe(false);
   });
 });
 
@@ -118,6 +122,15 @@ describe("href", () => {
     expect(catalogEntry("icp")?.href("cam1", "ch1")).toBe("/campaigns/cam1/channels/ch1?tab=terms");
     expect(catalogEntry("leadSpec")?.href("cam1", "ch1")).toBe(
       "/campaigns/cam1/channels/ch1?tab=terms",
+    );
+  });
+
+  it("points the list steps at the lists tab", () => {
+    expect(catalogEntry("targetAccountList")?.href("cam1", "ch1")).toBe(
+      "/campaigns/cam1/channels/ch1?tab=lists",
+    );
+    expect(catalogEntry("suppressionList")?.href("cam1", "ch1")).toBe(
+      "/campaigns/cam1/channels/ch1?tab=lists",
     );
   });
 });

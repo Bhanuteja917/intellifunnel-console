@@ -9,6 +9,10 @@ const facts = (overrides: Partial<ChannelFacts> = {}): ChannelFacts => ({
   icpCount: 0,
   hasEmailSpec: false,
   activePlacementCount: 0,
+  hasTargetAccountList: false,
+  targetAccountCount: 0,
+  hasSuppressionList: false,
+  suppressionCount: 0,
   ...overrides,
 });
 

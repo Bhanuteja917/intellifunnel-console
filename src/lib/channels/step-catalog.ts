@@ -8,6 +8,10 @@ export type ChannelFacts = {
   icpCount: number;
   hasEmailSpec: boolean;
   activePlacementCount: number;
+  hasTargetAccountList: boolean;
+  targetAccountCount: number;
+  hasSuppressionList: boolean;
+  suppressionCount: number;
 };
 
 export type CatalogEntry = {
@@ -80,24 +84,24 @@ export const STEP_CATALOG: readonly CatalogEntry[] = [
     title: "Attach a target account list",
     hint: "Accounts this channel may deliver against",
     cta: "Attach list",
-    href: tab("terms"),
+    href: tab("lists"),
     locked: false,
-    available: false,
+    available: true,
     applies: () => true,
     seedDefault: () => null,
-    isDone: () => false,
+    isDone: (f) => f.hasTargetAccountList,
   },
   {
     key: "suppressionList",
     title: "Attach a suppression list",
     hint: "Accounts, domains and contacts this channel must never deliver",
     cta: "Attach list",
-    href: tab("terms"),
+    href: tab("lists"),
     locked: false,
-    available: false,
+    available: true,
     applies: () => true,
     seedDefault: () => null,
-    isDone: () => false,
+    isDone: (f) => f.hasSuppressionList,
   },
 ];
 
