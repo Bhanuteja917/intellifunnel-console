@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { PrismaClient, SuppressionEntryType, SuppressionListType } from "@prisma/client";
+import Papa from "papaparse";
 import {
   assertOrganizationAccess,
   assertPermission,
@@ -7,6 +8,7 @@ import {
 } from "@/lib/auth/permissions";
 import { withAudit } from "@/lib/audit/audit";
 import { requireEnv } from "@/lib/env";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { applyMapping, parseDelimited, type RowError } from "@/lib/lists/csv";
 import { normalizeDomain } from "@/lib/normalise/domain";
 import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
@@ -186,6 +188,182 @@ export async function attachSuppressionList(
       });
     },
   );
+}
+
+export async function detachSuppressionList(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<void> {
+  assertPermission(actor, "campaign:write");
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  await withAudit(
+    db,
+    actor,
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "detachSuppressionList" },
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+      await tx.channelSuppressionList.deleteMany({ where: { campaignChannelId } });
+    },
+  );
+}
+
+export type AddSuppressionEntryInput = { type: SuppressionEntryType; value: string };
+
+/**
+ * Manual counterpart to `importSuppressionList`'s per-row loop, one entry at
+ * a time. Requires both `list:write` (it may create a list) and
+ * `campaign:write` (it mutates channel-scoped state).
+ */
+export async function addSuppressionEntry(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  input: AddSuppressionEntryInput,
+): Promise<{ entryId: string }> {
+  assertPermission(actor, "list:write");
+  assertPermission(actor, "campaign:write");
+  const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  const rawValue = input.value.trim();
+  let value: string;
+  let accountId: string | undefined;
+
+  if (input.type === "account") {
+    const match = await resolveAccount(db, { domain: rawValue });
+    if (match.status !== "matched") {
+      throw new ValidationError(`Could not resolve account for suppression: ${rawValue}`);
+    }
+    value = normalizeDomain(rawValue) ?? rawValue;
+    accountId = match.accountId;
+  } else {
+    const normalized =
+      input.type === "email" || input.type === "contact" ? normalizeEmail(rawValue) : normalizeDomain(rawValue);
+    if (normalized === null) throw new ValidationError(`Could not normalise value: ${rawValue}`);
+    value = normalized;
+  }
+
+  return withAudit(
+    db,
+    actor,
+    (result: { entryId: string }) => ({
+      entityType: "CampaignChannel",
+      entityId: campaignChannelId,
+      action: "addSuppressionEntry",
+      after: { entryId: result.entryId },
+    }),
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+
+      let link = await tx.channelSuppressionList.findFirst({ where: { campaignChannelId } });
+      if (link === null) {
+        const list = await tx.suppressionList.create({
+          data: {
+            ownerOrganizationId: channel.campaign.clientOrganizationId,
+            name: "Manual entries",
+            type: "custom",
+            createdById: actor.userId,
+            updatedById: actor.userId,
+          },
+        });
+        link = await tx.channelSuppressionList.create({
+          data: { campaignChannelId, listId: list.id, createdById: actor.userId, updatedById: actor.userId },
+        });
+      }
+
+      const entry = await tx.suppressionEntry.upsert({
+        where: { listId_type_value: { listId: link.listId, type: input.type, value } },
+        update: {},
+        create: {
+          listId: link.listId,
+          type: input.type,
+          value,
+          valueHash: hashSuppressionValue(value),
+          accountId,
+          createdById: actor.userId,
+          updatedById: actor.userId,
+        },
+      });
+      return { entryId: entry.id };
+    },
+  );
+}
+
+export async function removeSuppressionEntry(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  entryId: string,
+): Promise<void> {
+  assertPermission(actor, "campaign:write");
+  await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+
+  await withAudit(
+    db,
+    actor,
+    { entityType: "CampaignChannel", entityId: campaignChannelId, action: "removeSuppressionEntry", after: { entryId } },
+    async (tx) => {
+      await assertChannelDraftAndAccessible(tx, actor, campaignChannelId);
+      const link = await tx.channelSuppressionList.findFirst({ where: { campaignChannelId } });
+      if (link === null) throw new NotFoundError("No suppression list attached to this channel");
+      const entry = await tx.suppressionEntry.findUnique({ where: { id: entryId } });
+      if (entry === null || entry.listId !== link.listId) {
+        throw new NotFoundError("Suppression entry not found on this channel");
+      }
+      await tx.suppressionEntry.delete({ where: { id: entryId } });
+    },
+  );
+}
+
+export async function exportSuppressionListCsv(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+): Promise<string | null> {
+  assertPermission(actor, "campaign:read");
+  const channel = await db.campaignChannel.findUnique({
+    where: { id: campaignChannelId },
+    select: { campaign: { select: { clientOrganizationId: true } } },
+  });
+  if (channel === null) throw new NotFoundError("Channel not found");
+  assertOrganizationAccess(actor, channel.campaign.clientOrganizationId);
+
+  const link = await db.channelSuppressionList.findFirst({ where: { campaignChannelId } });
+  if (link === null) return null;
+
+  const entries = await db.suppressionEntry.findMany({
+    where: { listId: link.listId },
+    orderBy: { createdAt: "asc" },
+  });
+  // Never export valueHash — it exists for post-anonymisation matching
+  // (FR-CP-6), not for a client-facing download.
+  return Papa.unparse(entries.map((e) => ({ type: e.type, value: e.value })));
+}
+
+export type ImportAndAttachSuppressionInput = {
+  name: string;
+  type: SuppressionListType;
+  content: string;
+  mapping: Record<string, string>;
+};
+
+export async function importAndAttachSuppressionList(
+  db: PrismaClient,
+  actor: Actor,
+  campaignChannelId: string,
+  input: ImportAndAttachSuppressionInput,
+): Promise<ImportResult> {
+  const channel = await assertChannelDraftAndAccessible(db, actor, campaignChannelId);
+  const result = await importSuppressionList(db, actor, {
+    ownerOrganizationId: channel.campaign.clientOrganizationId,
+    name: input.name,
+    type: input.type,
+    content: input.content,
+    mapping: input.mapping,
+  });
+  await attachSuppressionList(db, actor, campaignChannelId, result.listId);
+  return result;
 }
 
 export async function isSuppressed(
