@@ -64,6 +64,8 @@ export type ClientChannelDetail = {
   timeZone: string;
   deliveryConfig: ChannelDeliveryConfig;
   deliveryRuns: ChannelDeliveryRun[];
+  targetAccountList: { rowCount: number; downloadUrl: string } | null;
+  suppressionList: { rowCount: number; downloadUrl: string } | null;
 };
 
 /**
@@ -138,6 +140,15 @@ export async function getClientChannelDetail(
     comments: d.comments,
   }));
 
+  const [talLink, suppressionLink] = await Promise.all([
+    db.channelTargetAccountList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+    db.channelSuppressionList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+  ]);
+  const [targetAccountCount, suppressionCount] = await Promise.all([
+    talLink === null ? Promise.resolve(0) : db.targetAccountEntry.count({ where: { listId: talLink.listId } }),
+    suppressionLink === null ? Promise.resolve(0) : db.suppressionEntry.count({ where: { listId: suppressionLink.listId } }),
+  ]);
+
   const pacingBuckets = await db.channelPacingBucket.findMany({
     where: { campaignChannelId: channel.id },
     orderBy: { periodStart: "asc" },
@@ -202,5 +213,13 @@ export async function getClientChannelDetail(
             fieldMapping: deliveryConfigRow.fieldMappingJson,
           },
     deliveryRuns: deliveryRunRows,
+    targetAccountList:
+      talLink === null
+        ? null
+        : { rowCount: targetAccountCount, downloadUrl: `/api/client/campaigns/${campaignId}/channels/${channelId}/target-accounts/export` },
+    suppressionList:
+      suppressionLink === null
+        ? null
+        : { rowCount: suppressionCount, downloadUrl: `/api/client/campaigns/${campaignId}/channels/${channelId}/suppression-list/export` },
   };
 }

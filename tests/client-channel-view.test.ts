@@ -8,6 +8,8 @@ import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { decideChannelApproval } from "@/lib/approvals/decisions";
 import { getClientChannelDetail } from "@/lib/approvals/client-channel-view";
+import { addTargetAccountEntry } from "@/lib/lists/target-accounts";
+import { addSuppressionEntry } from "@/lib/lists/suppression";
 
 describe("client channel detail read model", () => {
   beforeEach(async () => {
@@ -95,5 +97,27 @@ describe("client channel detail read model", () => {
     await expect(
       getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId),
     ).rejects.toThrow();
+  });
+
+  it("includes target-account and suppression list summaries when attached, null otherwise", async () => {
+    const db = testDb();
+    const fx = await createChannelFixture(db, { requiresAsset: false, campaignStatus: "pending" });
+
+    const withoutLists = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
+    expect(withoutLists.targetAccountList).toBeNull();
+    expect(withoutLists.suppressionList).toBeNull();
+
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+
+    const withLists = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
+    expect(withLists.targetAccountList).toEqual({
+      rowCount: 1,
+      downloadUrl: `/api/client/campaigns/${fx.campaignId}/channels/${fx.channelId}/target-accounts/export`,
+    });
+    expect(withLists.suppressionList).toEqual({
+      rowCount: 1,
+      downloadUrl: `/api/client/campaigns/${fx.campaignId}/channels/${fx.channelId}/suppression-list/export`,
+    });
   });
 });
