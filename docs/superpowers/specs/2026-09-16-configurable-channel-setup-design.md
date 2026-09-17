@@ -313,13 +313,12 @@ impression-only channel.
 
 ## Follow-up spec
 
-Target-account-list and suppression-list support, covering: a list index and CSV
-upload UI over the existing `importTargetAccountList` and
-`importSuppressionList`; `ChannelTargetAccountList` and `ChannelSuppressionList`
-join tables; unioning channel links with campaign links inside `isSuppressed`
-(`lib/lists/suppression.ts`) and `matchesTal` (`lib/leads/matching.ts`), both of
-which gain a `campaignChannelId` parameter; and flipping `available` to true for
-the two deferred catalog entries.
-
-Union, not override: a channel may add suppression entries but never weaken the
-campaign's. `matchesTal` returns `"noList"` only when both tiers are empty.
+Target-account-list and suppression-list support, flipping `available` to true
+for the two deferred catalog entries, is covered by
+[2026-09-17-channel-target-suppression-lists-design.md](./2026-09-17-channel-target-suppression-lists-design.md).
+That spec **supersedes** the two-tier sketch originally written here (a
+campaign-level baseline unioned with new channel-level tables): the
+campaign-level tables turned out to have zero UI and zero rows in every
+environment, so there was no baseline to preserve. It re-keys the existing
+`CampaignTargetAccountList`/`CampaignSuppressionList` tables to the channel
+directly instead of adding a second tier alongside them.
