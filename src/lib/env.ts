@@ -14,9 +14,9 @@
  * Deliberately not required:
  *   DIRECT_URL             migrations only, and prisma.config.ts already fails
  *                          loudly without it
- *   EMAIL_PROVIDER_URL, EMAIL_PROVIDER_API_KEY, EMAIL_FROM
- *                          absent or empty means "log instead of send", the
- *                          local development mode
+ *   RESEND_API_KEY, EMAIL_FROM
+ *                          absent or empty RESEND_API_KEY means "log instead
+ *                          of send", the local development mode
  *   WORKER_INTERVAL_MS     defaulted by the worker
  */
 export function requireEnv(name: string): string {

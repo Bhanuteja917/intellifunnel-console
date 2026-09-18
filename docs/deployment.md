@@ -50,7 +50,7 @@ Optional:
 | Variable | Default behaviour |
 |---|---|
 | `DIRECT_URL` | required by `prisma migrate`/`prisma db` only, which fail loudly without it |
-| `EMAIL_PROVIDER_URL`, `EMAIL_PROVIDER_API_KEY`, `EMAIL_FROM` | an absent or empty API key means emails are logged, not sent |
+| `RESEND_API_KEY`, `EMAIL_FROM` (Resend) | an absent or empty API key means emails are logged, not sent |
 | `WORKER_INTERVAL_MS` | 60000 |
 
 No environment-specific code paths exist; behaviour differences come from these values only.
