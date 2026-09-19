@@ -20,7 +20,6 @@ export type Permission =
   | "user:manageRoles"
   | "account:read"
   | "account:write"
-  | "account:merge"
   | "channelType:read"
   | "channelType:write"
   | "channelType:publish"
@@ -32,8 +31,6 @@ export type Permission =
   | "campaign:clone"
   | "list:read"
   | "list:write"
-  | "exchangeRate:write"
-  | "setting:write"
   | "audit:read"
   | "lead:read"
   | "lead:write"
@@ -72,7 +69,7 @@ const MATRIX: Readonly<Record<RoleCode, readonly Permission[]>> = {
     "user:invite",
     "account:read", "campaign:read", "list:read", "report:read",
   ],
-  FINANCE: ["campaign:read", "exchangeRate:write", "audit:read", "report:read"],
+  FINANCE: ["campaign:read", "audit:read", "report:read"],
   CLIENT_ADMIN: [...CLIENT_READ, "campaign:approveClient", "user:invite", "list:write"],
   CLIENT_VIEWER: [...CLIENT_READ],
   PARTNER_ADMIN: ["campaign:read", "user:invite", "allocation:read"],
@@ -165,6 +162,9 @@ export async function loadActor(db: PrismaClient, userId: string): Promise<Actor
   });
 
   if (user === null || user.deletedAt !== null) throw new ForbiddenError("Unknown user");
+  if (user.status === "suspended") {
+    throw new ForbiddenError("Your account is suspended. Contact your admin for access.");
+  }
   if (user.status !== "active") throw new ForbiddenError("User is not active");
   if (user.organization.status !== "active") throw new ForbiddenError("Organisation is not active");
 

@@ -59,7 +59,7 @@ describe("normalizeCompanyName", () => {
 describe("normalizePhone", () => {
   it.each([
     // A bare 10-digit number gets the platform's default country code (+91,
-    // India — see SETTING_DEFAULTS); an explicit "+" prefix always wins.
+    // India — see SETTINGS); an explicit "+" prefix always wins.
     ["9876543210", "+919876543210"],
     ["98765 43210", "+919876543210"],
     ["987-654-3210", "+919876543210"],

@@ -33,9 +33,19 @@ export function SignInForm() {
       // in the partner portal, a client-portal user lands in the client
       // portal; everyone else (admin today) keeps the existing default.
       const portalResult = await getPostSignInPortalAction();
-      if (portalResult.ok && portalResult.data.portal === "partner") {
+      if (!portalResult.ok) {
+        // Credentials were valid (signIn.email above succeeded), so this is
+        // a post-auth rejection — e.g. a suspended account. The message is
+        // safe to show verbatim: it can't be used to enumerate addresses,
+        // since it's only reached after a real password match.
+        await authClient.signOut();
+        setError(portalResult.error);
+        return;
+      }
+
+      if (portalResult.data.portal === "partner") {
         router.push("/partner");
-      } else if (portalResult.ok && portalResult.data.portal === "client") {
+      } else if (portalResult.data.portal === "client") {
         router.push("/client");
       } else {
         router.push("/campaigns");

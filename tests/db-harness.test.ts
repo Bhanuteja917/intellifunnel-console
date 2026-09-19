@@ -6,16 +6,16 @@ describe("test database harness", () => {
 
   it("applies migrations and round-trips a row", async () => {
     const db = testDb();
-    await db.platformSetting.create({
-      data: { key: "reportingCurrency", valueJson: "INR" },
+    await db.auditLog.create({
+      data: { entityType: "Harness", entityId: "1", action: "create" },
     });
-    const found = await db.platformSetting.findUnique({
-      where: { key: "reportingCurrency" },
+    const found = await db.auditLog.findFirst({
+      where: { entityType: "Harness" },
     });
-    expect(found?.valueJson).toBe("INR");
+    expect(found?.action).toBe("create");
   });
 
   it("truncates between tests", async () => {
-    expect(await testDb().platformSetting.count()).toBe(0);
+    expect(await testDb().auditLog.count()).toBe(0);
   });
 });

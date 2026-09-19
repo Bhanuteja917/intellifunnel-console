@@ -124,17 +124,17 @@ describe("cloneCampaign (E3)", () => {
 
   it("copies attached target account and suppression list links", async () => {
     const { db, manager, campaign, client, sourceChannel } = await configuredCampaign("CLONE-SRC-3");
-    const list = await db.targetAccountList.create({
-      data: { ownerOrganizationId: client.id, name: "TAL" },
+    const list = await db.list.create({
+      data: { ownerOrganizationId: client.id, name: "TAL", type: "targetAccounts" },
     });
-    await db.channelTargetAccountList.create({ data: { campaignChannelId: sourceChannel.id, listId: list.id } });
+    await db.channelList.create({ data: { campaignChannelId: sourceChannel.id, listId: list.id } });
 
     const clone = await cloneCampaign(db, manager, campaign.id, {
       code: "CLONE-3", startDate: new Date("2027-01-01"), endDate: new Date("2027-03-31"),
     });
 
     const clonedChannel = await db.campaignChannel.findFirstOrThrow({ where: { campaignId: clone.id } });
-    const links = await db.channelTargetAccountList.findMany({ where: { campaignChannelId: clonedChannel.id } });
+    const links = await db.channelList.findMany({ where: { campaignChannelId: clonedChannel.id } });
     expect(links.map((l) => l.listId)).toEqual([list.id]);
   });
 

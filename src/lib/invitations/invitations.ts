@@ -73,7 +73,7 @@ export async function createInvitation(
   const pending = await db.invitation.findFirst({ where: { email, status: "pending" } });
   if (pending !== null) throw new ConflictError(`${email} already has a pending invitation`);
 
-  const expiryDays = await getSetting(db, "invitationExpiryDays");
+  const expiryDays = getSetting("invitationExpiryDays");
   const token = newToken();
 
   const invitation = await withAudit<Invitation>(
@@ -137,7 +137,7 @@ export async function resendInvitation(
     throw new ValidationError(`Cannot resend a ${existing.status} invitation`);
   }
 
-  const expiryDays = await getSetting(db, "invitationExpiryDays");
+  const expiryDays = getSetting("invitationExpiryDays");
   const token = newToken();
 
   // AUTH-5: a resend issues a new token and invalidates the old one, which is

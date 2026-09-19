@@ -59,10 +59,10 @@ export default async function LeadReviewPage({
   // for display only, never persisted from this page. The decision actions
   // (acceptLeadAction/rejectLeadAction) recompute and persist their own SLA
   // snapshot at the moment of decision.
-  const sla = await computeVerificationSla(db, {
+  const sla = computeVerificationSla({
     createdAt: lead.createdAt,
     asOf: new Date(),
-    allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
+    allowedBusinessDays: resolveAllowedBusinessDays(lead.campaignChannel.channelTypeVersion),
   });
 
   // `fieldValuesJson` is a flat Record<string, string> keyed by canonical

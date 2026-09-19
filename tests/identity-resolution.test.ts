@@ -40,17 +40,6 @@ describe("resolveAccount (FR-ID-1)", () => {
     expect(match).toEqual({ status: "matched", accountId: acme.id, matchedOn: "nameCountry" });
   });
 
-  it("falls back to alias", async () => {
-    const db = testDb();
-    const actor = await opsActor();
-    const acme = await createAccount(db, actor, { name: "Acme Corporation", domain: "acme.com", country: "US" });
-    await db.accountAlias.create({ data: { accountId: acme.id, value: "acmeco.com", type: "domain" } });
-
-    const match = await resolveAccount(db, { domain: "www.acmeco.com" });
-
-    expect(match).toEqual({ status: "matched", accountId: acme.id, matchedOn: "alias" });
-  });
-
   it("flags ambiguity rather than guessing (FR-ID-2)", async () => {
     const db = testDb();
     const actor = await opsActor();
@@ -70,15 +59,6 @@ describe("resolveAccount (FR-ID-1)", () => {
       .toEqual({ status: "unmatched" });
   });
 
-  it("never matches a merged-away account", async () => {
-    const db = testDb();
-    const actor = await opsActor();
-    const survivor = await createAccount(db, actor, { name: "Survivor", domain: "survivor.com" });
-    const merged = await createAccount(db, actor, { name: "Merged", domain: "merged.com" });
-    await db.account.update({ where: { id: merged.id }, data: { mergedIntoId: survivor.id } });
-
-    expect(await resolveAccount(db, { domain: "merged.com" })).toEqual({ status: "unmatched" });
-  });
 });
 
 describe("upsertContact (FR-ID-3)", () => {

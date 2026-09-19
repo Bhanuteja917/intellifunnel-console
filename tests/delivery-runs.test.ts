@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { listDeliveryRunsForChannel, retryDeliveryRun } from "@/lib/delivery/runs";
@@ -52,7 +51,6 @@ describe("delivery runs", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("lists runs for a channel to a delivery:read actor, denies one without it", async () => {

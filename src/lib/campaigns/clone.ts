@@ -109,25 +109,15 @@ export async function cloneCampaign(
 
         await copyChannelSetupSteps(tx, channel.id, clonedChannel.id, actor.userId);
 
-        // Target-account/suppression list links are channel-scoped, so each
-        // cloned channel copies only the links attached to its own source
-        // channel rather than every link on the source campaign.
-        const [talLinks, suppressionLinks] = await Promise.all([
-          tx.channelTargetAccountList.findMany({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
-          tx.channelSuppressionList.findMany({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
-        ]);
-        for (const link of talLinks) {
-          await tx.channelTargetAccountList.create({
-            data: {
-              campaignChannelId: clonedChannel.id,
-              listId: link.listId,
-              createdById: actor.userId,
-              updatedById: actor.userId,
-            },
-          });
-        }
-        for (const link of suppressionLinks) {
-          await tx.channelSuppressionList.create({
+        // List links are channel-scoped, so each cloned channel copies only
+        // the links attached to its own source channel rather than every
+        // link on the source campaign.
+        const listLinks = await tx.channelList.findMany({
+          where: { campaignChannelId: channel.id },
+          select: { listId: true },
+        });
+        for (const link of listLinks) {
+          await tx.channelList.create({
             data: {
               campaignChannelId: clonedChannel.id,
               listId: link.listId,

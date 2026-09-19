@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { createInvitation, resendInvitation, revokeInvitation } from "@/lib/invitations/invitations";
-import { archiveOrganization, createOrganization, unarchiveOrganization, type CreateOrganizationInput } from "@/lib/organizations/crud";
+import {
+  archiveOrganization,
+  createOrganization,
+  unarchiveOrganization,
+  updateOrganization,
+  type CreateOrganizationInput,
+  type UpdateOrganizationInput,
+} from "@/lib/organizations/crud";
 import { deleteUser, updateUser, type UpdateUserInput } from "@/lib/users/crud";
 import type { RoleCode } from "@/lib/auth/permissions";
 
@@ -16,6 +23,18 @@ export async function createOrganizationAction(
     const organization = await createOrganization(db, actor, input);
     revalidatePath("/organizations");
     return { id: organization.id };
+  });
+}
+
+export async function updateOrganizationAction(
+  organizationId: string,
+  input: UpdateOrganizationInput,
+): Promise<ActionResult<null>> {
+  return toActionResult(async () => {
+    const actor = await requireActor();
+    await updateOrganization(db, actor, organizationId, input);
+    revalidatePath(`/organizations/${organizationId}`);
+    return null;
   });
 }
 

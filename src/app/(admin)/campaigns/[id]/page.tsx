@@ -53,7 +53,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   const canReadAllocations = hasPermission(actor, "allocation:read");
   const canReadDelivery = hasPermission(actor, "delivery:read");
 
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
 
   const now = new Date();
   const readiness = await Promise.all(

@@ -3,14 +3,11 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedRejectReasons } from "../prisma/seed/reject-reasons";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { createAllocation } from "@/lib/allocations/crud";
 import { submitLeadFile } from "@/lib/leads/intake";
 import { decideLeadVerification } from "@/lib/leads/verification";
-import { normalizeEmail } from "@/lib/normalise/email";
-import { hashSuppressionValue } from "@/lib/lists/suppression";
 
 async function setupChannel(contractedQuantity = 100) {
   const db = testDb();
@@ -78,7 +75,6 @@ describe("submitLeadFile — cap enforcement", () => {
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
     await seedRejectReasons(testDb());
-    await seedSettings(testDb());
   });
 
   it("rejects a row with ALLOCATION_CAP_EXCEEDED once the allocation is full", async () => {
@@ -173,14 +169,18 @@ describe("submitLeadFile — cap enforcement", () => {
 
   it("does not consume any capacity for a row that fails for an unrelated reason (e.g. suppression)", async () => {
     const { db, actor, campaignChannel, clientOrg } = await setupChannel(10);
-    const normalizedEmail = normalizeEmail("a@example.com");
-    const list = await db.suppressionList.create({
-      data: { ownerOrganizationId: clientOrg.id, name: "Suppress", isReusable: false, type: "custom" },
+    // Suppression matches on the resolved account's domain, i.e. csvRow's
+    // `companyDomain` column ("a.com" for "a@example.com") — not the email's
+    // own domain ("example.com"), since `checkSuppression` is called with
+    // `account.primaryDomain` set.
+    const domain = "a.com";
+    const list = await db.list.create({
+      data: { ownerOrganizationId: clientOrg.id, name: "Suppress", isReusable: false, type: "suppression" },
     });
-    await db.suppressionEntry.create({
-      data: { listId: list.id, type: "email", value: normalizedEmail, valueHash: hashSuppressionValue(normalizedEmail) },
+    await db.listEntry.create({
+      data: { listId: list.id, accountRawDomain: domain, accountNormalizedDomain: domain },
     });
-    await db.channelSuppressionList.create({ data: { campaignChannelId: campaignChannel.id, listId: list.id } });
+    await db.channelList.create({ data: { campaignChannelId: campaignChannel.id, listId: list.id } });
 
     await submitLeadFile(db, actor, {
       campaignChannelId: campaignChannel.id, sourceType: "internal",
@@ -254,10 +254,10 @@ describe("submitLeadFile — cap enforcement", () => {
     // it is also the state that leaves a *reservation* behind at intake —
     // exactly the counter this regression is about.
     await db.campaignChannel.update({ where: { id: campaignChannel.id }, data: { advisoryTalMatch: true } });
-    const talList = await db.targetAccountList.create({
-      data: { ownerOrganizationId: clientOrg.id, name: "TAL", isReusable: false },
+    const talList = await db.list.create({
+      data: { ownerOrganizationId: clientOrg.id, name: "TAL", isReusable: false, type: "targetAccounts" },
     });
-    await db.channelTargetAccountList.create({ data: { campaignChannelId: campaignChannel.id, listId: talList.id } });
+    await db.channelList.create({ data: { campaignChannelId: campaignChannel.id, listId: talList.id } });
 
     const reviewer = await createUser(db, internalOrg.id, "QUALITY");
     const reviewerActor = await loadActor(db, reviewer.id);

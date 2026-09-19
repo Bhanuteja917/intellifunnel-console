@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import {
@@ -12,6 +11,7 @@ import {
   revokeInvitation,
 } from "@/lib/invitations/invitations";
 import { ConflictError, ForbiddenError, ValidationError } from "@/lib/errors";
+import { deleteUser } from "@/lib/users/crud";
 
 // acceptInvitation creates the Better Auth credential via `auth.$context`'s
 // `internalAdapter.createUser` + `linkAccount` (not the public-signup-gated
@@ -55,7 +55,6 @@ describe("invitations", () => {
   beforeEach(async () => {
     await resetDb();
     await seedRoles(testDb());
-    await seedSettings(testDb());
     createAuthUser.mockClear();
     linkAuthAccount.mockClear();
     hashAuthPassword.mockClear();
@@ -287,5 +286,20 @@ describe("invitations", () => {
         email: "taken@acme.com", organizationId: client.id, roleCode: "CLIENT_ADMIN",
       }),
     ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("allows re-inviting an email after the original account was deleted", async () => {
+    const db = testDb();
+    const actor = await internalActor();
+    const client = await createOrganization(db);
+    const target = await createUser(db, client.id, "CLIENT_VIEWER", { email: "gone@acme.com" });
+
+    await deleteUser(db, actor, target.id);
+
+    const { invitation } = await createInvitation(db, actor, {
+      email: "gone@acme.com", organizationId: client.id, roleCode: "CLIENT_ADMIN",
+    });
+
+    expect(invitation.email).toBe("gone@acme.com");
   });
 });

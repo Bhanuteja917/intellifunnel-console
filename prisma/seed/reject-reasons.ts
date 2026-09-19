@@ -24,7 +24,6 @@ export const REJECT_REASONS: readonly Seed[] = [
   { code: "NOT_ON_TARGET_ACCOUNT_LIST", label: "Account not on the target account list", category: "icpMismatch", isPartnerReplaceable: true },
   { code: "SUPPRESSED_ACCOUNT", label: "Account is suppressed", category: "suppression", isPartnerReplaceable: true },
   { code: "SUPPRESSED_CONTACT", label: "Contact is suppressed", category: "suppression", isPartnerReplaceable: true },
-  { code: "DO_NOT_CONTACT", label: "On the client do-not-contact list", category: "suppression", isPartnerReplaceable: true },
   { code: "DUPLICATE_IN_CAMPAIGN", label: "Duplicate within the campaign", category: "duplicate", isPartnerReplaceable: true },
   { code: "DUPLICATE_CROSS_CAMPAIGN", label: "Duplicate across the client's live campaigns", category: "duplicate", isPartnerReplaceable: true },
   { code: "ACCOUNT_CAP_REACHED", label: "Per-account lead cap reached", category: "duplicate", isPartnerReplaceable: false },

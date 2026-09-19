@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { upsertDeliveryConfig, getDeliveryConfigForChannel, setDeliveryConfigStatus } from "@/lib/delivery/config";
@@ -54,7 +53,6 @@ describe("delivery config", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("creates a webhook config with url+secret, rejects delivery:read-only actors", async () => {

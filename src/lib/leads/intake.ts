@@ -3,7 +3,7 @@ import { ValidationError } from "@/lib/errors";
 import { assertOrganizationAccess, assertPermission, type Actor } from "@/lib/auth/permissions";
 import { applyMapping, parseDelimited } from "@/lib/lists/csv";
 import { validateFieldValues, type LeadFieldSpecRow } from "@/lib/leads/field-validation";
-import { checkDoNotContact, checkSuppression, matchesIcp, matchesTal, resolveLeadCap } from "@/lib/leads/matching";
+import { checkSuppression, matchesIcp, matchesTal, resolveLeadCap } from "@/lib/leads/matching";
 import { createAccount, resolveAccount } from "@/lib/identity/account-resolution";
 import { upsertContact } from "@/lib/identity/contact";
 import { normalizeCompanyName } from "@/lib/normalise/name";
@@ -300,12 +300,11 @@ export async function submitLeadFile(
           });
         } else {
           // match.status === "ambiguous": this plan does not attempt to
-          // auto-resolve ambiguous account matches (same precedent as
-          // importTargetAccountList — a human resolves it via the resolution
-          // queue). There is no RejectReason for "a human needs to look at
-          // this before we can even attempt validation" — inventing one
-          // would misrepresent this as a business-rule outcome, so this row
-          // produces only a LeadSubmissionError, never a Lead.
+          // auto-resolve ambiguous account matches. There is no RejectReason
+          // for "a human needs to look at this before we can even attempt
+          // validation" — inventing one would misrepresent this as a
+          // business-rule outcome, so this row produces only a
+          // LeadSubmissionError, never a Lead.
           submissionErrors.push({
             rowNumber,
             field: null,
@@ -334,25 +333,9 @@ export async function submitLeadFile(
       let outcome: Outcome = "passed";
       let rejectReasonCode: string | null = null;
 
-      // The phone candidate is this row's OWN value, not `contact.phone`:
-      // `upsertContact` never blanks an existing field with an undefined one,
-      // so `contact.phone` can be a stale value carried over from an earlier
-      // submission when this row's phone column is blank — checking that
-      // against the DNC list would block a row on a number it never carried.
-      const doNotContacted = await checkDoNotContact(db, campaign.clientOrganizationId, {
-        email,
-        domain: account.primaryDomain ?? undefined,
-        phone: canonicalField(values, "phone"),
-      });
-      if (doNotContacted) {
-        outcome = "failed";
-        rejectReasonCode = "DO_NOT_CONTACT";
-      }
-
       const suppressed = await checkSuppression(db, campaignChannel.id, {
         email,
         domain: account.primaryDomain ?? undefined,
-        accountId: account.id,
       });
       if (suppressed) {
         outcome = "failed";
@@ -387,7 +370,7 @@ export async function submitLeadFile(
       }
 
       if (outcome !== "failed") {
-        const talResult = await matchesTal(db, campaignChannel.id, account.id);
+        const talResult = await matchesTal(db, campaignChannel.id, account.primaryDomain);
         if (talResult === "unmatched") {
           if (campaignChannel.advisoryTalMatch) {
             if (outcome === "passed") outcome = "needsReview";
@@ -402,7 +385,7 @@ export async function submitLeadFile(
       }
 
       if (outcome !== "failed") {
-        const cap = await resolveLeadCap(db, campaignChannel.id, account.id);
+        const cap = await resolveLeadCap(db, campaignChannel.id, account.primaryDomain);
         if (cap !== null) {
           const acceptedCount = await db.lead.count({
             where: { accountId: account.id, campaignChannel: { campaignId: campaign.id }, lifecycleStatus: "accepted" },

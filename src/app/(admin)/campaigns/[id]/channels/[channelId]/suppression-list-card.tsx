@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import Papa from "papaparse";
 import { toast } from "sonner";
-import type { SuppressionEntryType, SuppressionListType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -23,7 +22,7 @@ import {
   uploadSuppressionListAction,
 } from "./actions";
 
-type Entry = { id: string; type: SuppressionEntryType; value: string };
+type Entry = { id: string; accountName: string | null; accountRawDomain: string | null };
 
 type Props = {
   campaignId: string;
@@ -36,19 +35,21 @@ type Props = {
 };
 
 const UNMAPPED = "__unmapped__";
-const ENTRY_TYPES: SuppressionEntryType[] = ["account", "domain", "email", "contact"];
+const CANONICAL_KEYS = [
+  { key: "accountName", label: "Name" },
+  { key: "accountRawDomain", label: "Domain" },
+];
 
 export function SuppressionListCard({ campaignId, channelId, listName, rowCount, entries, editable, downloadHref }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [name, setName] = useState("Suppression list");
-  const [listType, setListType] = useState<SuppressionListType>("custom");
   const [content, setContent] = useState<string | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [headerByKey, setHeaderByKey] = useState<Record<string, string>>({});
-  const [manualType, setManualType] = useState<SuppressionEntryType>("domain");
-  const [manualValue, setManualValue] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualDomain, setManualDomain] = useState("");
 
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -79,7 +80,7 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
   function submitUpload() {
     if (content === null) return;
     startTransition(async () => {
-      const result = await uploadSuppressionListAction(campaignId, channelId, { name, type: listType, content, mapping });
+      const result = await uploadSuppressionListAction(campaignId, channelId, { name, content, mapping });
       if (result.ok) {
         toast.success(`${result.data.rowsAccepted} of ${result.data.rowsTotal} rows staged`);
         setUploadOpen(false);
@@ -93,8 +94,16 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
   }
 
   function submitManual() {
-    run(() => addSuppressionEntryAction(campaignId, channelId, { type: manualType, value: manualValue.trim() }), "Entry added");
-    setManualValue("");
+    run(
+      () =>
+        addSuppressionEntryAction(campaignId, channelId, {
+          accountName: manualName.trim() === "" ? undefined : manualName.trim(),
+          accountRawDomain: manualDomain.trim() === "" ? undefined : manualDomain.trim(),
+        }),
+      "Domain suppressed",
+    );
+    setManualName("");
+    setManualDomain("");
   }
 
   return (
@@ -134,7 +143,7 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
                     <input id="sup-file" type="file" accept=".csv" onChange={handleFile} className="text-sm" />
                   </Field>
                   {headers.length > 0 &&
-                    [{ key: "type", label: "Type" }, { key: "value", label: "Value" }].map((field) => (
+                    CANONICAL_KEYS.map((field) => (
                       <Field key={field.key}>
                         <FieldLabel htmlFor={`sup-map-${field.key}`}>{field.label}</FieldLabel>
                         <Select
@@ -163,16 +172,11 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
               </DialogContent>
             </Dialog>
 
-            <Select value={manualType} onValueChange={(v) => setManualType(v as SuppressionEntryType)}>
-              <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {ENTRY_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <Input placeholder="Value" value={manualValue} onChange={(e) => setManualValue(e.target.value)} className="w-48" />
-            <Button size="sm" onClick={submitManual} disabled={pending || manualValue.trim() === ""}>Add</Button>
+            <Input placeholder="Name" value={manualName} onChange={(e) => setManualName(e.target.value)} className="w-36" />
+            <Input placeholder="Domain" value={manualDomain} onChange={(e) => setManualDomain(e.target.value)} className="w-36" />
+            <Button size="sm" onClick={submitManual} disabled={pending || (manualName.trim() === "" && manualDomain.trim() === "")}>
+              Add
+            </Button>
 
             {listName !== null && (
               <Button
@@ -192,16 +196,16 @@ export function SuppressionListCard({ campaignId, channelId, listName, rowCount,
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Value</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Domain</TableHead>
                 {editable && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {entries.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell>{entry.type}</TableCell>
-                  <TableCell>{entry.value}</TableCell>
+                  <TableCell>{entry.accountName ?? "—"}</TableCell>
+                  <TableCell>{entry.accountRawDomain ?? "—"}</TableCell>
                   {editable && (
                     <TableCell>
                       <Button

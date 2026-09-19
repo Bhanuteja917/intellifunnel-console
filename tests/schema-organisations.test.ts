@@ -23,17 +23,6 @@ describe("organisation schema", () => {
     expect(org.isClient && org.isPartner).toBe(true);
   });
 
-  it("enforces a unique normalised organisation domain", async () => {
-    const db = testDb();
-    const org = await db.organization.create({
-      data: { name: "Acme", isClient: true, status: "active" },
-    });
-    await db.organizationDomain.create({ data: { organizationId: org.id, domain: "acme.com" } });
-    await expect(
-      db.organizationDomain.create({ data: { organizationId: org.id, domain: "acme.com" } }),
-    ).rejects.toThrow();
-  });
-
   it("enforces a unique normalised user email", async () => {
     const db = testDb();
     const org = await db.organization.create({

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
@@ -17,7 +16,6 @@ describe("client channel detail read model", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("returns channel detail with ICP, lead fields and no delivery secret", async () => {
@@ -113,8 +111,8 @@ describe("client channel detail read model", () => {
     // add the steps here to exercise the normal, fully-configured path.
     await addChannelSetupStep(db, fx.adminActor, fx.channelId, "targetAccountList");
     await addChannelSetupStep(db, fx.adminActor, fx.channelId, "suppressionList");
-    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
-    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { accountName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { accountRawDomain: "competitor.com" });
 
     const withLists = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
     expect(withLists.targetAccountList).toEqual({
@@ -133,8 +131,8 @@ describe("client channel detail read model", () => {
 
     await addChannelSetupStep(db, fx.adminActor, fx.channelId, "targetAccountList");
     await addChannelSetupStep(db, fx.adminActor, fx.channelId, "suppressionList");
-    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
-    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { accountName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { accountRawDomain: "competitor.com" });
 
     // Sanity check: both fields are visible before the steps are removed.
     const before = await getClientChannelDetail(db, fx.clientAdminActor, fx.campaignId, fx.channelId);
@@ -149,7 +147,7 @@ describe("client channel detail read model", () => {
     expect(after.suppressionList).toBeNull();
 
     // The underlying list links are untouched — only the checklist step was removed.
-    expect(await db.channelTargetAccountList.findFirst({ where: { campaignChannelId: fx.channelId } })).not.toBeNull();
-    expect(await db.channelSuppressionList.findFirst({ where: { campaignChannelId: fx.channelId } })).not.toBeNull();
+    expect(await db.channelList.findFirst({ where: { campaignChannelId: fx.channelId, list: { type: "targetAccounts" } } })).not.toBeNull();
+    expect(await db.channelList.findFirst({ where: { campaignChannelId: fx.channelId, list: { type: "suppression" } } })).not.toBeNull();
   });
 });

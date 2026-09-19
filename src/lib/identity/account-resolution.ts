@@ -5,15 +5,15 @@ import { normalizeDomain } from "@/lib/normalise/domain";
 import { normalizeCompanyName } from "@/lib/normalise/name";
 
 export type AccountMatch =
-  | { status: "matched"; accountId: string; matchedOn: "domain" | "nameCountry" | "alias" }
+  | { status: "matched"; accountId: string; matchedOn: "domain" | "nameCountry" }
   | { status: "unmatched" }
   | { status: "ambiguous"; candidateIds: string[] };
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-const LIVE = { deletedAt: null, mergedIntoId: null } as const;
+const LIVE = { deletedAt: null } as const;
 
-/** FR-ID-1: domain first, then normalised name plus country, then alias. */
+/** FR-ID-1: domain first, then normalised name plus country. */
 export async function resolveAccount(
   client: Db,
   input: { name?: string; domain?: string; country?: string },
@@ -39,25 +39,6 @@ export async function resolveAccount(
     // FR-ID-2: ambiguous matches are flagged rather than guessed.
     if (byName.length > 1) {
       return { status: "ambiguous", candidateIds: byName.map((a) => a.id) };
-    }
-  }
-
-  const aliasValues = [
-    domain,
-    input.name === undefined ? null : normalizeCompanyName(input.name),
-  ].filter((value): value is string => value !== null);
-
-  if (aliasValues.length > 0) {
-    const aliases = await client.accountAlias.findMany({
-      where: { value: { in: aliasValues }, account: LIVE },
-      select: { accountId: true },
-      distinct: ["accountId"],
-    });
-    if (aliases.length === 1 && aliases[0] !== undefined) {
-      return { status: "matched", accountId: aliases[0].accountId, matchedOn: "alias" };
-    }
-    if (aliases.length > 1) {
-      return { status: "ambiguous", candidateIds: aliases.map((a) => a.accountId) };
     }
   }
 

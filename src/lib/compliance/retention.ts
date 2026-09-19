@@ -130,7 +130,7 @@ async function redactLeadFieldValues(tx: Prisma.TransactionClient, contactId: st
 }
 
 export async function anonymizeExpiredContacts(db: PrismaClient, now: Date): Promise<number> {
-  const platformDefaultMonths = await getSetting(db, "personalDataRetentionMonths");
+  const platformDefaultMonths = getSetting("personalDataRetentionMonths");
 
   const contacts = await db.contact.findMany({
     where: { anonymisedAt: null },

@@ -19,7 +19,6 @@ const SEGMENT_LABELS: Readonly<Record<string, string>> = {
   "consent-texts": "Consent texts",
   "channel-types": "Channel types",
   organizations: "Organisations",
-  "resolution-queue": "Resolution queue",
   verification: "Verification",
 };
 

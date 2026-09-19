@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
-import { seedSettings } from "../prisma/seed/settings";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedChannelTypes } from "../prisma/seed/channel-types";
 import { createOrganization, createUser } from "./helpers/factories";
@@ -60,16 +59,6 @@ describe("client stores (Zustand, not React Context)", () => {
     expect(useCampaignFilters.getState().status).toBe("all");
     expect(useCampaignFilters.getState().query).toBe("");
   });
-
-  it("tracks the selected resolution queue entry", async () => {
-    const { useResolutionQueue } = await import("@/lib/stores/resolution-queue");
-
-    expect(useResolutionQueue.getState().selectedEntryId).toBeNull();
-    useResolutionQueue.getState().select("entry-1");
-    expect(useResolutionQueue.getState().selectedEntryId).toBe("entry-1");
-    useResolutionQueue.getState().clear();
-    expect(useResolutionQueue.getState().selectedEntryId).toBeNull();
-  });
 });
 
 describe("invitation acceptance action", () => {
@@ -77,7 +66,6 @@ describe("invitation acceptance action", () => {
     await resetDb();
     const db = testDb();
     await seedRoles(db);
-    await seedSettings(db);
     await seedFunnelStages(db);
     await seedChannelTypes(db);
     vi.resetModules();

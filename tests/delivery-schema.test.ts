@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { normalizeCompanyName } from "@/lib/normalise/name";
 import { normalizeEmail } from "@/lib/normalise/email";
@@ -41,7 +40,6 @@ describe("delivery schema", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("round-trips a DeliveryConfig and a DeliveryRun with its DeliveryRunLead join row", async () => {

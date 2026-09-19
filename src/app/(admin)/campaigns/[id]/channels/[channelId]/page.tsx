@@ -560,7 +560,7 @@ async function PacingTab({
   channel: { contractedQuantity: number; startDate: Date; endDate: Date; deliveredCount: number; reservedCount: number };
   canWriteCampaign: boolean;
 }) {
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const now = new Date();
 
   const pacingBuckets = await db.channelPacingBucket.findMany({

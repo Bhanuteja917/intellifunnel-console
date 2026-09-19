@@ -1,9 +1,6 @@
-import type { DoNotContactType, IcpDimension, IcpOperator, Prisma, PrismaClient } from "@prisma/client";
-import { hashSuppressionValue, isSuppressed } from "@/lib/lists/suppression";
+import type { IcpDimension, IcpOperator, Prisma, PrismaClient } from "@prisma/client";
+import { isSuppressed } from "@/lib/lists/suppression";
 import { resolveAccountCap } from "@/lib/lists/target-accounts";
-import { emailDomain, normalizeEmail } from "@/lib/normalise/email";
-import { normalizeDomain } from "@/lib/normalise/domain";
-import { normalizePhone } from "@/lib/normalise/phone";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -12,43 +9,6 @@ export type IcpMatchResult = {
   failedDimensions: string[]; // IcpDimension values that failed, mandatory or not, for the caller's/report's benefit
 };
 
-export async function checkDoNotContact(
-  db: PrismaClient,
-  clientOrganizationId: string,
-  candidate: { email?: string; domain?: string; phone?: string },
-  now: Date = new Date(),
-): Promise<boolean> {
-  const conditions: { type: DoNotContactType; valueHash: string }[] = [];
-  if (candidate.email !== undefined) {
-    conditions.push({ type: "email", valueHash: hashSuppressionValue(normalizeEmail(candidate.email)) });
-    const domain = emailDomain(candidate.email);
-    if (domain !== null) conditions.push({ type: "domain", valueHash: hashSuppressionValue(domain) });
-  }
-  if (candidate.domain !== undefined) {
-    const domain = normalizeDomain(candidate.domain);
-    if (domain !== null) conditions.push({ type: "domain", valueHash: hashSuppressionValue(domain) });
-  }
-  if (candidate.phone !== undefined) {
-    const phone = normalizePhone(candidate.phone);
-    if (phone !== null) conditions.push({ type: "phone", valueHash: hashSuppressionValue(phone) });
-  }
-  if (conditions.length === 0) return false;
-
-  // `DoNotContact.expiresAt` is optional; an entry past its expiry must stop
-  // blocking. The value-match `OR` and the expiry `OR` are kept in separate
-  // clauses (the latter under `AND`) so they intersect rather than merge into
-  // one big disjunction.
-  const hit = await db.doNotContact.findFirst({
-    where: {
-      clientOrganizationId,
-      OR: conditions,
-      AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
-    },
-    select: { id: true },
-  });
-  return hit !== null;
-}
-
 /**
  * Thin wrapper around `isSuppressed` so Task 4's pipeline can import every
  * matching check from this one module. No behaviour is added on top.
@@ -56,7 +16,7 @@ export async function checkDoNotContact(
 export async function checkSuppression(
   db: PrismaClient,
   campaignChannelId: string,
-  candidate: { email?: string; domain?: string; accountId?: string },
+  candidate: { email?: string; domain?: string },
 ): Promise<boolean> {
   return isSuppressed(db, campaignChannelId, candidate);
 }
@@ -65,24 +25,26 @@ export async function checkSuppression(
  * Thin wrapper around `resolveAccountCap` so Task 4's pipeline can import
  * every matching check from this one module. No behaviour is added on top.
  */
-export async function resolveLeadCap(db: PrismaClient, campaignChannelId: string, accountId: string): Promise<number | null> {
-  return resolveAccountCap(db, campaignChannelId, accountId);
+export async function resolveLeadCap(db: PrismaClient, campaignChannelId: string, domain: string | null): Promise<number | null> {
+  return resolveAccountCap(db, campaignChannelId, domain);
 }
 
 /**
  * FR-IN-4 step 7: target-account-list match.
  *
- * `"noList"` means the channel has zero `ChannelTargetAccountList` rows —
- * i.e. the TAL check doesn't apply to this channel at all. The caller
- * (Task 4) must treat `"noList"` as "check doesn't apply, don't fail or
- * flag," not as a match failure.
+ * `"noList"` means the channel has zero `ChannelList` rows of type
+ * `targetAccounts` — i.e. the TAL check doesn't apply to this channel at
+ * all. The caller (Task 4) must treat `"noList"` as "check doesn't apply,
+ * don't fail or flag," not as a match failure. Matching is by normalized
+ * domain — the whole domain is targeted, not an individual `Account`.
  */
-export async function matchesTal(db: Db, campaignChannelId: string, accountId: string): Promise<"noList" | "matched" | "unmatched"> {
-  const listCount = await db.channelTargetAccountList.count({ where: { campaignChannelId } });
+export async function matchesTal(db: Db, campaignChannelId: string, domain: string | null): Promise<"noList" | "matched" | "unmatched"> {
+  const listCount = await db.channelList.count({ where: { campaignChannelId, list: { type: "targetAccounts" } } });
   if (listCount === 0) return "noList";
+  if (domain === null) return "unmatched";
 
-  const entry = await db.targetAccountEntry.findFirst({
-    where: { accountId, list: { channels: { some: { campaignChannelId } } } },
+  const entry = await db.listEntry.findFirst({
+    where: { accountNormalizedDomain: domain, list: { type: "targetAccounts", channels: { some: { campaignChannelId } } } },
   });
   return entry === null ? "unmatched" : "matched";
 }

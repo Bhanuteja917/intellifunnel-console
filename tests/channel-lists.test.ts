@@ -5,7 +5,6 @@ import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { createCampaignWithChannel } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
-import { createAccount } from "@/lib/identity/account-resolution";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import {
   addTargetAccountEntry,
@@ -50,25 +49,24 @@ describe("addTargetAccountEntry", () => {
   it("creates a 'Manual entries' list on the first add and reuses it on the second", async () => {
     const { db, manager, channel } = await setup();
 
-    const first = await addTargetAccountEntry(db, manager, channel.id, { rawName: "Acme" });
-    const second = await addTargetAccountEntry(db, manager, channel.id, { rawDomain: "globex.com" });
+    const first = await addTargetAccountEntry(db, manager, channel.id, { accountName: "Acme" });
+    const second = await addTargetAccountEntry(db, manager, channel.id, { accountRawDomain: "globex.com" });
 
-    const link = await db.channelTargetAccountList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
-    const list = await db.targetAccountList.findUniqueOrThrow({ where: { id: link.listId } });
+    const link = await db.channelList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
+    const list = await db.list.findUniqueOrThrow({ where: { id: link.listId } });
     expect(list.name).toBe("Manual entries");
-    const entries = await db.targetAccountEntry.findMany({ where: { listId: link.listId } });
+    expect(list.type).toBe("targetAccounts");
+    const entries = await db.listEntry.findMany({ where: { listId: link.listId } });
     expect(entries.map((e) => e.id).sort()).toEqual([first.entryId, second.entryId].sort());
   });
 
-  it("matches a manually added entry to an existing account", async () => {
-    const { db, manager, ops, channel } = await setup();
-    const acme = await createAccount(db, ops, { name: "Acme", domain: "acme.com", country: "US" });
+  it("normalizes the domain of a manually added entry", async () => {
+    const { db, manager, channel } = await setup();
 
-    const { entryId } = await addTargetAccountEntry(db, manager, channel.id, { rawDomain: "acme.com" });
+    const { entryId } = await addTargetAccountEntry(db, manager, channel.id, { accountRawDomain: "https://www.Acme.com" });
 
-    const entry = await db.targetAccountEntry.findUniqueOrThrow({ where: { id: entryId } });
-    expect(entry.matchStatus).toBe("matched");
-    expect(entry.accountId).toBe(acme.id);
+    const entry = await db.listEntry.findUniqueOrThrow({ where: { id: entryId } });
+    expect(entry.accountNormalizedDomain).toBe("acme.com");
   });
 
   it("rejects an entry with neither name nor domain", async () => {
@@ -79,14 +77,14 @@ describe("addTargetAccountEntry", () => {
   it("rejects a non-positive cap override", async () => {
     const { db, manager, channel } = await setup();
     await expect(
-      addTargetAccountEntry(db, manager, channel.id, { rawName: "Acme", maxLeadsPerAccountOverride: 0 }),
+      addTargetAccountEntry(db, manager, channel.id, { accountName: "Acme", maxLeadsPerAccountOverride: 0 }),
     ).rejects.toThrow(ValidationError);
   });
 
   it("refuses to add when the channel is not draft", async () => {
     const { db, manager, channel } = await setup();
     await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
-    await expect(addTargetAccountEntry(db, manager, channel.id, { rawName: "Acme" })).rejects.toThrow(ValidationError);
+    await expect(addTargetAccountEntry(db, manager, channel.id, { accountName: "Acme" })).rejects.toThrow(ValidationError);
   });
 });
 
@@ -99,17 +97,17 @@ describe("removeTargetAccountEntry", () => {
 
   it("deletes an entry that belongs to the channel's list", async () => {
     const { db, manager, channel } = await setup();
-    const { entryId } = await addTargetAccountEntry(db, manager, channel.id, { rawName: "Acme" });
+    const { entryId } = await addTargetAccountEntry(db, manager, channel.id, { accountName: "Acme" });
 
     await removeTargetAccountEntry(db, manager, channel.id, entryId);
 
-    expect(await db.targetAccountEntry.findUnique({ where: { id: entryId } })).toBeNull();
+    expect(await db.listEntry.findUnique({ where: { id: entryId } })).toBeNull();
   });
 
   it("refuses to delete an entry belonging to a different channel", async () => {
     const { db, manager, channel } = await setup();
     const other = await createCampaignWithChannel(db, { campaignStatus: "draft", channelStatus: "draft" });
-    const { entryId } = await addTargetAccountEntry(db, manager, other.campaignChannel.id, { rawName: "Other Co" });
+    const { entryId } = await addTargetAccountEntry(db, manager, other.campaignChannel.id, { accountName: "Other Co" });
 
     await expect(removeTargetAccountEntry(db, manager, channel.id, entryId)).rejects.toThrow(NotFoundError);
   });
@@ -125,20 +123,20 @@ describe("detachTargetAccountList", () => {
   it("removes the channel's link but keeps the underlying list", async () => {
     const { db, manager, ops, client, channel } = await setup();
     const { listId } = await importTargetAccountList(db, ops, {
-      ownerOrganizationId: client.id, name: "TAL", content: "Company\nAcme\n", mapping: { Company: "rawName" },
+      ownerOrganizationId: client.id, name: "TAL", content: "Company\nAcme\n", mapping: { Company: "accountName" },
     });
     await attachTargetAccountList(db, manager, channel.id, listId);
 
     await detachTargetAccountList(db, manager, channel.id);
 
-    expect(await db.channelTargetAccountList.findFirst({ where: { campaignChannelId: channel.id } })).toBeNull();
-    expect(await db.targetAccountList.findUnique({ where: { id: listId } })).not.toBeNull();
+    expect(await db.channelList.findFirst({ where: { campaignChannelId: channel.id } })).toBeNull();
+    expect(await db.list.findUnique({ where: { id: listId } })).not.toBeNull();
   });
 
   it("refuses to detach when the channel is not draft", async () => {
     const { db, manager, ops, client, channel } = await setup();
     const { listId } = await importTargetAccountList(db, ops, {
-      ownerOrganizationId: client.id, name: "TAL", content: "Company\nAcme\n", mapping: { Company: "rawName" },
+      ownerOrganizationId: client.id, name: "TAL", content: "Company\nAcme\n", mapping: { Company: "accountName" },
     });
     await attachTargetAccountList(db, manager, channel.id, listId);
     await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
@@ -161,11 +159,11 @@ describe("exportTargetAccountListCsv", () => {
 
   it("returns a CSV with a header row and one row per entry", async () => {
     const { db, manager, channel } = await setup();
-    await addTargetAccountEntry(db, manager, channel.id, { rawName: "Acme", rawDomain: "acme.com" });
+    await addTargetAccountEntry(db, manager, channel.id, { accountName: "Acme", accountRawDomain: "acme.com" });
 
     const csv = await exportTargetAccountListCsv(db, manager, channel.id);
 
-    expect(csv).toContain("name,domain,matchStatus,maxLeadsPerAccountOverride");
+    expect(csv).toContain("name,domain,maxLeadsPerAccountOverride");
     expect(csv).toContain("Acme,acme.com");
   });
 });
@@ -181,10 +179,10 @@ describe("importAndAttachTargetAccountList", () => {
     const { db, manager, channel } = await setup();
 
     const result = await importAndAttachTargetAccountList(db, manager, channel.id, {
-      name: "Q4 TAL", content: "Company\nAcme\n", mapping: { Company: "rawName" },
+      name: "Q4 TAL", content: "Company\nAcme\n", mapping: { Company: "accountName" },
     });
 
-    const link = await db.channelTargetAccountList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
+    const link = await db.channelList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
     expect(link.listId).toBe(result.listId);
   });
 });
@@ -199,48 +197,31 @@ describe("addSuppressionEntry", () => {
   it("creates a 'Manual entries' list on the first add and reuses it on the second", async () => {
     const { db, manager, channel } = await setup();
 
-    const first = await addSuppressionEntry(db, manager, channel.id, { type: "domain", value: "competitor.com" });
-    const second = await addSuppressionEntry(db, manager, channel.id, { type: "email", value: "jane@blocked.com" });
+    const first = await addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "competitor.com" });
+    const second = await addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "blocked.com" });
 
-    const link = await db.channelSuppressionList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
-    const list = await db.suppressionList.findUniqueOrThrow({ where: { id: link.listId } });
+    const link = await db.channelList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
+    const list = await db.list.findUniqueOrThrow({ where: { id: link.listId } });
     expect(list.name).toBe("Manual entries");
-    const entries = await db.suppressionEntry.findMany({ where: { listId: link.listId } });
+    expect(list.type).toBe("suppression");
+    const entries = await db.listEntry.findMany({ where: { listId: link.listId } });
     expect(entries.map((e) => e.id).sort()).toEqual([first.entryId, second.entryId].sort());
   });
 
-  it("normalises the value and stores a salted hash", async () => {
+  it("normalizes the domain", async () => {
     const { db, manager, channel } = await setup();
 
-    const { entryId } = await addSuppressionEntry(db, manager, channel.id, { type: "domain", value: "https://www.Competitor.com" });
+    const { entryId } = await addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "https://www.Competitor.com" });
 
-    const entry = await db.suppressionEntry.findUniqueOrThrow({ where: { id: entryId } });
-    expect(entry.value).toBe("competitor.com");
-    expect(entry.valueHash).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it("resolves an account-type entry and sets accountId", async () => {
-    const { db, manager, ops, channel } = await setup();
-    const account = await createAccount(db, ops, { name: "Acme", domain: "acme.com" });
-
-    const { entryId } = await addSuppressionEntry(db, manager, channel.id, { type: "account", value: "acme.com" });
-
-    const entry = await db.suppressionEntry.findUniqueOrThrow({ where: { id: entryId } });
-    expect(entry.accountId).toBe(account.id);
-  });
-
-  it("rejects an account-type entry that cannot be resolved", async () => {
-    const { db, manager, channel } = await setup();
-    await expect(
-      addSuppressionEntry(db, manager, channel.id, { type: "account", value: "unknown.com" }),
-    ).rejects.toThrow(ValidationError);
+    const entry = await db.listEntry.findUniqueOrThrow({ where: { id: entryId } });
+    expect(entry.accountNormalizedDomain).toBe("competitor.com");
   });
 
   it("refuses to add when the channel is not draft", async () => {
     const { db, manager, channel } = await setup();
     await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
     await expect(
-      addSuppressionEntry(db, manager, channel.id, { type: "domain", value: "competitor.com" }),
+      addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "competitor.com" }),
     ).rejects.toThrow(ValidationError);
   });
 });
@@ -254,17 +235,17 @@ describe("removeSuppressionEntry", () => {
 
   it("deletes an entry that belongs to the channel's list", async () => {
     const { db, manager, channel } = await setup();
-    const { entryId } = await addSuppressionEntry(db, manager, channel.id, { type: "domain", value: "competitor.com" });
+    const { entryId } = await addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "competitor.com" });
 
     await removeSuppressionEntry(db, manager, channel.id, entryId);
 
-    expect(await db.suppressionEntry.findUnique({ where: { id: entryId } })).toBeNull();
+    expect(await db.listEntry.findUnique({ where: { id: entryId } })).toBeNull();
   });
 
   it("refuses to delete an entry belonging to a different channel", async () => {
     const { db, manager, channel } = await setup();
     const other = await createCampaignWithChannel(db, { campaignStatus: "draft", channelStatus: "draft" });
-    const { entryId } = await addSuppressionEntry(db, manager, other.campaignChannel.id, { type: "domain", value: "other.com" });
+    const { entryId } = await addSuppressionEntry(db, manager, other.campaignChannel.id, { accountRawDomain: "other.com" });
 
     await expect(removeSuppressionEntry(db, manager, channel.id, entryId)).rejects.toThrow(NotFoundError);
   });
@@ -280,22 +261,22 @@ describe("detachSuppressionList", () => {
   it("removes the channel's link but keeps the underlying list", async () => {
     const { db, manager, ops, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
-      content: "Type,Value\ndomain,competitor.com\n", mapping: { Type: "type", Value: "value" },
+      ownerOrganizationId: client.id, name: "Competitors",
+      content: "Domain\ncompetitor.com\n", mapping: { Domain: "accountRawDomain" },
     });
     await attachSuppressionList(db, manager, channel.id, listId);
 
     await detachSuppressionList(db, manager, channel.id);
 
-    expect(await db.channelSuppressionList.findFirst({ where: { campaignChannelId: channel.id } })).toBeNull();
-    expect(await db.suppressionList.findUnique({ where: { id: listId } })).not.toBeNull();
+    expect(await db.channelList.findFirst({ where: { campaignChannelId: channel.id } })).toBeNull();
+    expect(await db.list.findUnique({ where: { id: listId } })).not.toBeNull();
   });
 
   it("refuses to detach when the channel is not draft", async () => {
     const { db, manager, ops, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
-      content: "Type,Value\ndomain,competitor.com\n", mapping: { Type: "type", Value: "value" },
+      ownerOrganizationId: client.id, name: "Competitors",
+      content: "Domain\ncompetitor.com\n", mapping: { Domain: "accountRawDomain" },
     });
     await attachSuppressionList(db, manager, channel.id, listId);
     await db.campaignChannel.update({ where: { id: channel.id }, data: { status: "pending" } });
@@ -316,15 +297,14 @@ describe("exportSuppressionListCsv", () => {
     expect(await exportSuppressionListCsv(db, manager, channel.id)).toBeNull();
   });
 
-  it("returns a CSV with a header row and one row per entry, never a valueHash column", async () => {
+  it("returns a CSV with a header row and one row per entry", async () => {
     const { db, manager, channel } = await setup();
-    await addSuppressionEntry(db, manager, channel.id, { type: "domain", value: "competitor.com" });
+    await addSuppressionEntry(db, manager, channel.id, { accountRawDomain: "competitor.com" });
 
     const csv = await exportSuppressionListCsv(db, manager, channel.id);
 
-    expect(csv).toContain("type,value");
-    expect(csv).toContain("domain,competitor.com");
-    expect(csv).not.toContain("valueHash");
+    expect(csv).toContain("name,domain");
+    expect(csv).toContain("competitor.com");
   });
 });
 
@@ -339,11 +319,11 @@ describe("importAndAttachSuppressionList", () => {
     const { db, manager, channel } = await setup();
 
     const result = await importAndAttachSuppressionList(db, manager, channel.id, {
-      name: "Competitors", type: "competitor",
-      content: "Type,Value\ndomain,competitor.com\n", mapping: { Type: "type", Value: "value" },
+      name: "Competitors",
+      content: "Domain\ncompetitor.com\n", mapping: { Domain: "accountRawDomain" },
     });
 
-    const link = await db.channelSuppressionList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
+    const link = await db.channelList.findFirstOrThrow({ where: { campaignChannelId: channel.id } });
     expect(link.listId).toBe(result.listId);
   });
 });

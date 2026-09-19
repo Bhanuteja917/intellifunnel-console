@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createChannelFixture } from "./helpers/channel-factory";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
@@ -19,7 +18,6 @@ describe("client approval read models", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("lists the channel's terms as pending for its own client", async () => {

@@ -111,10 +111,10 @@ export default async function VerificationQueuePage({
 
   const rows = await Promise.all(
     leads.map(async (lead) => {
-      const sla = await computeVerificationSla(db, {
+      const sla = computeVerificationSla({
         createdAt: lead.createdAt,
         asOf: new Date(),
-        allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
+        allowedBusinessDays: resolveAllowedBusinessDays(lead.campaignChannel.channelTypeVersion),
       });
       const assignedUser = lead.assignedToUserId !== null ? userById.get(lead.assignedToUserId) : undefined;
       return { lead, sla, assignedUser };

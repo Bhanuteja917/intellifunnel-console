@@ -10,7 +10,6 @@ import {
   importSuppressionList,
   isSuppressed,
 } from "@/lib/lists/suppression";
-import { createAccount } from "@/lib/identity/account-resolution";
 import { createCampaignWithChannel } from "./helpers/channel-factory";
 
 async function setup() {
@@ -27,8 +26,8 @@ async function setup() {
   return { db, ops, manager, client, campaign, channel: campaignChannel };
 }
 
-const CSV = ["Type,Value", "domain,https://www.Competitor.com", "email,Jane@Blocked.com", "domain,bad domain"].join("\n");
-const MAPPING = { Type: "type", Value: "value" };
+const CSV = ["Company,Domain", "Competitor Inc,https://www.Competitor.com", "Blocked Co,blocked.com"].join("\n");
+const MAPPING = { Company: "accountName", Domain: "accountRawDomain" };
 
 describe("suppression list import", () => {
   beforeEach(async () => {
@@ -38,81 +37,30 @@ describe("suppression list import", () => {
     await seedFunnelStages(db);
   });
 
-  it("normalises domains and emails on import", async () => {
+  it("normalises the domain on import", async () => {
     const { db, ops, client } = await setup();
 
     const result = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      ownerOrganizationId: client.id, name: "Competitors",
       content: CSV, mapping: MAPPING,
     });
 
-    const entries = await db.suppressionEntry.findMany({ where: { listId: result.listId } });
-    expect(entries.map((e) => e.value).sort()).toEqual(["competitor.com", "jane@blocked.com"]);
+    const entries = await db.listEntry.findMany({ where: { listId: result.listId } });
+    expect(entries.map((e) => e.accountNormalizedDomain).sort()).toEqual(["blocked.com", "competitor.com"]);
   });
 
-  it("stores a salted hash alongside the value (FR-CP-6)", async () => {
+  it("reports a per-row error for a row with neither name nor domain", async () => {
     const { db, ops, client } = await setup();
+    const content = "Company,Domain\nCompetitor,competitor.com\n,\n";
 
     const result = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
-      content: CSV, mapping: MAPPING,
+      ownerOrganizationId: client.id, name: "L", content, mapping: MAPPING,
     });
 
-    const entry = await db.suppressionEntry.findFirstOrThrow({ where: { listId: result.listId } });
-    expect(entry.valueHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(entry.valueHash).not.toBe(entry.value);
-  });
-
-  it("reports a per-row error for an unparseable value", async () => {
-    const { db, ops, client } = await setup();
-
-    const result = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
-      content: CSV, mapping: MAPPING,
-    });
-
-    expect(result.rowsAccepted).toBe(2);
+    expect(result.rowsAccepted).toBe(1);
     expect(result.rowsFailed).toBe(1);
-    expect(result.errors[0]?.rowNumber).toBe(3);
-  });
-
-  it("rejects an unknown entry type", async () => {
-    const { db, ops, client } = await setup();
-    const content = "Type,Value\nfax,12345\n";
-
-    const result = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "L", type: "custom", content, mapping: MAPPING,
-    });
-
-    expect(result.rowsFailed).toBe(1);
-    expect(result.errors[0]?.message).toMatch(/type/i);
-  });
-
-  it("resolves account type entries and sets accountId on matched accounts", async () => {
-    const { db, ops, manager, client, channel } = await setup();
-
-    // Create an account with a domain
-    const account = await createAccount(db, ops, {
-      name: "Acme Corp",
-      domain: "acme.com",
-    });
-
-    // Import suppression list with account type
-    const content = "Type,Value\naccount,acme.com\n";
-    const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "AccountSuppression", type: "custom",
-      content, mapping: MAPPING,
-    });
-
-    // Verify the entry has the correct accountId
-    const entry = await db.suppressionEntry.findFirstOrThrow({
-      where: { listId, type: "account" },
-    });
-    expect(entry.accountId).toBe(account.id);
-
-    // Attach list to channel and verify isSuppressed matches
-    await attachSuppressionList(db, manager, channel.id, listId);
-    expect(await isSuppressed(db, channel.id, { accountId: account.id })).toBe(true);
+    expect(result.errors[0]?.rowNumber).toBe(2);
+    expect(result.errors[0]?.message).toMatch(/name or domain/i);
   });
 });
 
@@ -124,24 +72,24 @@ describe("isSuppressed", () => {
     await seedFunnelStages(db);
   });
 
-  it("matches a suppressed domain for an attached list", async () => {
+  it("matches a suppressed domain for an attached list, whether given directly or via an email", async () => {
     const { db, ops, manager, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      ownerOrganizationId: client.id, name: "Competitors",
       content: CSV, mapping: MAPPING,
     });
     await attachSuppressionList(db, manager, channel.id, listId);
 
     expect(await isSuppressed(db, channel.id, { domain: "www.competitor.com" })).toBe(true);
     expect(await isSuppressed(db, channel.id, { email: "someone@competitor.com" })).toBe(true);
-    expect(await isSuppressed(db, channel.id, { email: "JANE@blocked.com" })).toBe(true);
+    expect(await isSuppressed(db, channel.id, { email: "someone@blocked.com" })).toBe(true);
     expect(await isSuppressed(db, channel.id, { domain: "allowed.com" })).toBe(false);
   });
 
   it("ignores lists not attached to the campaign", async () => {
     const { db, ops, channel, client } = await setup();
     await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      ownerOrganizationId: client.id, name: "Competitors",
       content: CSV, mapping: MAPPING,
     });
 
@@ -160,7 +108,7 @@ describe("attachSuppressionList", () => {
   it("rejects attachment to a non-draft channel", async () => {
     const { db, ops, manager, client, channel } = await setup();
     const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      ownerOrganizationId: client.id, name: "Competitors",
       content: CSV, mapping: MAPPING,
     });
 
@@ -184,7 +132,7 @@ describe("channel scoping (regression guard)", () => {
       clientOrganizationId: client.id, campaignStatus: "draft", channelStatus: "draft",
     });
     const { listId } = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Competitors", type: "competitor",
+      ownerOrganizationId: client.id, name: "Competitors",
       content: CSV, mapping: MAPPING,
     });
     await attachSuppressionList(db, manager, channel.id, listId);
@@ -196,15 +144,15 @@ describe("channel scoping (regression guard)", () => {
   it("replaces the channel's list rather than accumulating a second one on re-attach", async () => {
     const { db, ops, manager, client, channel } = await setup();
     const first = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "First", type: "competitor", content: CSV, mapping: MAPPING,
+      ownerOrganizationId: client.id, name: "First", content: CSV, mapping: MAPPING,
     });
     await attachSuppressionList(db, manager, channel.id, first.listId);
     const second = await importSuppressionList(db, ops, {
-      ownerOrganizationId: client.id, name: "Second", type: "competitor", content: CSV, mapping: MAPPING,
+      ownerOrganizationId: client.id, name: "Second", content: CSV, mapping: MAPPING,
     });
     await attachSuppressionList(db, manager, channel.id, second.listId);
 
-    const links = await db.channelSuppressionList.findMany({ where: { campaignChannelId: channel.id } });
+    const links = await db.channelList.findMany({ where: { campaignChannelId: channel.id } });
     expect(links).toHaveLength(1);
     expect(links[0]?.listId).toBe(second.listId);
   });

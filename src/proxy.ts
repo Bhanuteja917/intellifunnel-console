@@ -37,8 +37,6 @@ export const config = {
     "/organizations/:path*",
     "/users",
     "/users/:path*",
-    "/resolution-queue",
-    "/resolution-queue/:path*",
     "/verification",
     "/verification/:path*",
     "/assets",

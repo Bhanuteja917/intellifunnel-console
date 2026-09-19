@@ -1,39 +1,9 @@
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-}
-
-model PlatformSetting {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  valueJson   Json
-  updatedById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-enum RateSource {
-  manual
-  feed
-}
-
-model ExchangeRate {
-  id            String     @id @default(cuid())
-  fromCurrency  String     @db.Char(3)
-  toCurrency    String     @db.Char(3)
-  rate          Decimal    @db.Decimal(20, 10)
-  effectiveDate DateTime   @db.Date
-  source        RateSource @default(manual)
-  enteredById   String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  @@unique([fromCurrency, toCurrency, effectiveDate])
-  @@index([fromCurrency, toCurrency, effectiveDate])
 }
 
 enum OrganizationStatus {
@@ -67,26 +37,25 @@ enum InvitationStatus {
 }
 
 model Organization {
-  id                     String             @id @default(cuid())
-  name                   String
-  legalName              String?
-  isClient               Boolean            @default(false)
-  isPartner              Boolean            @default(false)
-  isInternal             Boolean            @default(false)
-  status                 OrganizationStatus @default(active)
-  country                String?
-  defaultBillingCurrency String?            @db.Char(3)
-  defaultPayoutCurrency  String?            @db.Char(3)
-  payoutTrigger          PayoutTrigger      @default(monthlyArrears)
-  personalDataRetentionMonths Int? // null = inherit SETTING_DEFAULTS.personalDataRetentionMonths
-  notes                  String?
-  deletedAt              DateTime?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-  createdById            String?
-  updatedById            String?
+  id                          String             @id @default(cuid())
+  name                        String
+  legalName                   String?
+  isClient                    Boolean            @default(false)
+  isPartner                   Boolean            @default(false)
+  isInternal                  Boolean            @default(false)
+  status                      OrganizationStatus @default(active)
+  country                     String?
+  defaultBillingCurrency      String?            @db.Char(3)
+  defaultPayoutCurrency       String?            @db.Char(3)
+  payoutTrigger               PayoutTrigger      @default(monthlyArrears)
+  personalDataRetentionMonths Int? // null = inherit SETTINGS.personalDataRetentionMonths
+  notes                       String?
+  deletedAt                   DateTime?
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
+  createdById                 String?
+  updatedById                 String?
 
-  domains         OrganizationDomain[]
   users           User[]
   invitations     Invitation[]
   campaigns       Campaign[]
@@ -96,17 +65,6 @@ model Organization {
 
   @@index([isClient])
   @@index([isPartner])
-}
-
-model OrganizationDomain {
-  id             String       @id @default(cuid())
-  organizationId String
-  domain         String       @unique
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id])
-
-  @@index([organizationId])
 }
 
 model User {
@@ -191,19 +149,6 @@ model AuditLog {
   @@index([actorUserId, occurredAt])
 }
 
-model Holiday {
-  id        String   @id @default(cuid())
-  date      DateTime @db.Date
-  name      String
-  country   String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([country, date])
-  @@index([date, isActive])
-}
-
 model AuthUser {
   id            String        @id
   name          String
@@ -283,17 +228,6 @@ model AuthVerification {
   @@map("authVerification")
 }
 
-enum AliasType {
-  name
-  domain
-}
-
-enum DoNotContactType {
-  email
-  domain
-  phone
-}
-
 model Account {
   id               String    @id @default(cuid())
   name             String
@@ -306,38 +240,18 @@ model Account {
   revenueRange     String?
   enrichmentSource String?
   enrichedAt       DateTime?
-  mergedIntoId     String?
   deletedAt        DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   createdById      String?
   updatedById      String?
 
-  parentAccount Account?       @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
-  children      Account[]      @relation("AccountHierarchy")
-  mergedInto    Account?       @relation("AccountMerge", fields: [mergedIntoId], references: [id])
-  mergeSources  Account[]      @relation("AccountMerge")
-  aliases       AccountAlias[]
+  parentAccount Account?  @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children      Account[] @relation("AccountHierarchy")
   contacts      Contact[]
   leads         Lead[]
 
   @@index([normalizedName, country])
-  @@index([mergedIntoId])
-}
-
-model AccountAlias {
-  id        String    @id @default(cuid())
-  accountId String
-  value     String    @unique
-  type      AliasType
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  createdById String?
-  updatedById String?
-
-  account Account @relation(fields: [accountId], references: [id])
-
-  @@index([accountId])
 }
 
 model Contact {
@@ -363,41 +277,6 @@ model Contact {
   leads   Lead[]
 
   @@index([accountId])
-}
-
-/// FR-CP-5: scoped to a client organisation. Enforcement lands in phase 5.
-model DoNotContact {
-  id                   String           @id @default(cuid())
-  type                 DoNotContactType
-  value                String
-  valueHash            String
-  clientOrganizationId String
-  reason               String?
-  addedAt              DateTime         @default(now())
-  expiresAt            DateTime?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  createdById          String?
-  updatedById          String?
-
-  @@unique([clientOrganizationId, type, value])
-  @@index([clientOrganizationId, type, valueHash])
-}
-
-model AccountMerge {
-  id              String    @id @default(cuid())
-  sourceAccountId String
-  targetAccountId String
-  movedJson       Json
-  mergedById      String
-  mergedAt        DateTime  @default(now())
-  reversedAt      DateTime?
-  reversedById    String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([sourceAccountId])
-  @@index([targetAccountId])
 }
 
 enum MetricMode {
@@ -431,12 +310,12 @@ enum RejectReasonCategory {
 }
 
 model FunnelStage {
-  id        String        @id @default(cuid())
-  code      String        @unique
+  id        String   @id @default(cuid())
+  code      String   @unique
   name      String
   sortOrder Int
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   channelTypes ChannelType[]
 }
@@ -479,7 +358,7 @@ model ChannelTypeVersion {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  channelType      ChannelType        @relation(fields: [channelTypeId], references: [id])
+  channelType      ChannelType       @relation(fields: [channelTypeId], references: [id])
   campaignChannels CampaignChannel[]
 
   @@unique([channelTypeId, version])
@@ -493,9 +372,9 @@ model QualificationForm {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  questions         QualificationQuestion[]
-  channelTypes      ChannelType[]
-  campaignChannels  CampaignChannel[]
+  questions        QualificationQuestion[]
+  channelTypes     ChannelType[]
+  campaignChannels CampaignChannel[]
 }
 
 model QualificationQuestion {
@@ -612,9 +491,9 @@ model Campaign {
   createdById          String?
   updatedById          String?
 
-  clientOrganization Organization          @relation(fields: [clientOrganizationId], references: [id])
-  clonedFrom         Campaign?             @relation("CampaignClone", fields: [clonedFromCampaignId], references: [id])
-  clones             Campaign[]            @relation("CampaignClone")
+  clientOrganization Organization            @relation(fields: [clientOrganizationId], references: [id])
+  clonedFrom         Campaign?               @relation("CampaignClone", fields: [clonedFromCampaignId], references: [id])
+  clones             Campaign[]              @relation("CampaignClone")
   channels           CampaignChannel[]
   statusHistory      CampaignStatusHistory[]
 
@@ -623,14 +502,14 @@ model Campaign {
 }
 
 model IcpCriterion {
-  id                String              @id @default(cuid())
+  id                String       @id @default(cuid())
   campaignChannelId String
   dimension         IcpDimension
   operator          IcpOperator
   valuesJson        Json
-  isMandatory       Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  isMandatory       Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
   createdById       String?
   updatedById       String?
 
@@ -681,9 +560,9 @@ model CampaignChannel {
   createdById               String?
   updatedById               String?
 
-  campaign           Campaign           @relation(fields: [campaignId], references: [id])
-  channelTypeVersion ChannelTypeVersion @relation(fields: [channelTypeVersionId], references: [id])
-  qualificationForm  QualificationForm? @relation(fields: [qualificationFormId], references: [id])
+  campaign           Campaign               @relation(fields: [campaignId], references: [id])
+  channelTypeVersion ChannelTypeVersion     @relation(fields: [channelTypeVersionId], references: [id])
+  qualificationForm  QualificationForm?     @relation(fields: [qualificationFormId], references: [id])
   icpCriteria        IcpCriterion[]
   leadFieldSpecs     LeadFieldSpec[]
   channelApprovals   ChannelApproval[]
@@ -696,27 +575,26 @@ model CampaignChannel {
   termsApprovals     ChannelTermsApproval[]
   pacingBuckets      ChannelPacingBucket[]
   setupSteps         ChannelSetupStep[]
-  targetAccountLists ChannelTargetAccountList[]
-  suppressionLists   ChannelSuppressionList[]
+  lists              ChannelList[]
 
   @@index([campaignId])
 }
 
 model PartnerAllocation {
-  id                    String            @id @default(cuid())
+  id                    String           @id @default(cuid())
   campaignChannelId     String
   partnerOrganizationId String
   allocatedQuantity     Int
   payoutRateMinor       BigInt
-  payoutCurrency        String            @db.Char(3)
-  startDate             DateTime          @db.Date
-  endDate               DateTime          @db.Date
-  status                AllocationStatus  @default(draft)
-  revealClientIdentity  Boolean           @default(false)
-  reservedCount         Int               @default(0)
-  deliveredCount        Int               @default(0)
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  payoutCurrency        String           @db.Char(3)
+  startDate             DateTime         @db.Date
+  endDate               DateTime         @db.Date
+  status                AllocationStatus @default(draft)
+  revealClientIdentity  Boolean          @default(false)
+  reservedCount         Int              @default(0)
+  deliveredCount        Int              @default(0)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
   createdById           String?
   updatedById           String?
 
@@ -760,7 +638,6 @@ model ChannelApproval {
  * Append-only. The latest row by decidedAt is the current decision; a client
  * changing their mind writes another row rather than mutating one, so the
  * table doubles as the decision history the terms tab renders.
- *
  * termsSnapshotJson freezes what was decided on. Channel terms are editable
  * while the campaign is a draft, so an approval that predates an edit must
  * stop reading as approved — that comparison is what makes the derived status
@@ -784,7 +661,9 @@ model ChannelTermsApproval {
   @@index([campaignChannelId, decidedAt])
 }
 
-/** The client's sign-off on a placement's live landing page URL. */
+/**
+ * The client's sign-off on a placement's live landing page URL.
+ */
 model PlacementApproval {
   id                    String           @id @default(cuid())
   assetPlacementId      String
@@ -804,12 +683,12 @@ model PlacementApproval {
 }
 
 model CampaignStatusHistory {
-  id              String         @id @default(cuid())
+  id              String          @id @default(cuid())
   campaignId      String
   fromStatus      CampaignStatus?
   toStatus        CampaignStatus
   changedByUserId String?
-  changedAt       DateTime       @default(now())
+  changedAt       DateTime        @default(now())
   reason          String?
 
   campaign Campaign @relation(fields: [campaignId], references: [id])
@@ -866,117 +745,47 @@ model ImportError {
   @@index([batchId, rowNumber])
 }
 
-enum MatchStatus {
-  matched
-  unmatched
-  ambiguous
+enum ListType {
+  targetAccounts
+  suppression
 }
 
-model TargetAccountList {
+model List {
   id                  String   @id @default(cuid())
   ownerOrganizationId String
   name                String
   isReusable          Boolean  @default(true)
+  type                ListType
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   createdById         String?
   updatedById         String?
 
-  entries  TargetAccountEntry[]
-  channels ChannelTargetAccountList[]
+  entries  ListEntry[]
+  channels ChannelList[]
 
   @@index([ownerOrganizationId])
 }
 
-model TargetAccountEntry {
-  id                         String      @id @default(cuid())
+model ListEntry {
+  id                         String   @id @default(cuid())
   listId                     String
-  rawName                    String?
-  rawDomain                  String?
-  normalizedDomain           String?
-  accountId                  String?
-  matchStatus                MatchStatus @default(unmatched)
-  candidateAccountIdsJson    Json?
+  accountName                String?
+  accountRawDomain           String?
+  accountNormalizedDomain    String?
   maxLeadsPerAccountOverride Int?
-  createdAt                  DateTime    @default(now())
-  updatedAt                  DateTime    @updatedAt
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
   createdById                String?
   updatedById                String?
 
-  list TargetAccountList @relation(fields: [listId], references: [id])
+  list List @relation(fields: [listId], references: [id])
 
-  @@index([listId, matchStatus])
-  @@index([accountId])
+  @@index([listId])
+  @@index([accountNormalizedDomain])
 }
 
-model ChannelTargetAccountList {
-  id                String   @id @default(cuid())
-  campaignChannelId String
-  listId            String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  createdById       String?
-  updatedById       String?
-
-  campaignChannel CampaignChannel   @relation(fields: [campaignChannelId], references: [id])
-  list            TargetAccountList @relation(fields: [listId], references: [id])
-
-  @@unique([campaignChannelId, listId])
-  @@index([campaignChannelId])
-}
-
-enum SuppressionListType {
-  client
-  competitor
-  existingCustomer
-  prior
-  custom
-}
-
-enum SuppressionEntryType {
-  account
-  domain
-  email
-  contact
-}
-
-model SuppressionList {
-  id                  String              @id @default(cuid())
-  ownerOrganizationId String
-  name                String
-  isReusable          Boolean             @default(true)
-  type                SuppressionListType @default(custom)
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  createdById         String?
-  updatedById         String?
-
-  entries  SuppressionEntry[]
-  channels ChannelSuppressionList[]
-
-  @@index([ownerOrganizationId])
-}
-
-model SuppressionEntry {
-  id          String               @id @default(cuid())
-  listId      String
-  type        SuppressionEntryType
-  value       String
-  valueHash   String
-  accountId   String?
-  contactId   String?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
-  createdById String?
-  updatedById String?
-
-  list SuppressionList @relation(fields: [listId], references: [id])
-
-  @@unique([listId, type, value])
-  @@index([listId, type, valueHash])
-}
-
-model ChannelSuppressionList {
+model ChannelList {
   id                String   @id @default(cuid())
   campaignChannelId String
   listId            String
@@ -986,7 +795,7 @@ model ChannelSuppressionList {
   updatedById       String?
 
   campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
-  list            SuppressionList @relation(fields: [listId], references: [id])
+  list            List            @relation(fields: [listId], references: [id])
 
   @@unique([campaignChannelId, listId])
   @@index([campaignChannelId])
@@ -1268,7 +1077,7 @@ model Asset {
   createdById         String?
   updatedById         String?
 
-  ownerOrganization Organization      @relation(fields: [ownerOrganizationId], references: [id])
+  ownerOrganization Organization     @relation(fields: [ownerOrganizationId], references: [id])
   versions          AssetVersion[]
   placements        AssetPlacement[]
 
@@ -1349,17 +1158,17 @@ model EngagementEvent {
 }
 
 model ChannelPacingBucket {
-  id                String          @id @default(cuid())
+  id                String   @id @default(cuid())
   campaignChannelId String
-  periodStart       DateTime        @db.Date
-  periodEnd         DateTime        @db.Date
+  periodStart       DateTime @db.Date
+  periodEnd         DateTime @db.Date
   targetQuantity    Int
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
   createdById       String?
   updatedById       String?
 
-  campaignChannel   CampaignChannel @relation(fields: [campaignChannelId], references: [id])
+  campaignChannel CampaignChannel @relation(fields: [campaignChannelId], references: [id])
 
   @@index([campaignChannelId])
 }

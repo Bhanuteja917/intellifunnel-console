@@ -152,8 +152,7 @@ export async function deleteCampaignChannel(
       await tx.leadFieldSpec.deleteMany({ where: { campaignChannelId } });
       await tx.channelPacingBucket.deleteMany({ where: { campaignChannelId } });
       await tx.channelSetupStep.deleteMany({ where: { campaignChannelId } });
-      await tx.channelTargetAccountList.deleteMany({ where: { campaignChannelId } });
-      await tx.channelSuppressionList.deleteMany({ where: { campaignChannelId } });
+      await tx.channelList.deleteMany({ where: { campaignChannelId } });
 
       await tx.campaignChannel.delete({ where: { id: campaignChannelId } });
     },

@@ -373,7 +373,7 @@ export async function getClientCampaignDetail(
   });
   if (campaign === null) throw new NotFoundError("Campaign not found");
 
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const now = new Date();
   const channels: ClientCampaignChannel[] = [];
 

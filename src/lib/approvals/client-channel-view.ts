@@ -141,14 +141,14 @@ export async function getClientChannelDetail(
   }));
 
   const [talLink, suppressionLink, talStep, suppressionStep] = await Promise.all([
-    db.channelTargetAccountList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
-    db.channelSuppressionList.findFirst({ where: { campaignChannelId: channel.id }, select: { listId: true } }),
+    db.channelList.findFirst({ where: { campaignChannelId: channel.id, list: { type: "targetAccounts" } }, select: { listId: true } }),
+    db.channelList.findFirst({ where: { campaignChannelId: channel.id, list: { type: "suppression" } }, select: { listId: true } }),
     db.channelSetupStep.findFirst({ where: { campaignChannelId: channel.id, stepKey: "targetAccountList" }, select: { id: true } }),
     db.channelSetupStep.findFirst({ where: { campaignChannelId: channel.id, stepKey: "suppressionList" }, select: { id: true } }),
   ]);
   const [targetAccountCount, suppressionCount] = await Promise.all([
-    talLink === null ? Promise.resolve(0) : db.targetAccountEntry.count({ where: { listId: talLink.listId } }),
-    suppressionLink === null ? Promise.resolve(0) : db.suppressionEntry.count({ where: { listId: suppressionLink.listId } }),
+    talLink === null ? Promise.resolve(0) : db.listEntry.count({ where: { listId: talLink.listId } }),
+    suppressionLink === null ? Promise.resolve(0) : db.listEntry.count({ where: { listId: suppressionLink.listId } }),
   ]);
 
   const pacingBuckets = await db.channelPacingBucket.findMany({
@@ -156,7 +156,7 @@ export async function getClientChannelDetail(
     orderBy: { periodStart: "asc" },
     select: { periodStart: true, periodEnd: true, targetQuantity: true },
   });
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const now = new Date();
   const expected =
     pacingBuckets.length > 0

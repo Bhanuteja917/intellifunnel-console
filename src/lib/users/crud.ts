@@ -70,10 +70,28 @@ export async function deleteUser(db: PrismaClient, actor: Actor, userId: string)
     db,
     actor,
     { entityType: "User", entityId: userId, action: "delete" },
-    async (tx) =>
-      tx.user.update({
+    async (tx) => {
+      // Mangle the email so it frees up for re-invitation: the row stays
+      // (deletedAt) for audit history, but its @unique email would otherwise
+      // permanently block inviting that address again.
+      const deleted = await tx.user.update({
         where: { id: userId },
-        data: { deletedAt: new Date(), updatedById: actor.userId },
-      }),
+        data: {
+          deletedAt: new Date(),
+          updatedById: actor.userId,
+          email: `deleted+${Date.now()}+${user.email}`,
+          authUserId: null,
+        },
+      });
+
+      // Kill the Better Auth credential (and, by cascade, its sessions and
+      // linked accounts) so the deleted user can neither log in nor block a
+      // re-invitation's AuthUser.email @unique constraint.
+      if (user.authUserId !== null) {
+        await tx.authUser.delete({ where: { id: user.authUserId } });
+      }
+
+      return deleted;
+    },
   );
 }

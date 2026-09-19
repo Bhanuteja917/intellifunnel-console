@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { normalizeEmail } from "@/lib/normalise/email";
 import { normalizeCompanyName } from "@/lib/normalise/name";
@@ -88,7 +87,6 @@ describe("decideLeadVerification — assignee check", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb());
   });
 
   it("allows deciding an unassigned lead", async () => {

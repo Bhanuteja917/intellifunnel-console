@@ -8,3 +8,5 @@ coverage/
 .data/
 DEMO_ACCOUNTS.md
 .worktrees/
+
+.DS_Store

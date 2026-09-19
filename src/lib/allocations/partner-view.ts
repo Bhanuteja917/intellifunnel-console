@@ -40,7 +40,7 @@ export async function getAllocationsForPartner(
   actor: Actor,
 ): Promise<PartnerAllocationView[]> {
   assertPermission(actor, "allocation:read");
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const rows = await db.partnerAllocation.findMany({
     where: { partnerOrganizationId: actor.organizationId, status: "active" },
     select: {

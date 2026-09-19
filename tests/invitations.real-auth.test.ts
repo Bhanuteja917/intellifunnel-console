@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { acceptInvitation, createInvitation } from "@/lib/invitations/invitations";
@@ -33,7 +32,6 @@ describe("acceptInvitation against the real Better Auth instance", () => {
   beforeEach(async () => {
     await resetDb();
     await seedRoles(testDb());
-    await seedSettings(testDb());
   });
 
   it("confirms disableSignUp still blocks the public signUpEmail endpoint (AUTH-1 sanity check)", async () => {

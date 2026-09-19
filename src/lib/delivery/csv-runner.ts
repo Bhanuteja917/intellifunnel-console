@@ -20,7 +20,7 @@ export async function generateDueCsvRuns(
   now: Date,
   storage: StorageAdapter,
 ): Promise<number> {
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const configs = await db.deliveryConfig.findMany({ where: { method: "csv", status: "active" } });
 
   let generated = 0;

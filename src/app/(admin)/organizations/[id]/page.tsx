@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Settings } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireActor } from "@/lib/auth/require";
 import { assertOrganizationAccess, assertPermission, hasPermission } from "@/lib/auth/permissions";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -15,7 +18,6 @@ import {
 import { EditUserDialog } from "../edit-user-dialog";
 import { InvitationRowActions } from "../invitation-row-actions";
 import { InviteUserDialog } from "../invite-user-dialog";
-import { OrganizationRowActions } from "../organization-row-actions";
 import { UserRowActions } from "../user-row-actions";
 
 export default async function OrganizationPage({ params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +31,7 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
 
   const canInvite = hasPermission(actor, "user:invite");
   const canManageUsers = hasPermission(actor, "user:manageRoles");
-  const canArchive = hasPermission(actor, "organization:write");
+  const canEdit = hasPermission(actor, "organization:write");
 
   const [users, pendingInvitations, adminCount, roles] = await Promise.all([
     db.user.findMany({
@@ -70,8 +72,12 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         {organization.isPartner && <Badge variant="outline">partner</Badge>}
         {organization.isInternal && <Badge variant="outline">internal</Badge>}
         <Badge>{organization.status}</Badge>
-        {canArchive && (
-          <OrganizationRowActions organizationId={organization.id} status={organization.status} />
+        {canEdit && (
+          <Button variant="ghost" size="icon-sm" className="ml-auto" asChild>
+            <Link href={`/organizations/${organization.id}/edit`} aria-label="Edit organisation">
+              <Settings className="size-4" />
+            </Link>
+          </Button>
         )}
       </div>
 
@@ -134,7 +140,11 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
                   )}
                   {canManageUsers && (
                     <TableCell>
-                      <UserRowActions userId={user.id} canDelete={user.id !== actor.userId} />
+                      <UserRowActions
+                        userId={user.id}
+                        userName={user.name}
+                        canDelete={user.id !== actor.userId}
+                      />
                     </TableCell>
                   )}
                 </TableRow>

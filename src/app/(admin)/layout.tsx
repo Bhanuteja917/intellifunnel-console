@@ -20,7 +20,6 @@ const ADMIN_NAV = [
   { href: "/campaigns", label: "Campaigns", permission: "campaign:read" },
   { href: "/channel-types", label: "Channel types", permission: "channelType:read" },
   { href: "/organizations", label: "Organisations", permission: "organization:read" },
-  { href: "/resolution-queue", label: "Resolution queue", permission: "account:write" },
   { href: "/verification", label: "Verification", permission: "lead:read" },
   { href: "/assets", label: "Assets", permission: "asset:read" },
   { href: "/consent-texts", label: "Consent texts", permission: "asset:read" },

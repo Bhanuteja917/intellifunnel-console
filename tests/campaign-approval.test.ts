@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
-import { seedSettings } from "../prisma/seed/settings";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedChannelTypes } from "../prisma/seed/channel-types";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { publishChannelTypeVersion } from "@/lib/channel-types/versions";
-import { setSetting } from "@/lib/settings/settings";
 import { addCampaignChannel, createCampaign, setIcpCriteria, setLeadFieldSpec } from "@/lib/campaigns/crud";
 import {
   activateDueChannels,
@@ -285,7 +283,6 @@ describe("scheduled channel transitions", () => {
     await resetDb();
     const db = testDb();
     await seedRoles(db);
-    await seedSettings(db);
     await seedFunnelStages(db);
     await seedChannelTypes(db);
   });
@@ -333,23 +330,5 @@ describe("scheduled channel transitions", () => {
     expect(await completeFinishedChannels(db, new Date("2026-12-31T00:00:01.000Z"))).toBe(0);
     expect(await completeFinishedChannels(db, new Date("2026-12-31T12:00:00.000Z"))).toBe(0);
     expect((await db.campaignChannel.findUniqueOrThrow({ where: { id: channel.id } })).status).toBe("live");
-  });
-
-  it("reads the day boundary from the operatingTimezone setting, not a hardcoded zone", async () => {
-    const { db, manager, clientAdmin, channel } = await scenario("SCHED-4");
-    await submitChannelForApproval(db, manager, channel.id);
-    await decideChannelApproval(db, clientAdmin, channel.id, "approved");
-
-    const adminUser = await createUser(
-      db,
-      (await db.organization.findFirstOrThrow({ where: { isInternal: true } })).id,
-      "SUPER_ADMIN",
-    );
-    const adminActor = await loadActor(db, adminUser.id);
-    await setSetting(db, adminActor, "operatingTimezone", "Pacific/Kiritimati"); // UTC+14
-
-    // 2026-09-30T10:30Z is already 2026-10-01 in UTC+14, so the flight has
-    // started there while it has not in Asia/Kolkata or UTC.
-    expect(await activateDueChannels(db, new Date("2026-09-30T10:30:00.000Z"))).toBe(1);
   });
 });

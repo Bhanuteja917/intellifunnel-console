@@ -181,10 +181,10 @@ export async function decideLeadVerification(
   }
 
   const now = new Date();
-  const sla = await computeVerificationSla(db, {
+  const sla = computeVerificationSla({
     createdAt: lead.createdAt,
     asOf: now,
-    allowedBusinessDays: await resolveAllowedBusinessDays(db, lead.campaignChannel.channelTypeVersion),
+    allowedBusinessDays: resolveAllowedBusinessDays(lead.campaignChannel.channelTypeVersion),
   });
 
   const verificationStatusFrom = lead.verificationStatus;

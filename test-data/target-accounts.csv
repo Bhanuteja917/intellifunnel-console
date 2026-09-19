@@ -1,0 +1,11 @@
+account_name,company,email,industry,employee_count
+Acme Corp,Acme Corporation,contact@acmecorp.com,Technology,500
+TechFlow Inc,TechFlow Inc,sales@techflow.io,Software,250
+Enterprise Solutions,Enterprise Solutions LLC,info@enterprisesol.com,Consulting,1000
+CloudFirst Systems,CloudFirst Systems,hello@cloudfirst.io,Cloud Services,150
+DataDrive Analytics,DataDrive Analytics,team@datadrive.com,Analytics,75
+SecureNet Security,SecureNet Security,contact@securenet.io,Cybersecurity,300
+FinanceCore Systems,FinanceCore Systems,support@financecore.com,Financial Services,450
+LogicBuild Software,LogicBuild Software,sales@logicbuild.io,Software Development,200
+NetworkFlow Solutions,NetworkFlow Solutions,info@networkflow.com,Networking,120
+DigitalGrowth Marketing,DigitalGrowth Marketing,hello@digitalgrowth.io,Marketing,80

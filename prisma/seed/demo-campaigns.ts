@@ -48,8 +48,7 @@ async function resetCampaignData(db: PrismaClient): Promise<void> {
   await db.channelTermsApproval.deleteMany({});
   await db.icpCriterion.deleteMany({});
   await db.leadFieldSpec.deleteMany({});
-  await db.channelTargetAccountList.deleteMany({});
-  await db.channelSuppressionList.deleteMany({});
+  await db.channelList.deleteMany({});
   await db.campaignChannel.deleteMany({});
   await db.campaignStatusHistory.deleteMany({});
   await db.campaign.deleteMany({});

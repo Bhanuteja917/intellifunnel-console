@@ -348,7 +348,7 @@ async function transitionChannels(
 
 /** Scheduled → Live at flight start (channel-level, replaces activateDueCampaigns). */
 export async function activateDueChannels(db: PrismaClient, now: Date): Promise<number> {
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const today = operatingDayStart(now, timeZone);
 
   const due = await db.campaignChannel.findMany({
@@ -360,7 +360,7 @@ export async function activateDueChannels(db: PrismaClient, now: Date): Promise<
 
 /** Live/Paused → Completed once end date passes (channel-level). */
 export async function completeFinishedChannels(db: PrismaClient, now: Date): Promise<number> {
-  const timeZone = await getSetting(db, "operatingTimezone");
+  const timeZone = getSetting("operatingTimezone");
   const today = operatingDayStart(now, timeZone);
 
   const finished = await db.campaignChannel.findMany({

@@ -2,7 +2,6 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { seedRoles } from "./roles";
-import { seedSettings } from "./settings";
 import { seedFunnelStages } from "./funnel-stages";
 import { seedChannelTypes } from "./channel-types";
 import { seedRejectReasons } from "./reject-reasons";
@@ -12,7 +11,6 @@ const db = new PrismaClient({ adapter });
 
 async function main(): Promise<void> {
   await seedRoles(db);
-  await seedSettings(db);
   await seedFunnelStages(db);
   await seedChannelTypes(db);
   await seedRejectReasons(db);

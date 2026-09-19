@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
-import { seedSettings } from "../prisma/seed/settings"; // seeds personalDataRetentionMonths: 12 (SETTING_DEFAULTS)
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { anonymizeExpiredContacts } from "@/lib/compliance/retention";
@@ -55,7 +54,6 @@ describe("anonymizeExpiredContacts", () => {
     await resetDb();
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
-    await seedSettings(testDb()); // personalDataRetentionMonths defaults to 12 — see SETTING_DEFAULTS
   });
 
   it("scrubs a contact whose only lead's retention window has passed", async () => {

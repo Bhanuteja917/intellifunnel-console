@@ -3,7 +3,6 @@ import { resetDb, testDb } from "./helpers/db";
 import { seedRoles } from "../prisma/seed/roles";
 import { seedFunnelStages } from "../prisma/seed/funnel-stages";
 import { seedRejectReasons } from "../prisma/seed/reject-reasons";
-import { seedSettings } from "../prisma/seed/settings";
 import { createOrganization, createUser } from "./helpers/factories";
 import { loadActor } from "@/lib/auth/permissions";
 import { submitLeadFile } from "@/lib/leads/intake";
@@ -48,7 +47,6 @@ describe("consent capture at intake", () => {
     await seedRoles(testDb());
     await seedFunnelStages(testDb());
     await seedRejectReasons(testDb());
-    await seedSettings(testDb());
   });
 
   it("creates a LeadConsent with supplied timestamp/ip/sourceUrl and resolves consentTextVersionId via formSlug", async () => {

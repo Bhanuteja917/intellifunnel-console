@@ -201,8 +201,8 @@ describe("deleteCampaignChannel", () => {
     const db = testDb();
     const fx = await createChannelFixture(db);
 
-    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { rawName: "Acme" });
-    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { type: "domain", value: "competitor.com" });
+    await addTargetAccountEntry(db, fx.adminActor, fx.channelId, { accountName: "Acme" });
+    await addSuppressionEntry(db, fx.adminActor, fx.channelId, { accountRawDomain: "competitor.com" });
 
     await expect(deleteCampaignChannel(db, fx.adminActor, fx.channelId)).resolves.toBeUndefined();
 

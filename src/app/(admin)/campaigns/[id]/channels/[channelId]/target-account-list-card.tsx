@@ -22,7 +22,7 @@ import {
   uploadTargetAccountListAction,
 } from "./actions";
 
-type Entry = { id: string; rawName: string | null; rawDomain: string | null; matchStatus: string };
+type Entry = { id: string; accountName: string | null; accountRawDomain: string | null };
 
 type Props = {
   campaignId: string;
@@ -36,9 +36,8 @@ type Props = {
 
 const UNMAPPED = "__unmapped__";
 const CANONICAL_KEYS = [
-  { key: "rawName", label: "Name" },
-  { key: "rawDomain", label: "Domain" },
-  { key: "country", label: "Country" },
+  { key: "accountName", label: "Name" },
+  { key: "accountRawDomain", label: "Domain" },
   { key: "maxLeadsPerAccountOverride", label: "Max leads override" },
 ];
 
@@ -100,8 +99,8 @@ export function TargetAccountListCard({ campaignId, channelId, listName, rowCoun
     run(
       () =>
         addTargetAccountEntryAction(campaignId, channelId, {
-          rawName: manualName.trim() === "" ? undefined : manualName.trim(),
-          rawDomain: manualDomain.trim() === "" ? undefined : manualDomain.trim(),
+          accountName: manualName.trim() === "" ? undefined : manualName.trim(),
+          accountRawDomain: manualDomain.trim() === "" ? undefined : manualDomain.trim(),
           maxLeadsPerAccountOverride: manualCap.trim() === "" ? undefined : Number.parseInt(manualCap, 10),
         }),
       "Account added",
@@ -204,16 +203,14 @@ export function TargetAccountListCard({ campaignId, channelId, listName, rowCoun
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Domain</TableHead>
-                <TableHead>Match</TableHead>
                 {editable && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {entries.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell>{entry.rawName ?? "—"}</TableCell>
-                  <TableCell>{entry.rawDomain ?? "—"}</TableCell>
-                  <TableCell>{entry.matchStatus}</TableCell>
+                  <TableCell>{entry.accountName ?? "—"}</TableCell>
+                  <TableCell>{entry.accountRawDomain ?? "—"}</TableCell>
                   {editable && (
                     <TableCell>
                       <Button

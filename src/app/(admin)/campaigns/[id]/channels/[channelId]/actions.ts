@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { CampaignChannelStatus, ChannelSetupRequirement, ChannelSetupStepKey, SuppressionListType } from "@prisma/client";
+import type { CampaignChannelStatus, ChannelSetupRequirement, ChannelSetupStepKey } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireActor, toActionResult, type ActionResult } from "@/lib/auth/require";
 import { deleteCampaignChannel, setChannelStatus, updateCampaignChannel } from "@/lib/campaigns/channels";
@@ -198,7 +198,7 @@ export async function detachTargetAccountListAction(
 export async function uploadSuppressionListAction(
   campaignId: string,
   channelId: string,
-  input: { name: string; type: SuppressionListType; content: string; mapping: Record<string, string> },
+  input: { name: string; content: string; mapping: Record<string, string> },
 ): Promise<ActionResult<{ listId: string; rowsAccepted: number; rowsTotal: number }>> {
   return toActionResult(async () => {
     const actor = await requireActor();

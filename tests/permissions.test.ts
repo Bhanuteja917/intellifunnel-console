@@ -46,9 +46,9 @@ describe("permission matrix", () => {
   });
 
   it("unions permissions across multiple roles", () => {
-    const actor = actorOf(["FINANCE", "CAMPAIGN_MANAGER"]);
-    expect(hasPermission(actor, "exchangeRate:write")).toBe(true);
-    expect(hasPermission(actor, "campaign:write")).toBe(true);
+    const actor = actorOf(["QUALITY", "ACCOUNT_MANAGER"]);
+    expect(hasPermission(actor, "lead:write")).toBe(true);
+    expect(hasPermission(actor, "list:read")).toBe(true);
   });
 
   it("gives Operations both delivery permissions, Campaign Manager only delivery:read", () => {
